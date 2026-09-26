@@ -1,0 +1,284 @@
+[
+  {
+    "id": "CTRL-MFA-01",
+    "name": "Privileged Access Multi-Factor Authentication (FIDO2 / Hardware Token)",
+    "category": "Identity & Access Management",
+    "capex": 1500000.0,
+    "annual_cost": 450000.0,
+    "effectiveness_dist": {
+      "alpha": 9.0,
+      "beta": 1.5,
+      "mean": 0.85
+    },
+    "mitigates": [
+      "credential_compromise",
+      "ransomware",
+      "insider_misuse"
+    ],
+    "frameworks": {
+      "iso": "A.9.4.2 Secure log-on procedures",
+      "nist": "PR.AC-7: Users, devices, and other assets are authenticated",
+      "cis": "CIS 6.3: Require MFA for Externally-Exposed Applications",
+      "rbi": "RBI CSF Sec 3.2: Multi-Factor Authentication for Privileged Access",
+      "sebi": "SEBI CSCRF Access Control: Mandated MFA for all critical IT infrastructure"
+    }
+  },
+  {
+    "id": "CTRL-EDR-01",
+    "name": "Next-Gen Endpoint Detection & Response (EDR) + Managed SOC (Wazuh/MDR)",
+    "category": "Endpoint Security",
+    "capex": 2500000.0,
+    "annual_cost": 1200000.0,
+    "effectiveness_dist": {
+      "alpha": 8.5,
+      "beta": 2.0,
+      "mean": 0.8
+    },
+    "mitigates": [
+      "ransomware",
+      "credential_compromise",
+      "webapp_compromise"
+    ],
+    "frameworks": {
+      "iso": "A.12.2.1 Controls against malware",
+      "nist": "DE.CM-4: Malicious code is detected",
+      "cis": "CIS 10.1: Deploy and Maintain an Anti-Malware Software",
+      "rbi": "RBI CSF Sec 4.1: Continuous Endpoint Monitoring and EDR",
+      "sebi": "SEBI CSCRF Detect: Continuous monitoring and 6-hour incident triage telemetry"
+    }
+  },
+  {
+    "id": "CTRL-PATCH-01",
+    "name": "Automated Vulnerability Management & Patch Deployment Pipeline (SLA: 7 days for KEV)",
+    "category": "Vulnerability Management",
+    "capex": 1800000.0,
+    "annual_cost": 600000.0,
+    "effectiveness_dist": {
+      "alpha": 8.0,
+      "beta": 2.0,
+      "mean": 0.78
+    },
+    "mitigates": [
+      "ransomware",
+      "webapp_compromise",
+      "data_breach"
+    ],
+    "frameworks": {
+      "iso": "A.12.6.1 Management of technical vulnerabilities",
+      "nist": "PR.IP-12: A vulnerability management plan is developed and implemented",
+      "cis": "CIS 7.4: Perform Automated Vulnerability Scans",
+      "rbi": "RBI CSF Sec 2.3: Periodic VAPT and Timely Patch Application",
+      "sebi": "SEBI CSCRF Protect: Strict patching cadence for internet-facing systems"
+    }
+  },
+  {
+    "id": "CTRL-ENC-01",
+    "name": "Database Transparent Data Encryption (TDE) & Key Management (HSM)",
+    "category": "Data Protection",
+    "capex": 3200000.0,
+    "annual_cost": 750000.0,
+    "effectiveness_dist": {
+      "alpha": 9.2,
+      "beta": 1.2,
+      "mean": 0.88
+    },
+    "mitigates": [
+      "data_breach",
+      "insider_misuse"
+    ],
+    "frameworks": {
+      "iso": "A.10.1.1 Policy on the use of cryptographic controls",
+      "nist": "PR.DS-1: Data-at-rest is protected",
+      "cis": "CIS 3.11: Encrypt Sensitive Data at Rest",
+      "rbi": "RBI CSF Sec 6.1: Protection of Customer Sensitive Financial Data",
+      "sebi": "SEBI CSCRF Protect: Mandatory encryption for sensitive personal and financial data"
+    }
+  },
+  {
+    "id": "CTRL-WAF-01",
+    "name": "Cloud-Native Web Application & API Protection (WAAP / WAF + DDoS Mitigation)",
+    "category": "Network Security",
+    "capex": 2000000.0,
+    "annual_cost": 950000.0,
+    "effectiveness_dist": {
+      "alpha": 8.2,
+      "beta": 2.2,
+      "mean": 0.76
+    },
+    "mitigates": [
+      "webapp_compromise",
+      "ddos_outage"
+    ],
+    "frameworks": {
+      "iso": "A.13.1.1 Network controls",
+      "nist": "PR.PT-4: Communications and control networks are protected",
+      "cis": "CIS 4.8: Deploy Application Firewalls",
+      "rbi": "RBI CSF Sec 5.2: Boundary Defense and WAF for Internet Banking",
+      "sebi": "SEBI CSCRF Protect: Perimeter defense & DDoS mitigation capacity"
+    }
+  },
+  {
+    "id": "CTRL-SEG-01",
+    "name": "Zero Trust Micro-Segmentation (Payment Core & DB Isolation)",
+    "category": "Network Security",
+    "capex": 2800000.0,
+    "annual_cost": 500000.0,
+    "effectiveness_dist": {
+      "alpha": 8.8,
+      "beta": 1.8,
+      "mean": 0.82
+    },
+    "mitigates": [
+      "ransomware",
+      "data_breach",
+      "credential_compromise"
+    ],
+    "frameworks": {
+      "iso": "A.13.1.3 Segregation in networks",
+      "nist": "PR.AC-5: Network integrity is protected (e.g., network segmentation)",
+      "cis": "CIS 12.2: Establish and Maintain a Secure Network Architecture",
+      "rbi": "RBI CSF Sec 5.1: Network Segregation of Core Banking and Payment Switches",
+      "sebi": "SEBI CSCRF Protect: Network zoning and critical partition isolation"
+    }
+  },
+  {
+    "id": "CTRL-BKP-01",
+    "name": "Air-Gapped Immutable Backups & Automated Disaster Recovery Sandbox",
+    "category": "Resilience & Recovery",
+    "capex": 2200000.0,
+    "annual_cost": 650000.0,
+    "effectiveness_dist": {
+      "alpha": 9.0,
+      "beta": 1.5,
+      "mean": 0.85
+    },
+    "mitigates": [
+      "ransomware"
+    ],
+    "frameworks": {
+      "iso": "A.12.3.1 Information backup",
+      "nist": "RC.RP-1: Recovery plan is executed during or after an incident",
+      "cis": "CIS 11.2: Perform Automated Backups",
+      "rbi": "RBI CSF Sec 7.2: Immutable Backups and Regular Restoration Drills",
+      "sebi": "SEBI CSCRF Recover: 4-hour RTO compliance and immutable data vault"
+    }
+  },
+  {
+    "id": "CTRL-SIEM-01",
+    "name": "Centralized SIEM + 24/7 Threat Hunting & Automated Playbook Response (SOAR)",
+    "category": "Security Operations",
+    "capex": 3500000.0,
+    "annual_cost": 1800000.0,
+    "effectiveness_dist": {
+      "alpha": 8.6,
+      "beta": 1.8,
+      "mean": 0.81
+    },
+    "mitigates": [
+      "credential_compromise",
+      "ransomware",
+      "data_breach",
+      "webapp_compromise"
+    ],
+    "frameworks": {
+      "iso": "A.12.4.1 Event logging",
+      "nist": "DE.AE-1: A baseline of network operations and expected data flows is provided",
+      "cis": "CIS 8.5: Centralize Audit Logs",
+      "rbi": "RBI CSF Sec 8.1: Security Operations Centre (SOC) 24x7 Operations",
+      "sebi": "SEBI CSCRF Detect: Core telemetry enabling 6-hour SEBI incident reporting"
+    }
+  },
+  {
+    "id": "CTRL-PAM-01",
+    "name": "Privileged Access Management (PAM) Vault with Just-in-Time Session Recording",
+    "category": "Identity & Access Management",
+    "capex": 2400000.0,
+    "annual_cost": 700000.0,
+    "effectiveness_dist": {
+      "alpha": 8.7,
+      "beta": 1.7,
+      "mean": 0.83
+    },
+    "mitigates": [
+      "credential_compromise",
+      "insider_misuse"
+    ],
+    "frameworks": {
+      "iso": "A.9.2.3 Management of privileged access rights",
+      "nist": "PR.AC-4: Access permissions and authorizations are managed",
+      "cis": "CIS 5.4: Restrict Administrator Privileges to Dedicated Admin Accounts",
+      "rbi": "RBI CSF Sec 3.1: Strict Control over Elevated Privileges and System Accounts",
+      "sebi": "SEBI CSCRF Access Control: Monitored & recorded privileged administrative sessions"
+    }
+  },
+  {
+    "id": "CTRL-DLP-01",
+    "name": "Enterprise Data Loss Prevention (DLP) across Endpoint, Network & Cloud Mail",
+    "category": "Data Protection",
+    "capex": 1900000.0,
+    "annual_cost": 550000.0,
+    "effectiveness_dist": {
+      "alpha": 8.0,
+      "beta": 2.5,
+      "mean": 0.74
+    },
+    "mitigates": [
+      "data_breach",
+      "insider_misuse"
+    ],
+    "frameworks": {
+      "iso": "A.8.2.3 Handling of assets",
+      "nist": "PR.DS-5: Protections against data leaks are implemented",
+      "cis": "CIS 3.13: Deploy a Data Loss Prevention Solution",
+      "rbi": "RBI CSF Sec 6.3: Data Leak Prevention and Protection against Exfiltration",
+      "sebi": "SEBI CSCRF Protect: Safeguards under DPDP Act 2025 for customer PII"
+    }
+  },
+  {
+    "id": "CTRL-API-01",
+    "name": "API Security Gateway with Machine Learning Behavioral Anomaly Detection",
+    "category": "Application Security",
+    "capex": 1600000.0,
+    "annual_cost": 500000.0,
+    "effectiveness_dist": {
+      "alpha": 8.1,
+      "beta": 2.3,
+      "mean": 0.76
+    },
+    "mitigates": [
+      "webapp_compromise",
+      "data_breach"
+    ],
+    "frameworks": {
+      "iso": "A.14.2.5 Secure system engineering principles",
+      "nist": "PR.IP-1: A baseline configuration is created and maintained",
+      "cis": "CIS 16.1: Secure Software Development Life Cycle",
+      "rbi": "RBI CSF Sec 9.1: Application Security and Open Banking API Controls",
+      "sebi": "SEBI CSCRF Protect: API rate-limiting, schema validation, and token inspection"
+    }
+  },
+  {
+    "id": "CTRL-IR-01",
+    "name": "CERT-In Empaneled Incident Response Retainer & Cyber Crisis Simulation Drills",
+    "category": "Incident Response",
+    "capex": 1200000.0,
+    "annual_cost": 600000.0,
+    "effectiveness_dist": {
+      "alpha": 8.4,
+      "beta": 2.0,
+      "mean": 0.79
+    },
+    "mitigates": [
+      "ransomware",
+      "data_breach",
+      "ddos_outage"
+    ],
+    "frameworks": {
+      "iso": "A.16.1.1 Responsibilities and procedures",
+      "nist": "RS.RP-1: Incident response plan is executed during or after an incident",
+      "cis": "CIS 17.1: Designate Personnel to Manage Incidents",
+      "rbi": "RBI CSF Sec 7.1: Incident Management, Forensics, and CERT-In Reporting",
+      "sebi": "SEBI CSCRF Respond: SLA-backed forensic readiness for SEBI 6-hour timeline"
+    }
+  }
+]

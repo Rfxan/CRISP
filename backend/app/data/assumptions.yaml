@@ -1,0 +1,68 @@
+version: 4
+last_updated: "2026-09-20"
+curator: "CRISP Risk Engineering Team"
+description: "Traceable parameters and assumptions ledger for FAIR cyber risk quantification in Indian Rupees (₹)."
+
+loss_parameters:
+  cost_per_record:
+    value: 2850.0
+    currency: "INR"
+    unit: "per compromised record"
+    source: "IBM Cost of a Data Breach Report 2024 / Indian BFSI Sector Cohort"
+    assumption_type: "Empirical / Published Benchmark"
+    uncertainty_distribution: "PERT(1800, 2850, 4500)"
+
+  dpdp_penalty:
+    max_statutory_ceiling: 2500000000.0  # ₹250 Cr
+    breach_notification_ceiling: 2000000000.0  # ₹200 Cr
+    source: "Digital Personal Data Protection Act (DPDP) 2023 & Rules 2025 (PIB 17 Nov 2025)"
+    modeled_penalty_fraction: "PERT(0.01, 0.05, 0.20) of statutory ceiling given major breach"
+    assumption_type: "Statutory Ceiling with Judicial Discretion PERT"
+
+  incident_response_hourly_rate:
+    value: 12500.0
+    currency: "INR"
+    unit: "per specialist hour"
+    source: "CERT-In empaneled auditor benchmark / Indian Tier-1 DFIR"
+    assumption_type: "Market Rate Survey"
+
+  reputational_churn_ltv:
+    retail_banking_customer_ltv: 45000.0
+    churn_rate_post_breach: "PERT(0.015, 0.035, 0.08)"
+    source: "RBI Financial Stability Report 2024 & Banking Churn Studies"
+    assumption_type: "Actuarial Estimate"
+
+threat_event_frequencies:
+  ransomware:
+    distribution: "PERT(0.10, 0.35, 0.90)"
+    description: "Annual frequency of targeted ransomware attack attempt against financial service tier"
+    source: "Sophos State of Ransomware in Financial Services 2024"
+  data_breach:
+    distribution: "PERT(0.15, 0.40, 0.85)"
+    description: "Annual unauthorized data exfiltration attempt on customer PII repos"
+    source: "Verizon DBIR 2024 Financial Services"
+  credential_compromise:
+    distribution: "PERT(0.20, 0.60, 1.20)"
+    description: "Privileged account credential theft / spraying / phishing success attempt"
+    source: "CrowdStrike Global Threat Report 2024"
+  webapp_compromise:
+    distribution: "PERT(0.25, 0.50, 1.10)"
+    description: "Application-level exploitation (OWASP Top 10, API flaws)"
+    source: "Akamai State of the Internet Security 2024"
+  insider_misuse:
+    distribution: "PERT(0.05, 0.15, 0.40)"
+    description: "Malicious or unauthorized high-privilege access by internal employee"
+    source: "Ponemon Cost of Insider Threats"
+  ddos_outage:
+    distribution: "PERT(0.30, 0.70, 1.50)"
+    description: "High-volume L7 / volumetric DDoS impacting online banking"
+    source: "Cloudflare DDoS Threat Report"
+
+control_effectiveness_priors:
+  source: "MITRE Engenuity Center for Threat-Informed Defense (CTID) Mappings Explorer"
+  prior_type: "Beta(alpha, beta) calibrated against NIST 800-53 / ATT&CK mitigations"
+  conservatism_rule: "Best control wins per scenario in ILP to avoid over-crediting independent mitigations"
+
+global_threat_factor:
+  distribution: "LogNormal(mean=0, sigma=0.45)"
+  purpose: "Correlated loss simulation across multiple assets during systemic campaigns"
