@@ -1,6 +1,37 @@
 from typing import Dict, Any, List
 from app.compliance.catalog import ControlCatalog, FRAMEWORKS
 
+# Alias map: common alternative names -> canonical keys in FRAMEWORKS
+FRAMEWORK_ALIASES = {
+    "iso_27001": "iso", "iso27001": "iso", "iso/iec 27001": "iso",
+    "nist_csf": "nist", "nistcsf": "nist",
+    "cis_v8": "cis", "cisv8": "cis", "cis controls": "cis",
+    "rbi_csf": "rbi",
+    "sebi_cscrf": "sebi", "sebicscrf": "sebi",
+    "dpdp_act": "dpdp",
+}
+
+
+def normalize_framework_id(framework_id: str) -> str:
+    """
+    Resolves framework_id to its canonical key via alias lookup.
+    Raises ValueError if the ID is not recognized after normalization.
+    """
+    normalized = framework_id.lower().strip()
+    # Direct match
+    if normalized in FRAMEWORKS:
+        return normalized
+    # Alias match
+    if normalized in FRAMEWORK_ALIASES:
+        return FRAMEWORK_ALIASES[normalized]
+    # No match — raise with valid options
+    valid = sorted(set(list(FRAMEWORKS.keys()) + list(FRAMEWORK_ALIASES.keys())))
+    raise ValueError(
+        f"Unknown framework '{framework_id}'. Valid IDs: {', '.join(sorted(FRAMEWORKS.keys()))}. "
+        f"Also accepted aliases: {', '.join(sorted(FRAMEWORK_ALIASES.keys()))}"
+    )
+
+
 class FrameworkEngine:
     def __init__(self, catalog: ControlCatalog = None):
         self.catalog = catalog or ControlCatalog()
@@ -8,8 +39,11 @@ class FrameworkEngine:
     def evaluate_framework(self, framework_id: str, control_states: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Evaluates organizational compliance and evidence coverage for a target framework.
+        Normalizes framework_id through alias map before lookup.
+        Raises ValueError if framework_id is not recognized.
         """
-        fw_meta = FRAMEWORKS.get(framework_id.lower(), FRAMEWORKS["sebi"])
+        canonical_id = normalize_framework_id(framework_id)
+        fw_meta = FRAMEWORKS[canonical_id]
         state_map = {cs["control_id"]: cs for cs in control_states}
 
         framework_controls = []
@@ -21,7 +55,7 @@ class FrameworkEngine:
 
         for ctrl in self.catalog.get_all_controls():
             c_id = ctrl["id"]
-            fw_mapping = ctrl.get("frameworks", {}).get(framework_id.lower())
+            fw_mapping = ctrl.get("frameworks", {}).get(canonical_id)
             if not fw_mapping:
                 continue
 

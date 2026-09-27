@@ -141,5 +141,112 @@ export const api = {
       throw new Error(err.detail || 'Failed to ingest assets file');
     }
     return res.json();
+  },
+
+  async inspectVendorFile(formData) {
+    const res = await fetch(`${API_BASE}/vendors/inspect`, {
+      method: 'POST',
+      body: formData
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to inspect vendor file');
+    }
+    return res.json();
+  },
+
+  async previewVendorMapping(formData) {
+    const res = await fetch(`${API_BASE}/vendors/preview`, {
+      method: 'POST',
+      body: formData
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to preview vendor mapping');
+    }
+    return res.json();
+  },
+
+  async saveVendorConfig(configData) {
+    const res = await fetch(`${API_BASE}/vendors/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(configData)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to save vendor configuration');
+    }
+    return res.json();
+  },
+
+  async getVendorList() {
+    const res = await fetch(`${API_BASE}/vendors/list`);
+    if (!res.ok) throw new Error('Failed to fetch vendor configurations');
+    return res.json();
+  },
+
+  async ingestVendorScan(vendorSlug, formData) {
+    const res = await fetch(`${API_BASE}/ingest/vendor/${vendorSlug}`, {
+      method: 'POST',
+      body: formData
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Failed to ingest scan for vendor ${vendorSlug}`);
+    }
+    return res.json();
+  },
+
+  async ingestUnifiedScan(formData) {
+    const res = await fetch(`${API_BASE}/ingest/scan`, {
+      method: 'POST',
+      body: formData
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to ingest scan file');
+    }
+    return res.json();
+  },
+
+  async getConnections() {
+    const res = await fetch(`${API_BASE}/connections`);
+    if (!res.ok) throw new Error('Failed to fetch connections');
+    return res.json();
+  },
+
+  async testConnection(category, connectionData) {
+    const res = await fetch(`${API_BASE}/connections/${category}/test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(connectionData)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Test connection request failed');
+    }
+    return res.json();
+  },
+
+  async saveConnection(category, connectionData) {
+    const res = await fetch(`${API_BASE}/connections/${category}/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(connectionData)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Save connection failed');
+    }
+    return res.json();
+  },
+
+  async removeConnection(category) {
+    const res = await fetch(`${API_BASE}/connections/${category}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw new Error('Failed to remove connection');
+    return res.json();
   }
 };

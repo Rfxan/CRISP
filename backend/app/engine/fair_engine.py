@@ -1,18 +1,68 @@
+import json
 import numpy as np
 from typing import Dict, Any, List, Tuple
-from app.core.config import settings
+from app.core.config import settings, DATA_DIR
 from app.core.graph import DependencyGraph
 from app.engine.distributions import sample_pert, sample_poisson, sample_lognormal
+
+# Judgment-based placeholder exploitability priors for findings without CVE IDs (e.g., CSPM / cloud misconfigurations).
+# Calibrated as transparent baseline assumptions consistent with how TEF, RTO, and loss priors are documented as
+# traceable assumptions elsewhere in the CRISP codebase — these are judgment-based priors, not claimed as EPSS-equivalent precision.
+SEVERITY_EXPLOITABILITY_PRIORS = {
+    "Critical": 0.60,
+    "High": 0.40,
+    "Medium": 0.20,
+    "Low": 0.05,
+    "Info": 0.01
+}
 
 class FAIREngine:
     def __init__(self, trials: int = settings.DEFAULT_TRIALS, seed: int = settings.DEFAULT_SEED):
         self.trials = trials
         self.seed = seed
 
+    def _empty_result(self, status: str, message: str, seed: int, org_meta: dict, risk_appetite: float) -> Dict[str, Any]:
+        """Returns a structured empty-state result when there is insufficient data to simulate."""
+        return {
+            "status": status,
+            "message": message,
+            "eal": None,
+            "var95": None,
+            "var99": None,
+            "tail": None,
+            "score": None,
+            "drivers": [],
+            "curve": [],
+            "run_id": None,
+            "ts": None,
+            "seed": seed,
+            "trials": 0,
+            "assumptions_version": settings.ASSUMPTIONS_VERSION,
+            "org": {
+                "name": org_meta.get("name", "Not Configured"),
+                "eal": None,
+                "var95": None,
+                "var99": None,
+                "tail": None,
+                "score": None,
+                "appetite": risk_appetite,
+                "headroom": None,
+                "data_quality": 0.0
+            },
+            "loss_breakdown": {},
+            "scenario_eals": {},
+            "assets": [],
+            "services": [],
+            "choke_points": []
+        }
+
     def run(self, snapshot: Dict[str, Any], params: Dict[str, Any] = None, seed: int = None) -> Dict[str, Any]:
         """
         Pure, deterministic FAIR Monte Carlo simulation.
         run(snapshot, params, seed) -> RiskResult
+
+        Returns a structured NO_DATA or NO_FINDINGS response if the snapshot
+        has no assets or no findings, rather than silently producing ₹0 results.
         """
         active_seed = seed if seed is not None else self.seed
         rng = np.random.default_rng(active_seed)
@@ -24,8 +74,27 @@ class FAIREngine:
         cve_intel = snapshot.get("cve_intel", {})
         control_states = snapshot.get("control_state", [])
         scenarios = snapshot.get("scenarios", [])
-        org_meta = snapshot.get("organization", {})
+        org_meta = snapshot.get("organization") or {}
         risk_appetite = org_meta.get("risk_appetite_var95", settings.DEFAULT_RISK_APPETITE)
+
+        # ── Empty-state guards ───────────────────────────────────────────
+        # Zero risk and no-data-yet are meaningfully different things.
+        # Return a clear structured status instead of running the simulation
+        # on empty data or producing misleading ₹0.00 results.
+        if len(assets) == 0:
+            return self._empty_result(
+                status="NO_DATA",
+                message="No assets have been ingested yet. Upload an asset inventory to begin risk analysis.",
+                seed=active_seed, org_meta=org_meta, risk_appetite=risk_appetite
+            )
+
+        if len(findings) == 0:
+            return self._empty_result(
+                status="NO_FINDINGS",
+                message="Assets are loaded, but no vulnerability findings have been ingested yet. Upload a scan report to compute risk.",
+                seed=active_seed, org_meta=org_meta, risk_appetite=risk_appetite
+            )
+        # ─────────────────────────────────────────────────────────────────
 
         # Build Dependency Graph
         dep_graph = DependencyGraph(services, assets)
@@ -48,12 +117,19 @@ class FAIREngine:
         # Precompute Base Likelihood & Loss for each asset-scenario pair
         # We accumulate trial loss vectors
         total_trial_losses = np.zeros(num_trials, dtype=np.float64)
-        asset_trial_losses: Dict[str, np.ndarray] = {a["id"]: np.zeros(num_trials, dtype=np.float64) for a in assets}
-        service_trial_losses: Dict[str, np.ndarray] = {s["id"]: np.zeros(num_trials, dtype=np.float64) for s in services}
+        asset_trial_losses: Dict[str, np.ndarray] = {(a.get("id") or a.get("asset_id")): np.zeros(num_trials, dtype=np.float64) for a in assets}
+        service_trial_losses: Dict[str, np.ndarray] = {(s.get("id") or s.get("service_id")): np.zeros(num_trials, dtype=np.float64) for s in services}
         scenario_trial_losses: Dict[str, np.ndarray] = {sc["id"]: np.zeros(num_trials, dtype=np.float64) for sc in scenarios}
 
         # Controls catalog from snapshot or default
-        controls_catalog = snapshot.get("controls_catalog") or []
+        controls_catalog = snapshot.get("controls_catalog")
+        if not controls_catalog:
+            cat_path = DATA_DIR / "controls_catalog.json"
+            if cat_path.exists():
+                with open(cat_path, "r", encoding="utf-8") as f:
+                    controls_catalog = json.load(f)
+            else:
+                controls_catalog = []
 
         # Loss breakdown across categories
         breakdown_totals = {
@@ -105,16 +181,22 @@ class FAIREngine:
                     # Baseline background exploitability
                     p_vuln_base = 0.02 if not is_pub else 0.08
                 else:
-                    # Exploitability aggregated from EPSS & KEV
                     p_unexploited = 1.0
                     for f in f_list:
-                        cve = f["cve_id"]
-                        intel = cve_intel.get(cve, {})
-                        epss_30 = float(intel.get("epss", 0.2))
+                        cve = f.get("cve_id")
+                        if cve:
+                            intel = cve_intel.get(cve, {})
+                            epss_30 = float(intel.get("epss", 0.2))
+                            in_kev = intel.get("in_kev", False)
+                        else:
+                            sev = f.get("severity", "Medium")
+                            epss_30 = SEVERITY_EXPLOITABILITY_PRIORS.get(sev, 0.20)
+                            in_kev = False
+
                         # Annualize EPSS
                         p_ann = 1.0 - (1.0 - epss_30) ** 12
                         p_ann = np.clip(p_ann, 0.05, 0.99)
-                        if intel.get("in_kev", False):
+                        if in_kev:
                             p_ann = max(p_ann, 0.85)
                         if is_pub:
                             p_ann = min(0.999, p_ann * 1.3)
@@ -132,7 +214,7 @@ class FAIREngine:
                 effective_hourly_rev = dep_graph.compute_asset_effective_revenue_impact(a_id)
                 rto = 4.0
                 for s in services:
-                    if s["id"] == svc_id:
+                    if (s.get("id") or s.get("service_id")) == svc_id:
                         rto = s.get("rto_hours", 4.0)
                         break
 
@@ -197,22 +279,25 @@ class FAIREngine:
         # Leave-One-Out (LOO) Marginal EAL for Top Vulnerability Risk Drivers
         drivers = []
         for f in findings:
-            f_cve = f["cve_id"]
-            f_asset_id = f["asset_id"]
-            intel = cve_intel.get(f_cve, {})
+            f_cve = f.get("cve_id")
+            f_asset_id = f.get("asset_id")
+            intel = cve_intel.get(f_cve, {}) if f_cve else {}
             # Marginal contribution approximation based on asset share and exploitability
             asset_eal = float(np.mean(asset_trial_losses.get(f_asset_id, np.zeros(1))))
-            epss_val = intel.get("epss", 0.5)
+            epss_val = intel.get("epss", SEVERITY_EXPLOITABILITY_PRIORS.get(f.get("severity", "Medium"), 0.20))
             in_kev = intel.get("in_kev", False)
             weight = epss_val * (1.5 if in_kev else 1.0)
             marginal_eal = round(asset_eal * min(0.9, weight * 0.75), 2)
+            # For non-CVE findings (e.g. CSPM / cloud misconfigurations), use the finding's own 'id' field
+            # (e.g. 'MISCONF-001') rather than inventing a fake CVE-shaped string.
+            driver_id = f_cve or f.get("id") or "UNKNOWN-FINDING"
             drivers.append({
                 "type": "finding",
-                "id": f_cve,
-                "finding_id": f["id"],
+                "id": driver_id,
+                "finding_id": f.get("id"),
                 "asset_id": f_asset_id,
                 "asset_name": next((a["name"] for a in assets if a["id"] == f_asset_id), f_asset_id),
-                "cvss": f.get("cvss", 7.0),
+                "cvss": float(f.get("cvss") or 7.0),
                 "severity": f.get("severity", "High"),
                 "epss": epss_val,
                 "in_kev": in_kev,
@@ -242,7 +327,7 @@ class FAIREngine:
         # Service-level summary
         service_summaries = []
         for s in services:
-            s_id = s["id"]
+            s_id = s.get("id") or s.get("service_id")
             s_loss = service_trial_losses.get(s_id, np.zeros(1))
             service_summaries.append({
                 "service_id": s_id,

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query, Response, Body, UploadFile, File
+from fastapi import APIRouter, HTTPException, Query, Response, Body, UploadFile, File, Form
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 import json
@@ -6,6 +6,8 @@ import copy
 import xml.etree.ElementTree as ET
 import csv
 import io
+import re
+import logging
 import numpy as np
 from datetime import datetime, timezone, timedelta
 import requests
@@ -21,28 +23,55 @@ from app.compliance.report_generator import ReportGenerator
 from app.ai.decision_support import DecisionSupportAI
 from app.connectors.openvas import OpenVASConnector
 from app.connectors.wazuh import WazuhConnector
+from app.connectors.nessus import NessusConnector
+from app.connectors.iam import KeycloakConnector
+from app.connectors.cspm import ProwlerConnector
 from app.connectors.threat_intel import ThreatIntelFeed
+from app.connectors.format_detector import detect_scan_format
+from app.connectors.sniffer import detect_structure
+from app.connectors.generic import GenericVendorConnector
+from app.core.connections_store import connections_store
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
-# In-memory snapshot manager with history persistence
+# In-memory snapshot manager — starts EMPTY until user uploads real data
 class SnapshotStore:
     def __init__(self):
         self.snapshot_history = []
-        self.load_seed()
-        self.init_history()
+        self._init_empty()
 
-    def load_seed(self):
-        seed_path = DATA_DIR / "seed_snapshot.json"
-        with open(seed_path, "r", encoding="utf-8") as f:
-            self.current_snapshot = json.load(f)
-        
+    def _init_empty(self):
+        """
+        Initializes an empty snapshot. The application starts with ZERO company
+        data — no assets, no findings, no control_state, no organization profile.
+        Scenarios and controls_catalog are platform methodology (not company data)
+        and are always loaded.
+        """
+        # Load platform methodology: scenarios
+        scenarios_path = DATA_DIR / "scenarios.json"
+        with open(scenarios_path, "r", encoding="utf-8") as f:
+            scenarios = json.load(f)
+
+        # Load platform methodology: controls catalog
         catalog_path = DATA_DIR / "controls_catalog.json"
         with open(catalog_path, "r", encoding="utf-8") as f:
             self.controls_catalog = json.load(f)
 
-        # Ensure controls_catalog is attached to snapshot for dynamic engine use
-        self.current_snapshot["controls_catalog"] = self.controls_catalog
+        # Empty snapshot — NO company data loaded on startup
+        self.current_snapshot = {
+            "snapshot_id": None,
+            "organization": None,
+            "timestamp": None,
+            "assets": [],
+            "services": [],
+            "findings": [],
+            "cve_intel": {},
+            "wazuh_telemetry": {},
+            "control_state": [],
+            "scenarios": scenarios,
+            "controls_catalog": self.controls_catalog
+        }
 
         self.engine = FAIREngine(trials=5000, seed=settings.DEFAULT_SEED)
         self.whatif_sim = WhatIfSimulator(self.engine)
@@ -52,21 +81,16 @@ class SnapshotStore:
         self.threat_intel = ThreatIntelFeed()
         self.cached_summary = None
 
-    def init_history(self):
-        """Initializes real snapshot history entries."""
-        now = datetime.now(timezone.utc)
-        # Compute baseline
-        base_res = self.get_summary()
-        base_eal = base_res["org"]["eal"]
-        
-        self.snapshot_history = [
-            {"date": (now - timedelta(days=90)).strftime("%Y-%m-%d"), "eal": round(base_eal * 0.88, 2), "label": "Q2 Baseline"},
-            {"date": (now - timedelta(days=60)).strftime("%Y-%m-%d"), "eal": round(base_eal * 0.93, 2), "label": "Mid-Year Audit"},
-            {"date": (now - timedelta(days=30)).strftime("%Y-%m-%d"), "eal": round(base_eal * 0.97, 2), "label": "Prior Month Cycle"},
-            {"date": now.strftime("%Y-%m-%d"), "eal": base_eal, "label": "Active Telemetry Cycle"}
-        ]
+    def _is_empty_state(self, summary: Dict[str, Any] = None) -> bool:
+        """Returns True if summary represents a NO_DATA or NO_FINDINGS state."""
+        s = summary or self.cached_summary
+        if not s:
+            return True
+        return s.get("status") in ("NO_DATA", "NO_FINDINGS")
 
     def record_history_point(self, eal: float):
+        if eal is None:
+            return  # Don't record history for empty states
         now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         if self.snapshot_history and self.snapshot_history[-1]["date"] == now_str:
             self.snapshot_history[-1]["eal"] = eal
@@ -76,11 +100,15 @@ class SnapshotStore:
     def get_summary(self, force_refresh: bool = False) -> Dict[str, Any]:
         if self.cached_summary is None or force_refresh:
             self.cached_summary = self.engine.run(self.current_snapshot, seed=settings.DEFAULT_SEED)
-            self.record_history_point(self.cached_summary["org"]["eal"])
+            # Only record history if we have real computed data
+            eal = self.cached_summary.get("org", {}).get("eal")
+            self.record_history_point(eal)
         return self.cached_summary
 
     def inject_cve_event(self, cve_id: str, asset_id: str, severity: str = "Critical", epss: float = 0.98) -> Dict[str, Any]:
         """Injects a new KEV-listed zero day onto an asset for live demo."""
+        if not self.current_snapshot.get("assets"):
+            raise ValueError("Cannot inject events — no assets have been loaded yet.")
         new_fnd = {
             "id": f"FND-LIVE-{len(self.current_snapshot['findings'])+1:03d}",
             "asset_id": asset_id,
@@ -103,7 +131,7 @@ class SnapshotStore:
             "published": datetime.now(timezone.utc).strftime("%Y-%m-%d")
         }
         
-        old_eal = self.cached_summary["org"]["eal"] if self.cached_summary else 0.0
+        old_eal = self.cached_summary["org"]["eal"] if self.cached_summary and self.cached_summary["org"].get("eal") else 0.0
         self.cached_summary = self.engine.run(self.current_snapshot, seed=settings.DEFAULT_SEED)
         new_eal = self.cached_summary["org"]["eal"]
         self.record_history_point(new_eal)
@@ -122,7 +150,7 @@ class SnapshotStore:
         """Fetches live FIRST EPSS scores for all active CVEs in findings."""
         updated = 0
         cve_intel = self.current_snapshot.get("cve_intel", {})
-        unique_cves = list({f["cve_id"] for f in self.current_snapshot.get("findings", [])})
+        unique_cves = list({f["cve_id"] for f in self.current_snapshot.get("findings", []) if f.get("cve_id")})
 
         for cve in unique_cves:
             live_data = self.threat_intel.fetch_live_epss(cve)
@@ -137,6 +165,7 @@ class SnapshotStore:
         return {"status": "SYNCED", "cves_queried": len(unique_cves), "cves_updated": updated}
 
 store = SnapshotStore()
+
 
 # Request Models
 class SimulateRequest(BaseModel):
@@ -160,12 +189,43 @@ class UpdateControlRequest(BaseModel):
     control_id: str
     coverage_pct: float
 
+class VendorSaveRequest(BaseModel):
+    vendor_name: str
+    format: str
+    record_path: Optional[str] = ""
+    field_mapping: Dict[str, Any]
+    sample_file_used: Optional[str] = None
+
+class ConnectionPayload(BaseModel):
+    base_url: str
+    username: Optional[str] = ""
+    password: Optional[str] = ""
+
 # --- API Endpoints matching Section 11 & Dynamic Ingestion ---
 
 @router.get("/risk/summary")
 def get_risk_summary(refresh: bool = False):
     """GET /risk/summary -> EAL, VaR95, tail, score, appetite headroom, trend"""
     summary = store.get_summary(force_refresh=refresh)
+
+    # If no data loaded yet, pass through the structured empty-state response
+    if store._is_empty_state(summary):
+        return {
+            "status": summary.get("status"),
+            "message": summary.get("message"),
+            "eal": None,
+            "var95": None,
+            "var99": None,
+            "tail": None,
+            "score": None,
+            "drivers": [],
+            "curve": [],
+            "org": summary["org"],
+            "loss_breakdown": {},
+            "trend": {"historical": []},
+            "drivers_count": 0
+        }
+
     current_eal = summary["org"]["eal"]
 
     # Compute trend projection dynamically from real history via linear regression
@@ -209,6 +269,8 @@ def get_risk_summary(refresh: bool = False):
 def get_risk_entities(level: str = Query("asset", pattern="^(org|business_unit|service|asset)$")):
     """GET /risk/entities?level=org|business_unit|service|asset"""
     summary = store.get_summary()
+    if store._is_empty_state(summary):
+        return {"level": level, "entities": [], "total": 0, "status": summary.get("status")}
     if level == "asset":
         return {"level": "asset", "entities": summary["assets"], "total": len(summary["assets"])}
     elif level == "service":
@@ -237,6 +299,8 @@ def get_risk_entities(level: str = Query("asset", pattern="^(org|business_unit|s
 def get_risk_drivers():
     """GET /risk/drivers -> top contributors by marginal EAL"""
     summary = store.get_summary()
+    if store._is_empty_state(summary):
+        return {"run_id": None, "top_drivers": [], "choke_points": [], "status": summary.get("status")}
     return {
         "run_id": summary["run_id"],
         "top_drivers": summary["drivers"],
@@ -247,6 +311,8 @@ def get_risk_drivers():
 def get_loss_exceedance_curve():
     """GET /risk/curve -> loss exceedance points P(L > x)"""
     summary = store.get_summary()
+    if store._is_empty_state(summary):
+        return {"run_id": None, "curve": [], "var95": None, "var99": None, "status": summary.get("status")}
     return {
         "run_id": summary["run_id"],
         "curve": summary["curve"],
@@ -268,6 +334,8 @@ def simulate_scenario(payload: SimulateRequest):
 def optimize_investments(payload: OptimizeRequest):
     """POST /optimize -> {budget, constraints} -> plan, ROSI, comparison vs baselines"""
     summary = store.get_summary()
+    if store._is_empty_state(summary):
+        raise HTTPException(status_code=422, detail="Cannot optimize — no risk data has been loaded yet. Upload assets and findings first.")
     base_eal = summary["org"]["eal"]
     marginal_eals = {d["id"]: d["marginal_eal"] for d in summary["drivers"]}
     # Use exact computed scenario EALs from the simulation
@@ -288,6 +356,8 @@ def optimize_investments(payload: OptimizeRequest):
 def get_pareto_curve():
     """GET /pareto -> budget vs reduction points and knee point"""
     summary = store.get_summary()
+    if store._is_empty_state(summary):
+        return {"pareto_points": [], "knee_point": None, "status": summary.get("status")}
     base_eal = summary["org"]["eal"]
     marginal_eals = {d["id"]: d["marginal_eal"] for d in summary["drivers"]}
     scenario_eals = summary.get("scenario_eals") or {sc["id"]: base_eal / 6.0 for sc in store.current_snapshot["scenarios"]}
@@ -298,20 +368,34 @@ def get_pareto_curve():
 @router.get("/compliance/{framework}")
 def get_compliance_eval(framework: str):
     """GET /compliance/{framework} -> coverage %, gaps, evidence links"""
-    eval_res = store.framework_engine.evaluate_framework(framework, store.current_snapshot["control_state"])
+    try:
+        eval_res = store.framework_engine.evaluate_framework(framework, store.current_snapshot["control_state"])
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     return eval_res
 
 @router.get("/report/{framework}")
 def get_compliance_report(framework: str):
     """GET /report/{framework} -> HTML evidence report"""
-    eval_res = store.framework_engine.evaluate_framework(framework, store.current_snapshot["control_state"])
-    html_content = ReportGenerator.generate_html_report(eval_res, store.current_snapshot["organization"]["name"])
+    try:
+        eval_res = store.framework_engine.evaluate_framework(framework, store.current_snapshot["control_state"])
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    org = store.current_snapshot.get("organization") or {}
+    org_name = org.get("name", "Organization (Not Configured)")
+    html_content = ReportGenerator.generate_html_report(eval_res, org_name)
     return Response(content=html_content, media_type="text/html")
 
 @router.post("/ask")
 def ask_ai(payload: AskRequest):
     """POST /ask -> {question} -> answer + run_id + sources (Grounded, dynamic values)"""
     summary = store.get_summary()
+    if store._is_empty_state(summary):
+        return {
+            "answer": f"No data has been loaded yet ({summary.get('status')}). Please upload assets and vulnerability scan results via the Data Ingestion Hub before asking analytical questions.",
+            "run_id": None,
+            "sources": ["CRISP System Status"]
+        }
     opt = InvestmentOptimizer(store.controls_catalog, store.current_snapshot["findings"], store.current_snapshot["cve_intel"])
     base_eal = summary["org"]["eal"]
     marginal_eals = {d["id"]: d["marginal_eal"] for d in summary["drivers"]}
@@ -372,6 +456,8 @@ def get_data_quality():
 def get_tornado_sensitivity():
     """GET /sensitivity/tornado -> Tornado sensitivity chart points"""
     summary = store.get_summary()
+    if store._is_empty_state(summary):
+        return {"base_eal": None, "factors": [], "status": summary.get("status")}
     return store.sensitivity.compute_tornado(store.current_snapshot, summary["org"]["eal"])
 
 @router.get("/sensitivity/convergence")
@@ -420,66 +506,26 @@ async def ingest_openvas_scan(file: UploadFile = File(...)):
     """
     Parses uploaded OpenVAS report (XML, CSV, or JSON format), extracts real findings,
     enriches them with threat intel, and updates the active snapshot.
+    Delegates parsing to OpenVASConnector — skips results with missing fields.
     """
-    content = await file.read()
-    filename = file.filename.lower()
-    new_findings = []
+    if len(store.current_snapshot.get("assets", [])) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Please upload your asset inventory first — findings need to be linked to assets to calculate financial risk."
+        )
 
+    content = await file.read()
+    filename = file.filename or "report.xml"
+
+    connector = OpenVASConnector()
     try:
-        if filename.endswith(".json"):
-            data = json.loads(content.decode("utf-8"))
-            if isinstance(data, list):
-                new_findings = data
-            elif isinstance(data, dict) and "findings" in data:
-                new_findings = data["findings"]
-        elif filename.endswith(".csv"):
-            reader = csv.DictReader(io.StringIO(content.decode("utf-8", errors="ignore")))
-            for row in reader:
-                cve = row.get("CVE") or row.get("cve_id") or "CVE-2024-UNKNOWN"
-                asset = row.get("Host") or row.get("asset_id") or "AST-PAY-DB-01"
-                cvss_val = float(row.get("CVSS") or row.get("cvss") or 7.0)
-                new_findings.append({
-                    "id": f"FND-OV-{len(store.current_snapshot['findings']) + len(new_findings) + 1:03d}",
-                    "asset_id": asset,
-                    "cve_id": cve,
-                    "cvss": cvss_val,
-                    "severity": "Critical" if cvss_val >= 9.0 else ("High" if cvss_val >= 7.0 else "Medium"),
-                    "port": int(row.get("Port") or 80),
-                    "first_seen": datetime.now(timezone.utc).isoformat(),
-                    "last_seen": datetime.now(timezone.utc).isoformat(),
-                    "source": "Uploaded OpenVAS CSV"
-                })
-        elif filename.endswith(".xml"):
-            root = ET.fromstring(content)
-            for result in root.iter("result"):
-                host_elem = result.find("host")
-                nvt_elem = result.find("nvt")
-                host = host_elem.text if host_elem is not None else "AST-PAY-GW-01"
-                cve = "CVE-2024-UNKNOWN"
-                cvss_val = 7.5
-                if nvt_elem is not None:
-                    cve_elem = nvt_elem.find("cve")
-                    if cve_elem is not None and cve_elem.text:
-                        cve = cve_elem.text.split(",")[0].strip()
-                    cvss_elem = nvt_elem.find("cvss_base")
-                    if cvss_elem is not None and cvss_elem.text:
-                        try:
-                            cvss_val = float(cvss_elem.text)
-                        except ValueError:
-                            cvss_val = 7.0
-                new_findings.append({
-                    "id": f"FND-OV-{len(store.current_snapshot['findings']) + len(new_findings) + 1:03d}",
-                    "asset_id": host,
-                    "cve_id": cve,
-                    "cvss": cvss_val,
-                    "severity": "Critical" if cvss_val >= 9.0 else "High",
-                    "port": 443,
-                    "first_seen": datetime.now(timezone.utc).isoformat(),
-                    "last_seen": datetime.now(timezone.utc).isoformat(),
-                    "source": "Uploaded OpenVAS XML"
-                })
+        result = connector.parse(content, filename, finding_id_offset=len(store.current_snapshot["findings"]))
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to parse OpenVAS scan file: {str(e)}")
+
+    new_findings = result["findings"]
+    skipped = result["skipped"]
+    skip_reasons = result["skip_reasons"]
 
     if new_findings:
         store.current_snapshot["findings"].extend(new_findings)
@@ -487,23 +533,550 @@ async def ingest_openvas_scan(file: UploadFile = File(...)):
         for f in new_findings:
             cve = f["cve_id"]
             if cve not in store.current_snapshot["cve_intel"]:
-                store.current_snapshot["cve_intel"][cve] = {
-                    "cve_id": cve,
-                    "description": "Vulnerability parsed from scan file",
-                    "epss": 0.45,
-                    "epss_percentile": 0.85,
-                    "in_kev": False,
-                    "exploit_public": True,
-                    "published": datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                }
+                live_data = store.threat_intel.fetch_live_epss(cve)
+                if live_data:
+                    store.current_snapshot["cve_intel"][cve] = {
+                        "cve_id": cve,
+                        "description": "Vulnerability parsed from scan file",
+                        "epss": live_data["epss"],
+                        "epss_percentile": live_data["epss_percentile"],
+                        "in_kev": False,
+                        "exploit_public": True,
+                        "published": datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                    }
+                else:
+                    store.current_snapshot["cve_intel"][cve] = {
+                        "cve_id": cve,
+                        "description": "Vulnerability parsed from scan file (EPSS lookup failed)",
+                        "epss": 0.15,
+                        "epss_percentile": 0.50,
+                        "in_kev": False,
+                        "exploit_public": False,
+                        "published": datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                    }
         store.get_summary(force_refresh=True)
 
     return {
         "status": "INGESTED",
-        "findings_added": len(new_findings),
+        "parsed": len(new_findings),
+        "skipped": skipped,
+        "skip_reasons": skip_reasons,
         "total_active_findings": len(store.current_snapshot["findings"]),
-        "new_eal": store.cached_summary["org"]["eal"]
+        "new_eal": store.cached_summary["org"]["eal"] if store.cached_summary else None
     }
+
+@router.post("/ingest/scan")
+async def ingest_unified_scan(file: UploadFile = File(...)):
+    """
+    Unified scan ingestion endpoint supporting multiple scanner formats:
+    - OpenVAS (XML with <report> root, CSV, JSON)
+    - Nessus (XML with <NessusClientData_v2> root)
+    Auto-detects format from file content. Returns 400 for unknown formats.
+    """
+    if len(store.current_snapshot.get("assets", [])) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Please upload your asset inventory first — findings need to be linked to assets to calculate financial risk."
+        )
+
+    content = await file.read()
+    filename = file.filename or "scan.xml"
+
+    scan_format = detect_scan_format(content, filename)
+    if scan_format == "unknown":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Unsupported scan format. CRISP currently supports OpenVAS XML/CSV/JSON "
+                "(with <report> root for XML) and Nessus XML (.nessus / <NessusClientData_v2>). "
+                "Please export your scan in one of these supported formats."
+            )
+        )
+
+    offset = len(store.current_snapshot["findings"])
+    if scan_format == "openvas_xml":
+        connector = OpenVASConnector()
+        try:
+            result = connector.parse(content, filename, finding_id_offset=offset)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to parse OpenVAS scan: {str(e)}")
+    elif scan_format == "nessus_xml":
+        connector = NessusConnector()
+        try:
+            result = connector.parse(content, finding_id_offset=offset)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to parse Nessus scan: {str(e)}")
+    else:
+        raise HTTPException(status_code=400, detail=f"Unhandled scan format: {scan_format}")
+
+    new_findings = result["findings"]
+    skipped = result["skipped"]
+    skip_reasons = result["skip_reasons"]
+
+    if new_findings:
+        store.current_snapshot["findings"].extend(new_findings)
+        # Fetch intel for new findings
+        for f in new_findings:
+            cve = f.get("cve_id")
+            if cve and cve not in store.current_snapshot["cve_intel"]:
+                live_data = store.threat_intel.fetch_live_epss(cve)
+                if live_data:
+                    store.current_snapshot["cve_intel"][cve] = {
+                        "cve_id": cve,
+                        "description": "Vulnerability parsed from scan file",
+                        "epss": live_data["epss"],
+                        "epss_percentile": live_data["epss_percentile"],
+                        "in_kev": False,
+                        "exploit_public": True,
+                        "published": datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                    }
+                else:
+                    store.current_snapshot["cve_intel"][cve] = {
+                        "cve_id": cve,
+                        "description": "Vulnerability parsed from scan file (EPSS lookup failed)",
+                        "epss": 0.15,
+                        "epss_percentile": 0.50,
+                        "in_kev": False,
+                        "exploit_public": False,
+                        "published": datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                    }
+        store.get_summary(force_refresh=True)
+
+    return {
+        "status": "INGESTED",
+        "format": scan_format,
+        "detected_format": scan_format,
+        "parsed": len(new_findings),
+        "skipped": skipped,
+        "skip_reasons": skip_reasons,
+        "total_active_findings": len(store.current_snapshot["findings"]),
+        "new_eal": store.cached_summary["org"]["eal"] if store.cached_summary else None
+    }
+
+
+@router.post("/ingest/wazuh-sync")
+def sync_wazuh_telemetry():
+    """
+    Syncs live EDR and SIEM telemetry from Wazuh REST API.
+    Uses saved connection from ConnectionsStore if available, otherwise default settings.
+    Updates store.current_snapshot["wazuh_telemetry"] and CTRL-EDR-01 control_state.
+    """
+    conn = connections_store.get_connection("siem")
+    if conn and conn.get("base_url"):
+        connector = WazuhConnector(
+            base_url=conn["base_url"],
+            username=conn.get("username", ""),
+            password=conn.get("password", "")
+        )
+    else:
+        connector = WazuhConnector()
+
+    try:
+        agent_data = connector.fetch_agent_status()
+        alert_data = connector.fetch_alert_summary(hours=24)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Wazuh API sync failed: {str(e)}")
+
+    total_agents = agent_data["total_agents"]
+    active_agents = agent_data["active_agents"]
+    agent_cov = agent_data["agent_coverage_pct"]
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    # Update SIEM telemetry in snapshot
+    store.current_snapshot["wazuh_telemetry"] = {
+        **agent_data,
+        **alert_data,
+        "source": "Wazuh Live API",
+        "last_sync": now_iso
+    }
+
+    # Update CTRL-EDR-01 control state
+    found = False
+    for ctrl in store.current_snapshot.get("control_state", []):
+        if ctrl.get("control_id") == "CTRL-EDR-01":
+            ctrl["coverage_pct"] = agent_cov
+            ctrl["evidence_ref"] = f"Wazuh Live API ({active_agents}/{total_agents} endpoints)"
+            ctrl["last_checked"] = now_iso
+            ctrl["is_simulated"] = False
+            found = True
+            break
+    if not found:
+        store.current_snapshot.setdefault("control_state", []).append({
+            "control_id": "CTRL-EDR-01",
+            "asset_scope": "All Endpoints",
+            "coverage_pct": agent_cov,
+            "evidence_ref": f"Wazuh Live API ({active_agents}/{total_agents} endpoints)",
+            "last_checked": now_iso,
+            "is_simulated": False
+        })
+
+    store.get_summary(force_refresh=True)
+
+    return {
+        "status": "SYNCED",
+        "wazuh_telemetry": store.current_snapshot["wazuh_telemetry"],
+        "edr_control": {
+            "control_id": "CTRL-EDR-01",
+            "coverage_pct": agent_cov,
+            "evidence_ref": f"Wazuh Live API ({active_agents}/{total_agents} endpoints)",
+            "is_simulated": False
+        },
+        "new_eal": store.cached_summary["org"]["eal"] if store.cached_summary else None
+    }
+
+
+@router.post("/ingest/iam-sync")
+def sync_iam_telemetry(simulate: Optional[bool] = False):
+    """
+    Syncs privileged account MFA telemetry from Keycloak Admin REST API.
+    Uses saved connection from ConnectionsStore if available, otherwise default settings.
+    Updates CTRL-MFA-01 in control_state.
+    If Keycloak is unavailable or simulate=True, marks is_simulated=True and
+    evidence_ref="IAM Telemetry Mock" (honest simulated status).
+    """
+    conn = connections_store.get_connection("iam")
+    if conn and conn.get("base_url"):
+        connector = KeycloakConnector(
+            base_url=conn["base_url"],
+            username=conn.get("username", ""),
+            password=conn.get("password", "")
+        )
+    else:
+        connector = KeycloakConnector()
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    is_simulated = False
+    evidence_ref = "Keycloak Admin API"
+
+    if simulate:
+        is_simulated = True
+        evidence_ref = "IAM Telemetry Mock"
+        mfa_data = {
+            "total_privileged_accounts": 12,
+            "mfa_enabled_count": 10,
+            "mfa_coverage_pct": 83.3
+        }
+    else:
+        try:
+            mfa_data = connector.fetch_mfa_coverage()
+        except Exception as e:
+            logger.warning(f"Live Keycloak instance unavailable ({e}). Marking IAM telemetry as simulated.")
+            is_simulated = True
+            evidence_ref = "IAM Telemetry Mock"
+            mfa_data = {
+                "total_privileged_accounts": 12,
+                "mfa_enabled_count": 10,
+                "mfa_coverage_pct": 83.3
+            }
+
+    cov_pct = mfa_data["mfa_coverage_pct"]
+
+    # Update CTRL-MFA-01 control state
+    found = False
+    for ctrl in store.current_snapshot.get("control_state", []):
+        if ctrl.get("control_id") == "CTRL-MFA-01":
+            ctrl["coverage_pct"] = cov_pct
+            ctrl["evidence_ref"] = evidence_ref
+            ctrl["last_checked"] = now_iso
+            ctrl["is_simulated"] = is_simulated
+            found = True
+            break
+    if not found:
+        store.current_snapshot.setdefault("control_state", []).append({
+            "control_id": "CTRL-MFA-01",
+            "asset_scope": "Privileged Accounts",
+            "coverage_pct": cov_pct,
+            "evidence_ref": evidence_ref,
+            "last_checked": now_iso,
+            "is_simulated": is_simulated
+        })
+
+    store.get_summary(force_refresh=True)
+
+    return {
+        "status": "SYNCED",
+        "iam_data": mfa_data,
+        "control_state": {
+            "control_id": "CTRL-MFA-01",
+            "coverage_pct": cov_pct,
+            "evidence_ref": evidence_ref,
+            "is_simulated": is_simulated,
+            "last_checked": now_iso
+        },
+        "new_eal": store.cached_summary["org"]["eal"] if store.cached_summary else None
+    }
+
+
+@router.post("/ingest/cspm")
+async def ingest_cspm_scan(file: UploadFile = File(...)):
+    """
+    Parses uploaded Prowler CSPM JSON report, extracts FAIL-status cloud findings,
+    merges them into current snapshot findings, and re-runs the quantification engine.
+    """
+    content = await file.read()
+    connector = ProwlerConnector()
+    offset = len(store.current_snapshot["findings"])
+    try:
+        result = connector.parse(content, finding_id_offset=offset)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse Prowler CSPM report: {str(e)}")
+
+    new_findings = result["findings"]
+    skipped = result["skipped"]
+    skip_reasons = result["skip_reasons"]
+
+    if new_findings:
+        store.current_snapshot["findings"].extend(new_findings)
+        store.get_summary(force_refresh=True)
+
+    return {
+        "status": "INGESTED",
+        "format": "prowler_json",
+        "parsed": len(new_findings),
+        "skipped": skipped,
+        "skip_reasons": skip_reasons,
+        "total_active_findings": len(store.current_snapshot["findings"]),
+        "new_eal": store.cached_summary["org"]["eal"] if store.cached_summary else None
+    }
+
+
+# ============================================================
+# VENDOR ONBOARDING WIZARD ENDPOINTS
+# ============================================================
+
+@router.post("/vendors/inspect")
+async def inspect_vendor_file(file: UploadFile = File(...)):
+    """
+    Inspects an uploaded sample file and detects its structure, record path,
+    and available fields without parsing into findings.
+    """
+    content = await file.read()
+    filename = file.filename or ""
+    ext = filename.split(".")[-1] if "." in filename else ""
+    res = detect_structure(content, ext)
+    if "error" in res:
+        raise HTTPException(status_code=400, detail=res["error"])
+    return res
+
+
+@router.post("/vendors/preview")
+async def preview_vendor_mapping(
+    file: UploadFile = File(...),
+    vendor_name: Optional[str] = Form("Preview Vendor"),
+    format: str = Form(...),
+    record_path: Optional[str] = Form(""),
+    field_mapping: str = Form(...)
+):
+    """
+    Runs GenericVendorConnector with a proposed, unsaved field mapping
+    and returns extracted sample findings so admin can visually verify before saving.
+    """
+    try:
+        mapping_dict = json.loads(field_mapping) if isinstance(field_mapping, str) else field_mapping
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON in field_mapping: {str(e)}")
+
+    if not isinstance(mapping_dict, dict):
+        raise HTTPException(status_code=400, detail="field_mapping must be a JSON dictionary")
+
+    # Validate minimal mapping
+    asset_id_path = mapping_dict.get("asset_id")
+    severity_path = mapping_dict.get("severity")
+    cve_id_path = mapping_dict.get("cve_id")
+    issue_type_path = mapping_dict.get("issue_type")
+
+    missing = []
+    if not asset_id_path or not str(asset_id_path).strip():
+        missing.append("asset_id")
+    if not severity_path or not str(severity_path).strip():
+        missing.append("severity")
+    if (not cve_id_path or not str(cve_id_path).strip()) and (not issue_type_path or not str(issue_type_path).strip()):
+        missing.append("at least one of cve_id or issue_type")
+
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Proposed mapping incomplete. Missing required fields: {', '.join(missing)}."
+        )
+
+    temp_config = {
+        "vendor_name": (vendor_name or "Preview Vendor").strip(),
+        "vendor_slug": "preview_sample",
+        "format": format.lower().strip(),
+        "record_path": (record_path or "").strip(),
+        "field_mapping": mapping_dict
+    }
+
+    content = await file.read()
+    connector = GenericVendorConnector(temp_config)
+    result = connector.parse(content)
+
+    return {
+        "status": "PREVIEW_OK",
+        "total_extracted": len(result["findings"]),
+        "total_skipped": result["skipped"],
+        "skip_reasons": result["skip_reasons"][:10],
+        "sample_findings": result["findings"][:10],
+        "findings": result["findings"]
+    }
+
+
+@router.post("/vendors/save")
+def save_vendor_config(payload: VendorSaveRequest):
+    """
+    Validates field mapping minimums and saves new vendor configuration to disk.
+    """
+    if not payload.vendor_name or not payload.vendor_name.strip():
+        raise HTTPException(status_code=400, detail="vendor_name is required")
+
+    mapping = payload.field_mapping or {}
+    asset_id_path = mapping.get("asset_id")
+    severity_path = mapping.get("severity")
+    cve_id_path = mapping.get("cve_id")
+    issue_type_path = mapping.get("issue_type")
+
+    missing = []
+    if not asset_id_path or not str(asset_id_path).strip():
+        missing.append("asset_id")
+    if not severity_path or not str(severity_path).strip():
+        missing.append("severity")
+    if (not cve_id_path or not str(cve_id_path).strip()) and (not issue_type_path or not str(issue_type_path).strip()):
+        missing.append("at least one of cve_id or issue_type")
+
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot save vendor. Required fields missing: {', '.join(missing)}."
+        )
+
+    # Generate slug from vendor name
+    vendor_slug = re.sub(r"[^a-z0-9]+", "_", payload.vendor_name.lower()).strip("_")
+    if not vendor_slug:
+        vendor_slug = "custom_vendor"
+
+    config_data = {
+        "vendor_name": payload.vendor_name.strip(),
+        "vendor_slug": vendor_slug,
+        "format": payload.format.lower().strip(),
+        "record_path": (payload.record_path or "").strip(),
+        "field_mapping": {
+            "asset_id": asset_id_path,
+            "cve_id": cve_id_path,
+            "cvss": mapping.get("cvss"),
+            "severity": severity_path,
+            "port": mapping.get("port"),
+            "issue_type": issue_type_path
+        },
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "sample_file_used": payload.sample_file_used or "unknown"
+    }
+
+    mappings_dir = DATA_DIR / "vendor_mappings"
+    mappings_dir.mkdir(parents=True, exist_ok=True)
+    target_file = mappings_dir / f"{vendor_slug}.json"
+
+    with open(target_file, "w", encoding="utf-8") as f:
+        json.dump(config_data, f, indent=2)
+
+    return {"status": "SAVED", "config": config_data}
+
+
+@router.get("/vendors/list")
+def list_vendor_configs():
+    """Returns all currently saved vendor configs."""
+    mappings_dir = DATA_DIR / "vendor_mappings"
+    if not mappings_dir.exists():
+        return {"vendors": []}
+
+    configs = []
+    for f in mappings_dir.glob("*.json"):
+        try:
+            with open(f, "r", encoding="utf-8") as fp:
+                cfg = json.load(fp)
+                configs.append(cfg)
+        except Exception as e:
+            logger.warning(f"Error reading vendor config {f}: {e}")
+
+    # Sort alphabetically by vendor name
+    configs.sort(key=lambda c: c.get("vendor_name", "").lower())
+    return {"vendors": configs}
+
+
+@router.post("/ingest/vendor/{vendor_slug}")
+async def ingest_custom_vendor_scan(vendor_slug: str, file: UploadFile = File(...)):
+    """
+    Ingests report for a configured vendor using its saved mapping config.
+    """
+    if len(store.current_snapshot.get("assets", [])) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Please upload your asset inventory first — findings need to be linked to assets to calculate financial risk."
+        )
+
+    mappings_dir = DATA_DIR / "vendor_mappings"
+    config_file = mappings_dir / f"{vendor_slug}.json"
+    if not config_file.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Vendor configuration '{vendor_slug}' not found. Please onboard this vendor first."
+        )
+
+    with open(config_file, "r", encoding="utf-8") as fp:
+        config = json.load(fp)
+
+    content = await file.read()
+    connector = GenericVendorConnector(config)
+    offset = len(store.current_snapshot["findings"])
+
+    try:
+        result = connector.parse(content, finding_id_offset=offset)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse {config.get('vendor_name')} report: {str(e)}")
+
+    new_findings = result["findings"]
+    skipped = result["skipped"]
+    skip_reasons = result["skip_reasons"]
+
+    if new_findings:
+        store.current_snapshot["findings"].extend(new_findings)
+        # Fetch intel for new findings with cve_id
+        for f in new_findings:
+            cve = f.get("cve_id")
+            if cve and cve not in store.current_snapshot["cve_intel"]:
+                live_data = store.threat_intel.fetch_live_epss(cve)
+                if live_data:
+                    store.current_snapshot["cve_intel"][cve] = {
+                        "cve_id": cve,
+                        "description": f"Vulnerability from {config.get('vendor_name')}",
+                        "epss": live_data["epss"],
+                        "epss_percentile": live_data["epss_percentile"],
+                        "in_kev": False,
+                        "exploit_public": True,
+                        "published": datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                    }
+                else:
+                    store.current_snapshot["cve_intel"][cve] = {
+                        "cve_id": cve,
+                        "description": f"Vulnerability from {config.get('vendor_name')}",
+                        "epss": 0.15,
+                        "epss_percentile": 0.50,
+                        "in_kev": False,
+                        "exploit_public": False,
+                        "published": datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                    }
+        store.get_summary(force_refresh=True)
+
+    return {
+        "status": "INGESTED",
+        "vendor": config.get("vendor_name"),
+        "vendor_slug": vendor_slug,
+        "parsed": len(new_findings),
+        "skipped": skipped,
+        "skip_reasons": skip_reasons,
+        "total_active_findings": len(store.current_snapshot["findings"]),
+        "new_eal": store.cached_summary["org"]["eal"] if store.cached_summary else None
+    }
+
 
 @router.post("/ingest/assets")
 async def ingest_assets_file(file: UploadFile = File(...)):
@@ -521,7 +1094,7 @@ async def ingest_assets_file(file: UploadFile = File(...)):
             crit = int(row.get("Criticality") or row.get("criticality_1_5") or 3)
             records = int(row.get("Records") or row.get("records_count") or 10000)
             rev = float(row.get("RevenuePerHour") or row.get("revenue_per_hour") or 50000.0)
-            pub = row.get("InternetFacing", "").lower() in ["true", "1", "yes"]
+            pub = str(row.get("InternetFacing", "")).lower() in ["true", "1", "yes"]
 
             new_assets.append({
                 "id": a_id,
@@ -539,6 +1112,21 @@ async def ingest_assets_file(file: UploadFile = File(...)):
             })
         if new_assets:
             store.current_snapshot["assets"] = new_assets
+            if not store.current_snapshot.get("organization"):
+                store.current_snapshot["organization"] = {
+                    "name": "Live Organization",
+                    "risk_appetite_var95": settings.DEFAULT_RISK_APPETITE
+                }
+            svc_ids = {a["business_service_id"] for a in new_assets}
+            existing_svcs = {s["service_id"] for s in store.current_snapshot.get("services", [])}
+            for sid in svc_ids:
+                if sid not in existing_svcs:
+                    store.current_snapshot.setdefault("services", []).append({
+                        "service_id": sid,
+                        "name": f"Service {sid}",
+                        "criticality": 4,
+                        "rto_hours": 4.0
+                    })
             store.get_summary(force_refresh=True)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to parse Asset CSV: {str(e)}")
@@ -546,10 +1134,88 @@ async def ingest_assets_file(file: UploadFile = File(...)):
     return {
         "status": "ASSETS_INGESTED",
         "assets_loaded": len(new_assets),
-        "new_eal": store.cached_summary["org"]["eal"]
+        "new_eal": store.cached_summary["org"]["eal"] if store.cached_summary else None
     }
 
 @router.post("/ingest/sync-live-intel")
 def sync_live_threat_intel():
     """Queries official FIRST EPSS API for all active CVEs in the environment."""
     return store.sync_live_epss_and_kev()
+
+
+# --- Connections Settings Endpoints ---
+
+@router.get("/connections")
+def get_connections():
+    """
+    GET /api/connections
+    Returns the status of all saved connections (connected, base_url, username, last_tested,
+    last_test_result, last_test_detail).
+    Explicitly EXCLUDES any password / encrypted_password field from the response.
+    """
+    return connections_store.get_all_public()
+
+
+@router.post("/connections/{category}/test")
+def test_connection_endpoint(category: str, payload: ConnectionPayload):
+    """
+    POST /api/connections/{category}/test
+    Attempts a real, live connection using the relevant connector without saving.
+    Returns {success: bool, detail: str}.
+    """
+    res = connections_store.test_connection(
+        category=category,
+        base_url=payload.base_url,
+        username=payload.username or "",
+        password=payload.password or ""
+    )
+    return res
+
+
+@router.post("/connections/{category}/save")
+def save_connection_endpoint(category: str, payload: ConnectionPayload):
+    """
+    POST /api/connections/{category}/save
+    Saves connection with encrypted credentials. Never echoes password in response.
+    """
+    try:
+        saved = connections_store.save_connection(
+            category=category,
+            base_url=payload.base_url,
+            username=payload.username or "",
+            password=payload.password or ""
+        )
+        # If connection is active, trigger immediate snapshot sync
+        if saved.get("connected"):
+            if category.lower() in ["siem", "edr", "wazuh"]:
+                try:
+                    sync_wazuh_telemetry()
+                except Exception as e:
+                    logger.warning(f"Immediate SIEM sync warning: {e}")
+            elif category.lower() in ["iam", "keycloak"]:
+                try:
+                    sync_iam_telemetry(simulate=False)
+                except Exception as e:
+                    logger.warning(f"Immediate IAM sync warning: {e}")
+
+        return {
+            "status": "SAVED",
+            "connection": saved
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save connection: {str(e)}")
+
+
+@router.delete("/connections/{category}")
+def delete_connection_endpoint(category: str):
+    """
+    DELETE /api/connections/{category}
+    Removes a saved connection.
+    """
+    removed = connections_store.remove_connection(category)
+    return {
+        "status": "REMOVED" if removed else "NOT_FOUND",
+        "category": category
+    }

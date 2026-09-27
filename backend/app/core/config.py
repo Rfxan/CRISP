@@ -19,4 +19,14 @@ class Settings:
     DPDP_BREACH_NOTICE_CEILING: float = 2_000_000_000.0 # ₹200 Crore
     COST_PER_RECORD_INR: float = 2850.0 # Based on Indian BFSI breach reports
 
+    # Wazuh SIEM / EDR settings
+    WAZUH_BASE_URL: str = os.getenv("WAZUH_BASE_URL", "https://localhost:55000")
+    WAZUH_USERNAME: str = os.getenv("WAZUH_USERNAME", "wazuh-wui")
+    WAZUH_PASSWORD: str = os.getenv("WAZUH_PASSWORD", "wazuh-wui")
+
+    # Keycloak IAM settings
+    KEYCLOAK_BASE_URL: str = os.getenv("KEYCLOAK_BASE_URL", "http://localhost:8080")
+    KEYCLOAK_REALM: str = os.getenv("KEYCLOAK_REALM", "master")
+    KEYCLOAK_ADMIN_TOKEN: str = os.getenv("KEYCLOAK_ADMIN_TOKEN", "")
+
 settings = Settings()

@@ -4,11 +4,14 @@ import {
 } from 'lucide-react';
 import { formatINR } from '../utils/formatters';
 import { api } from '../services/api';
+import EmptyState from './EmptyState';
 
-export default function ComplianceHub() {
+export default function ComplianceHub({ status, onNavigateToIngestion }) {
   const [selectedFramework, setSelectedFramework] = useState('sebi');
   const [evalData, setEvalData] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  const isEmpty = status === 'NO_DATA' || status === 'NO_FINDINGS';
 
   const frameworks = [
     { id: 'sebi', name: 'SEBI CSCRF (Aug 2024)', desc: 'Cyber Resilience Framework & 6-Hour Reporting' },
@@ -20,6 +23,7 @@ export default function ComplianceHub() {
   ];
 
   const loadCompliance = async (fw) => {
+    if (isEmpty) return;
     setLoading(true);
     setSelectedFramework(fw);
     try {
@@ -33,8 +37,21 @@ export default function ComplianceHub() {
   };
 
   useEffect(() => {
-    loadCompliance('sebi');
-  }, []);
+    if (!isEmpty) {
+      loadCompliance('sebi');
+    }
+  }, [status]);
+
+  if (isEmpty) {
+    return (
+      <EmptyState
+        status={status || 'NO_DATA'}
+        title="Compliance & Regulatory Auditing Unavailable"
+        message="Cannot assess regulatory framework compliance without ingested assets and controls telemetry. Ingest data to evaluate SEBI, RBI, and DPDP adherence."
+        onNavigateToIngestion={onNavigateToIngestion}
+      />
+    );
+  }
 
   const sebi6h = evalData?.sebi_6hour_readiness;
   const dpdp = evalData?.dpdp_readiness;

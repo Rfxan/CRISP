@@ -1,0 +1,50 @@
+[
+  {
+    "id": "ransomware",
+    "name": "Ransomware Outage & Operational Lockout",
+    "threat_type": "Targeted Extortion Syndicate",
+    "attack_techniques": ["T1486 Data Encrypted for Impact", "T1490 Inhibit System Recovery", "T1078 Valid Accounts"],
+    "applicable_vulns": ["RCE", "Privilege Escalation"],
+    "tef_params": {"low": 0.1, "likely": 0.35, "high": 0.9}
+  },
+  {
+    "id": "data_breach",
+    "name": "Customer Financial PII Exfiltration",
+    "threat_type": "State-sponsored / Advanced Cybercrime",
+    "attack_techniques": ["T1041 Exfiltration Over C2", "T1567 Exfiltration Over Web Service", "T1005 Data from Local System"],
+    "applicable_vulns": ["SQLi", "Information Disclosure", "RCE"],
+    "tef_params": {"low": 0.15, "likely": 0.4, "high": 0.85}
+  },
+  {
+    "id": "credential_compromise",
+    "name": "Privileged Domain / DB Account Takeover",
+    "threat_type": "Credential Broker / Phishing",
+    "attack_techniques": ["T1078 Valid Accounts", "T1555 Credentials from Password Stores"],
+    "applicable_vulns": ["Credential Exposure", "Default Passwords"],
+    "tef_params": {"low": 0.2, "likely": 0.6, "high": 1.2}
+  },
+  {
+    "id": "webapp_compromise",
+    "name": "Internet Banking API / Web Application Exploitation",
+    "threat_type": "Opportunistic Web Exploiters",
+    "attack_techniques": ["T1190 Exploit Public-Facing Application"],
+    "applicable_vulns": ["RCE", "XSS", "SSRF", "Auth Bypass"],
+    "tef_params": {"low": 0.25, "likely": 0.5, "high": 1.1}
+  },
+  {
+    "id": "insider_misuse",
+    "name": "Malicious Privileged Insider Unauthorized Extraction",
+    "threat_type": "Disgruntled / Compromised Employee",
+    "attack_techniques": ["T1087 Account Discovery", "T1530 Data from Cloud Storage Object"],
+    "applicable_vulns": ["Weak Access Controls"],
+    "tef_params": {"low": 0.05, "likely": 0.15, "high": 0.4}
+  },
+  {
+    "id": "ddos_outage",
+    "name": "Distributed Denial of Service on Payment Switch",
+    "threat_type": "Hacktivist / Volumetric Botnet",
+    "attack_techniques": ["T1498 Network Denial of Service", "T1499 Endpoint Denial of Service"],
+    "applicable_vulns": ["Resource Exhaustion"],
+    "tef_params": {"low": 0.3, "likely": 0.7, "high": 1.5}
+  }
+]

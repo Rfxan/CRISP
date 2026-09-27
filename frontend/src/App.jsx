@@ -7,9 +7,10 @@ import WhatIfSimulator from './components/WhatIfSimulator';
 import ComplianceHub from './components/ComplianceHub';
 import AIQueryCenter from './components/AIQueryCenter';
 import DataIngestionHub from './components/DataIngestionHub';
+import ConnectionsSettings from './components/ConnectionsSettings';
 import { api } from './services/api';
 import { 
-  BarChart3, Search, Target, Sparkles, FileCheck, Bot, AlertTriangle, ShieldCheck, Database
+  BarChart3, Search, Target, Sparkles, FileCheck, Bot, AlertTriangle, ShieldCheck, Database, Radio
 } from 'lucide-react';
 import { formatINR } from './utils/formatters';
 
@@ -74,7 +75,8 @@ export default function App() {
     { id: 'whatif', label: 'What-If Simulator', icon: Sparkles },
     { id: 'compliance', label: 'Compliance & India Regs', icon: FileCheck },
     { id: 'ai', label: 'AI Decision Support', icon: Bot },
-    { id: 'ingestion', label: 'Data Ingestion & Telemetry', icon: Database }
+    { id: 'ingestion', label: 'Data Ingestion & Telemetry', icon: Database },
+    { id: 'connections', label: 'Connections (SIEM/IAM)', icon: Radio }
   ];
 
   return (
@@ -174,25 +176,28 @@ export default function App() {
         ) : (
           <>
             {activeTab === 'executive' && (
-              <ExecutiveView summary={summary} curveData={curveData} tornadoData={tornadoData} />
+              <ExecutiveView summary={summary} curveData={curveData} tornadoData={tornadoData} onNavigateToIngestion={() => setActiveTab('ingestion')} />
             )}
             {activeTab === 'drilldown' && (
-              <TechnicalDrilldown summary={summary} driversData={driversData} />
+              <TechnicalDrilldown summary={summary} driversData={driversData} onNavigateToIngestion={() => setActiveTab('ingestion')} />
             )}
             {activeTab === 'optimizer' && (
-              <OptimizerView baseEal={summary?.org?.eal} />
+              <OptimizerView baseEal={summary?.org?.eal} status={summary?.status} onNavigateToIngestion={() => setActiveTab('ingestion')} />
             )}
             {activeTab === 'whatif' && (
-              <WhatIfSimulator baselineEal={summary?.org?.eal} baselineVar95={summary?.org?.var95} />
+              <WhatIfSimulator baselineEal={summary?.org?.eal} baselineVar95={summary?.org?.var95} status={summary?.status} onNavigateToIngestion={() => setActiveTab('ingestion')} />
             )}
             {activeTab === 'compliance' && (
-              <ComplianceHub />
+              <ComplianceHub status={summary?.status} onNavigateToIngestion={() => setActiveTab('ingestion')} />
             )}
             {activeTab === 'ai' && (
               <AIQueryCenter currentRunId={summary?.run_id} />
             )}
             {activeTab === 'ingestion' && (
               <DataIngestionHub onDataUpdated={() => loadData(true)} />
+            )}
+            {activeTab === 'connections' && (
+              <ConnectionsSettings onConnectionChanged={() => loadData(true)} />
             )}
           </>
         )}

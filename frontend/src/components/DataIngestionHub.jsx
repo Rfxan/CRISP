@@ -1,20 +1,33 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Database, UploadCloud, RefreshCw, Shield, AlertTriangle, 
-  CheckCircle2, FileText, Sliders, Globe, Server, Activity
+  CheckCircle2, FileText, Sliders, Globe, Server, Activity,
+  Sparkles, Plus, Cpu
 } from 'lucide-react';
 import { formatINR } from '../utils/formatters';
 import { api } from '../services/api';
+import VendorWizard from './VendorWizard';
 
 export default function DataIngestionHub({ onDataUpdated }) {
   const [snapshot, setSnapshot] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeSection, setActiveSection] = useState('controls');
+  const [activeSection, setActiveSection] = useState('assets');
   const [syncingIntel, setSyncingIntel] = useState(false);
   const [uploadingScan, setUploadingScan] = useState(false);
   const [uploadingAssets, setUploadingAssets] = useState(false);
   const [statusMsg, setStatusMsg] = useState(null);
   const [controlEdits, setControlEdits] = useState({});
+  const [customVendors, setCustomVendors] = useState([]);
+  const [uploadingVendorSlug, setUploadingVendorSlug] = useState(null);
+
+  const fetchVendors = async () => {
+    try {
+      const res = await api.getVendorList();
+      setCustomVendors(res.vendors || []);
+    } catch (err) {
+      console.error('Failed to fetch custom vendors:', err);
+    }
+  };
 
   const fetchSnapshot = async () => {
     try {
@@ -35,6 +48,7 @@ export default function DataIngestionHub({ onDataUpdated }) {
 
   useEffect(() => {
     fetchSnapshot();
+    fetchVendors();
   }, []);
 
   const handleSyncIntel = async () => {
@@ -79,6 +93,18 @@ export default function DataIngestionHub({ onDataUpdated }) {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (type === 'openvas') {
+      const assetCount = snapshot?.assets?.length || 0;
+      if (assetCount === 0) {
+        setStatusMsg({
+          type: 'error',
+          text: 'Please upload your asset inventory first — findings need to be linked to assets to calculate financial risk.'
+        });
+        e.target.value = '';
+        return;
+      }
+    }
+
     const formData = new FormData();
     formData.append('file', file);
 
@@ -89,7 +115,7 @@ export default function DataIngestionHub({ onDataUpdated }) {
         const res = await api.ingestOpenVAS(formData);
         setStatusMsg({
           type: 'success',
-          text: `Scan Ingested Successfully: ${res.findings_added} findings added. New Organization EAL: ${formatINR(res.new_eal)}`
+          text: `Scan Ingested Successfully: ${res.findings_added || res.parsed} findings added. New Organization EAL: ${formatINR(res.new_eal)}`
         });
         await fetchSnapshot();
         if (onDataUpdated) onDataUpdated();
@@ -113,6 +139,40 @@ export default function DataIngestionHub({ onDataUpdated }) {
       } finally {
         setUploadingAssets(false);
       }
+    }
+  };
+
+  const handleCustomVendorUpload = async (e, vendorSlug, vendorName) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const assetCount = snapshot?.assets?.length || 0;
+    if (assetCount === 0) {
+      setStatusMsg({
+        type: 'error',
+        text: 'Please upload your asset inventory first — findings need to be linked to assets to calculate financial risk.'
+      });
+      e.target.value = '';
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    setUploadingVendorSlug(vendorSlug);
+    setStatusMsg(null);
+    try {
+      const res = await api.ingestVendorScan(vendorSlug, formData);
+      setStatusMsg({
+        type: 'success',
+        text: `Scan for ${vendorName || res.vendor} Ingested Successfully: ${res.parsed} findings added (${res.skipped} skipped). New Organization EAL: ${formatINR(res.new_eal)}`
+      });
+      await fetchSnapshot();
+      if (onDataUpdated) onDataUpdated();
+    } catch (err) {
+      setStatusMsg({ type: 'error', text: err.message });
+    } finally {
+      setUploadingVendorSlug(null);
     }
   };
 
@@ -233,19 +293,76 @@ export default function DataIngestionHub({ onDataUpdated }) {
         )}
       </div>
 
-      {/* Navigation Subtabs */}
-      <div style={{ display: 'flex', gap: 10 }}>
+      {/* Guided Onboarding Order Banner */}
+      <div style={{
+        background: 'rgba(15, 23, 42, 0.6)',
+        border: '1px solid var(--border-color)',
+        borderRadius: 12,
+        padding: '14px 20px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: 16
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#00f2fe', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Guided Ingestion Order:
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+            <span style={{
+              width: 22, height: 22, borderRadius: '50%',
+              background: assets.length > 0 ? '#10b981' : '#00f2fe',
+              color: '#051026', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 11
+            }}>
+              1
+            </span>
+            <span style={{ color: assets.length > 0 ? '#10b981' : '#fff', fontWeight: 600 }}>
+              Upload Asset Inventory (CSV) {assets.length > 0 ? '✓' : '(Required First)'}
+            </span>
+          </div>
+          <span style={{ color: 'var(--text-dim)' }}>→</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+            <span style={{
+              width: 22, height: 22, borderRadius: '50%',
+              background: findings.length > 0 ? '#10b981' : (assets.length > 0 ? '#00f2fe' : 'rgba(255,255,255,0.2)'),
+              color: '#051026', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 11
+            }}>
+              2
+            </span>
+            <span style={{ color: findings.length > 0 ? '#10b981' : (assets.length > 0 ? '#fff' : 'var(--text-dim)'), fontWeight: 600 }}>
+              Upload Vulnerability Scan or Connect SIEM/IAM {findings.length > 0 ? '✓' : ''}
+            </span>
+          </div>
+          <span style={{ color: 'var(--text-dim)' }}>→</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+            <span style={{
+              width: 22, height: 22, borderRadius: '50%',
+              background: 'rgba(255,255,255,0.2)',
+              color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 11
+            }}>
+              3
+            </span>
+            <span style={{ color: 'var(--text-muted)' }}>
+              Tune Control Coverage & View Risk
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Navigation Subtabs (Ordered 1 to 4) */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         <button
-          onClick={() => setActiveSection('controls')}
+          onClick={() => setActiveSection('assets')}
           className="btn"
           style={{
-            background: activeSection === 'controls' ? 'rgba(0, 242, 254, 0.15)' : 'rgba(255,255,255,0.03)',
-            border: activeSection === 'controls' ? '1px solid #00f2fe' : '1px solid var(--border-color)',
-            color: activeSection === 'controls' ? '#00f2fe' : 'var(--text-muted)',
+            background: activeSection === 'assets' ? 'rgba(0, 242, 254, 0.15)' : 'rgba(255,255,255,0.03)',
+            border: activeSection === 'assets' ? '1px solid #00f2fe' : '1px solid var(--border-color)',
+            color: activeSection === 'assets' ? '#00f2fe' : 'var(--text-muted)',
             display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '8px 16px'
           }}
         >
-          <Sliders size={15} /> Control Coverage Tuner ({controlStates.length})
+          <Server size={15} /> Step 1: Asset Inventory ({assets.length})
         </button>
 
         <button
@@ -258,20 +375,33 @@ export default function DataIngestionHub({ onDataUpdated }) {
             display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '8px 16px'
           }}
         >
-          <UploadCloud size={15} /> Vulnerability Scans & Ingestion ({findings.length})
+          <UploadCloud size={15} /> Step 2: Vulnerability Scans ({findings.length})
         </button>
 
         <button
-          onClick={() => setActiveSection('assets')}
+          onClick={() => setActiveSection('controls')}
           className="btn"
           style={{
-            background: activeSection === 'assets' ? 'rgba(0, 242, 254, 0.15)' : 'rgba(255,255,255,0.03)',
-            border: activeSection === 'assets' ? '1px solid #00f2fe' : '1px solid var(--border-color)',
-            color: activeSection === 'assets' ? '#00f2fe' : 'var(--text-muted)',
+            background: activeSection === 'controls' ? 'rgba(0, 242, 254, 0.15)' : 'rgba(255,255,255,0.03)',
+            border: activeSection === 'controls' ? '1px solid #00f2fe' : '1px solid var(--border-color)',
+            color: activeSection === 'controls' ? '#00f2fe' : 'var(--text-muted)',
             display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '8px 16px'
           }}
         >
-          <Server size={15} /> Asset Criticality & Financial Mapping ({assets.length})
+          <Sliders size={15} /> Step 3: Control Coverage ({controlStates.length})
+        </button>
+
+        <button
+          onClick={() => setActiveSection('wizard')}
+          className="btn"
+          style={{
+            background: activeSection === 'wizard' ? 'rgba(0, 242, 254, 0.15)' : 'rgba(255,255,255,0.03)',
+            border: activeSection === 'wizard' ? '1px solid #00f2fe' : '1px solid var(--border-color)',
+            color: activeSection === 'wizard' ? '#00f2fe' : 'var(--text-muted)',
+            display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '8px 16px'
+          }}
+        >
+          <Sparkles size={15} color="#00f2fe" /> Vendor Onboarding Wizard {customVendors.length > 0 && `(${customVendors.length})`}
         </button>
       </div>
 
@@ -360,25 +490,93 @@ export default function DataIngestionHub({ onDataUpdated }) {
       {activeSection === 'scans' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
           {/* File Upload Zone */}
-          <div className="glass-panel" style={{ padding: 22, border: '2px dashed var(--border-color)', textAlign: 'center' }}>
-            <UploadCloud size={36} color="#00f2fe" style={{ margin: '0 auto 10px auto' }} />
-            <h3 style={{ margin: 0, fontSize: 16, color: '#fff' }}>Ingest Real OpenVAS Scan or Vulnerability Feed</h3>
-            <p style={{ margin: '6px auto 16px auto', fontSize: 12, color: 'var(--text-dim)', maxWidth: 500 }}>
-              Upload your OpenVAS XML export, Tenable CSV, or JSON vulnerability list. The system automatically maps hosts to network assets and queries FIRST EPSS for live exploit probabilities.
-            </p>
+          <div className="glass-panel" style={{ padding: 22, border: '2px dashed var(--border-color)' }}>
+            <div style={{ textAlign: 'center', marginBottom: 18 }}>
+              <UploadCloud size={36} color="#00f2fe" style={{ margin: '0 auto 10px auto' }} />
+              <h3 style={{ margin: 0, fontSize: 16, color: '#fff' }}>Vulnerability Scan & Posture Ingestion</h3>
+              <p style={{ margin: '6px auto 0 auto', fontSize: 12, color: 'var(--text-dim)', maxWidth: 540 }}>
+                Upload scan exports from built-in scanners (OpenVAS, Nessus) or any custom onboarded tool. The system maps assets and enriches findings with live EPSS & KEV threat intel.
+              </p>
+            </div>
 
-            <div style={{ display: 'inline-block' }}>
-              <label className="btn btn-primary" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px' }}>
-                <FileText size={16} />
-                <span>{uploadingScan ? 'Parsing Scan File...' : 'Select Scan File (XML, CSV, JSON)'}</span>
-                <input
-                  type="file"
-                  accept=".xml,.csv,.json"
-                  onChange={(e) => handleFileUpload(e, 'openvas')}
-                  disabled={uploadingScan}
-                  style={{ display: 'none' }}
-                />
-              </label>
+            {/* Ingestion Options Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
+              {/* Option 1: Built-in Scanners */}
+              <div className="glass-panel" style={{ padding: 16, background: 'rgba(0, 242, 254, 0.03)', border: '1px solid rgba(0, 242, 254, 0.3)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <strong style={{ fontSize: 13, color: '#fff' }}>Built-in Scanners</strong>
+                    <span className="badge badge-cyan" style={{ fontSize: 10 }}>Auto-Detect</span>
+                  </div>
+                  <p style={{ margin: '0 0 12px 0', fontSize: 11, color: 'var(--text-dim)' }}>
+                    OpenVAS (XML, CSV, JSON) and Tenable Nessus (.nessus XML).
+                  </p>
+                </div>
+                <label className="btn btn-primary" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '8px 14px', fontSize: 12 }}>
+                  <FileText size={14} />
+                  <span>{uploadingScan ? 'Parsing Scan...' : 'Upload OpenVAS / Nessus'}</span>
+                  <input
+                    type="file"
+                    accept=".xml,.nessus,.csv,.json"
+                    onChange={(e) => handleFileUpload(e, 'openvas')}
+                    disabled={uploadingScan}
+                    style={{ display: 'none' }}
+                  />
+                </label>
+              </div>
+
+              {/* Option 2+: Configured Custom Vendors */}
+              {customVendors.map((v) => {
+                const isUploadingThis = uploadingVendorSlug === v.vendor_slug;
+                return (
+                  <div key={v.vendor_slug} className="glass-panel" style={{ padding: 16, background: 'rgba(16, 185, 129, 0.03)', border: '1px solid rgba(16, 185, 129, 0.3)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <strong style={{ fontSize: 13, color: '#fff' }}>{v.vendor_name}</strong>
+                        <span className="badge badge-emerald" style={{ fontSize: 10, textTransform: 'uppercase' }}>{v.format}</span>
+                      </div>
+                      <p style={{ margin: '0 0 12px 0', fontSize: 11, color: 'var(--text-dim)' }}>
+                        Config-driven ingestion via saved mapping schema.
+                      </p>
+                    </div>
+                    <label className="btn btn-secondary" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '8px 14px', fontSize: 12, borderColor: '#10b981', color: '#10b981' }}>
+                      <Cpu size={14} />
+                      <span>{isUploadingThis ? `Parsing ${v.vendor_name}...` : `Upload ${v.vendor_name}`}</span>
+                      <input
+                        type="file"
+                        accept=".xml,.nessus,.csv,.json"
+                        onChange={(e) => handleCustomVendorUpload(e, v.vendor_slug, v.vendor_name)}
+                        disabled={isUploadingThis}
+                        style={{ display: 'none' }}
+                      />
+                    </label>
+                  </div>
+                );
+              })}
+
+              {/* Option: Onboard New Vendor Button */}
+              <div
+                onClick={() => setActiveSection('wizard')}
+                className="glass-panel"
+                style={{
+                  padding: 16,
+                  border: '1px dashed #00f2fe',
+                  background: 'rgba(0, 242, 254, 0.02)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  textAlign: 'center',
+                  minHeight: 110
+                }}
+              >
+                <Sparkles size={22} color="#00f2fe" style={{ marginBottom: 6 }} />
+                <strong style={{ fontSize: 13, color: '#00f2fe' }}>+ Onboard New Vendor</strong>
+                <p style={{ margin: '4px 0 0 0', fontSize: 11, color: 'var(--text-dim)' }}>
+                  Upload a sample file and map fields in the wizard.
+                </p>
+              </div>
             </div>
           </div>
 
@@ -530,6 +728,19 @@ export default function DataIngestionHub({ onDataUpdated }) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* SECTION 4: Vendor Onboarding Wizard */}
+      {activeSection === 'wizard' && (
+        <VendorWizard
+          onVendorSaved={(newVendor) => {
+            fetchVendors();
+            fetchSnapshot();
+            if (onDataUpdated) onDataUpdated();
+            setActiveSection('scans');
+          }}
+          onCancel={() => setActiveSection('scans')}
+        />
       )}
     </div>
   );

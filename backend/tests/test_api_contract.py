@@ -11,6 +11,20 @@ from app.main import app
 client = TestClient(app)
 
 def test_api_contract_endpoints():
+    from app.api.routes import store
+    from app.core.config import DATA_DIR
+    import json
+
+    # 0. Verify fresh empty state
+    res_empty = client.get("/api/risk/summary")
+    assert res_empty.status_code == 200
+    assert res_empty.json()["status"] == "NO_DATA"
+
+    # Load developer test fixture snapshot for API contract verification
+    with open(DATA_DIR / "seed_snapshot.json", "r", encoding="utf-8") as f:
+        store.current_snapshot = json.load(f)
+    store.get_summary(force_refresh=True)
+
     # 1. Summary
     res = client.get("/api/risk/summary")
     assert res.status_code == 200, f"Summary failed: {res.text}"

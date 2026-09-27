@@ -5,14 +5,18 @@ import {
 import { Target, TrendingUp, Award, CheckCircle2, Shield, DollarSign, Sliders, ArrowUpRight } from 'lucide-react';
 import { formatINR, formatINRFull } from '../utils/formatters';
 import { api } from '../services/api';
+import EmptyState from './EmptyState';
 
-export default function OptimizerView({ baseEal }) {
+export default function OptimizerView({ baseEal, status, onNavigateToIngestion }) {
   const [budget, setBudget] = useState(10_000_000); // ₹1 Crore default
   const [optimizerData, setOptimizerData] = useState(null);
   const [paretoData, setParetoData] = useState(null);
   const [loading, setLoading] = useState(false);
 
+  const isEmpty = status === 'NO_DATA' || status === 'NO_FINDINGS' || baseEal == null;
+
   const runOptimization = async (b) => {
+    if (isEmpty) return;
     setLoading(true);
     try {
       const res = await api.optimize(b);
@@ -25,6 +29,7 @@ export default function OptimizerView({ baseEal }) {
   };
 
   const loadPareto = async () => {
+    if (isEmpty) return;
     try {
       const res = await api.getPareto();
       setParetoData(res);
@@ -34,9 +39,22 @@ export default function OptimizerView({ baseEal }) {
   };
 
   useEffect(() => {
-    runOptimization(budget);
-    loadPareto();
-  }, []);
+    if (!isEmpty) {
+      runOptimization(budget);
+      loadPareto();
+    }
+  }, [baseEal, status]);
+
+  if (isEmpty) {
+    return (
+      <EmptyState
+        status={status || 'NO_DATA'}
+        title="Investment Optimizer Unavailable"
+        message="Cannot compute optimal control investments without baseline risk data. Ingest an asset inventory and scan results first."
+        onNavigateToIngestion={onNavigateToIngestion}
+      />
+    );
+  }
 
   const handleSliderChange = (e) => {
     const val = Number(e.target.value);

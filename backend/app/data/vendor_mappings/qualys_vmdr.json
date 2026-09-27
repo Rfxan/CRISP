@@ -1,0 +1,16 @@
+{
+  "vendor_name": "Qualys VMDR",
+  "vendor_slug": "qualys_vmdr",
+  "format": "xml",
+  "record_path": "SCAN_REPORT.VULNERABILITY_LIST.VULN",
+  "field_mapping": {
+    "asset_id": "HOST_IP",
+    "cve_id": "CVE_ID",
+    "cvss": "CVSS_BASE",
+    "severity": "SEVERITY",
+    "port": "PORT",
+    "issue_type": null
+  },
+  "created_at": "2026-09-26T20:33:56.022658+00:00",
+  "sample_file_used": "qualys_scan.xml"
+}

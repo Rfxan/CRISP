@@ -1,8 +1,18 @@
 import React from 'react';
 import { GitBranch, Server, AlertTriangle, ShieldCheck, Flame, ExternalLink, Network } from 'lucide-react';
 import { formatINR, formatINRFull } from '../utils/formatters';
+import EmptyState from './EmptyState';
 
-export default function TechnicalDrilldown({ summary, driversData, entitiesData }) {
+export default function TechnicalDrilldown({ summary, driversData, entitiesData, onNavigateToIngestion }) {
+  if (summary?.status === 'NO_DATA' || summary?.status === 'NO_FINDINGS') {
+    return (
+      <EmptyState
+        status={summary.status}
+        message={summary.message}
+        onNavigateToIngestion={onNavigateToIngestion}
+      />
+    );
+  }
   const drivers = (driversData && driversData.top_drivers) || (summary && summary.drivers) || [];
   const chokePoints = (driversData && driversData.choke_points) || (summary && summary.choke_points) || [];
   const services = (summary && summary.services) || [];

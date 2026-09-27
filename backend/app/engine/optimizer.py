@@ -34,13 +34,14 @@ class InvestmentOptimizer:
         patch_reductions = {}
         for f in self.findings:
             f_id = f["id"]
-            cve = f["cve_id"]
+            cve = f.get("cve_id")
+            issue = f.get("issue_type")
             z[f_id] = pulp.LpVariable(f"z_{f_id}", cat=pulp.LpBinary)
             
             cost = f.get("patch_cost", 250000.0 if f.get("severity") == "Critical" else 150000.0)
             patch_costs[f_id] = cost
             # Exact marginal EAL reduction from leave-one-out
-            red = (marginal_eals.get(cve) or marginal_eals.get(f_id) or 0.0) if marginal_eals else 0.0
+            red = (marginal_eals.get(cve) or marginal_eals.get(issue) or marginal_eals.get(f_id) or 0.0) if marginal_eals else 0.0
             patch_reductions[f_id] = red
 
         # Objective Function: Maximize total EAL reduction
@@ -112,8 +113,9 @@ class InvestmentOptimizer:
                 red = patch_reductions[f_id]
                 selected_patches.append({
                     "id": f_id,
-                    "cve_id": f["cve_id"],
-                    "asset_id": f["asset_id"],
+                    "cve_id": f.get("cve_id"),
+                    "driver_id": f.get("cve_id") or f_id,
+                    "asset_id": f.get("asset_id"),
                     "type": "patch",
                     "severity": f.get("severity", "High"),
                     "cost": cost,
@@ -196,34 +198,38 @@ class InvestmentOptimizer:
         crisp_plan = self.optimize(base_eal, scenario_eals, budget, marginal_eals)
 
         # 2. Patch-by-CVSS Strategy (Naive baseline)
-        sorted_by_cvss = sorted(self.findings, key=lambda f: f.get("cvss", 0.0), reverse=True)
+        sorted_by_cvss = sorted(self.findings, key=lambda f: (f.get("cvss") or 0.0), reverse=True)
         cvss_spent = 0.0
         cvss_reduction = 0.0
         cvss_patches = []
         for f in sorted_by_cvss:
             f_id = f["id"]
-            cve = f["cve_id"]
+            cve = f.get("cve_id")
             f_cost = f.get("patch_cost", 250000.0 if f.get("severity") == "Critical" else 150000.0)
             if cvss_spent + f_cost <= budget:
                 cvss_spent += f_cost
                 red = (marginal_eals.get(cve) or marginal_eals.get(f_id) or 0.0) if marginal_eals else 0.0
                 cvss_reduction += red
-                cvss_patches.append(cve)
+                cvss_patches.append(cve or f.get("issue_type") or f_id)
 
         # 3. Patch-by-EPSS Strategy (Threat-intel baseline)
-        sorted_by_epss = sorted(self.findings, key=lambda f: self.cve_intel.get(f["cve_id"], {}).get("epss", 0.0), reverse=True)
+        sorted_by_epss = sorted(
+            self.findings,
+            key=lambda f: self.cve_intel.get(f.get("cve_id"), {}).get("epss", 0.0) if f.get("cve_id") else 0.0,
+            reverse=True
+        )
         epss_spent = 0.0
         epss_reduction = 0.0
         epss_patches = []
         for f in sorted_by_epss:
             f_id = f["id"]
-            cve = f["cve_id"]
+            cve = f.get("cve_id")
             f_cost = f.get("patch_cost", 250000.0 if f.get("severity") == "Critical" else 150000.0)
             if epss_spent + f_cost <= budget:
                 epss_spent += f_cost
                 red = (marginal_eals.get(cve) or marginal_eals.get(f_id) or 0.0) if marginal_eals else 0.0
                 epss_reduction += red
-                epss_patches.append(cve)
+                epss_patches.append(cve or f.get("issue_type") or f_id)
 
         # Outperformance calculation
         crisp_red = crisp_plan["total_reduction"]

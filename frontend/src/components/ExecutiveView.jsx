@@ -5,10 +5,21 @@ import {
 } from 'recharts';
 import { ShieldCheck, TrendingUp, AlertOctagon, HelpCircle, Layers, Award } from 'lucide-react';
 import { formatINR, formatINRFull } from '../utils/formatters';
+import EmptyState from './EmptyState';
 
-export default function ExecutiveView({ summary, curveData, tornadoData }) {
+export default function ExecutiveView({ summary, curveData, tornadoData, onNavigateToIngestion }) {
   if (!summary || !summary.org) {
     return <div className="glass-panel" style={{ padding: 40, textAlign: 'center' }}>Loading CRISP Executive Analytics...</div>;
+  }
+
+  if (summary.status === 'NO_DATA' || summary.status === 'NO_FINDINGS') {
+    return (
+      <EmptyState
+        status={summary.status}
+        message={summary.message}
+        onNavigateToIngestion={onNavigateToIngestion}
+      />
+    );
   }
 
   const { eal, var95, var99, tail, score, appetite, headroom } = summary.org;

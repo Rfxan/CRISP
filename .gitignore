@@ -47,3 +47,6 @@ lerna-debug.log*
 *.swo
 .DS_Store
 Thumbs.db
+
+# Scratch and temporary testing files
+scratch/

@@ -5,12 +5,15 @@ import {
 import { Sparkles, Clock, CheckCircle2, RefreshCw, ArrowRight, ShieldAlert, Sliders, Play } from 'lucide-react';
 import { formatINR, formatINRFull } from '../utils/formatters';
 import { api } from '../services/api';
+import EmptyState from './EmptyState';
 
-export default function WhatIfSimulator({ baselineEal, baselineVar95 }) {
+export default function WhatIfSimulator({ baselineEal, baselineVar95, status, onNavigateToIngestion }) {
   const [mode, setMode] = useState('presets'); // 'presets' | 'custom'
   const [selectedPreset, setSelectedPreset] = useState('mfa');
   const [simResult, setSimResult] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  const isEmpty = status === 'NO_DATA' || status === 'NO_FINDINGS' || baselineEal == null;
 
   // Custom scenario builder state
   const [customControl, setCustomControl] = useState('CTRL-MFA-01');
@@ -84,8 +87,21 @@ export default function WhatIfSimulator({ baselineEal, baselineVar95 }) {
   };
 
   useEffect(() => {
-    handleSimulate('mfa');
-  }, []);
+    if (!isEmpty) {
+      handleSimulate('mfa');
+    }
+  }, [baselineEal, status]);
+
+  if (isEmpty) {
+    return (
+      <EmptyState
+        status={status || 'NO_DATA'}
+        title="What-If Simulator Unavailable"
+        message="Cannot simulate control interventions without baseline risk data. Ingest an asset inventory and scan results first."
+        onNavigateToIngestion={onNavigateToIngestion}
+      />
+    );
+  }
 
   const delta = simResult?.delta;
   const costOfDelay = simResult?.cost_of_delay;

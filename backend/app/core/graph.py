@@ -3,8 +3,8 @@ from typing import Dict, List, Any
 
 class DependencyGraph:
     def __init__(self, services: List[Dict[str, Any]], assets: List[Dict[str, Any]]):
-        self.services = {s["id"]: s for s in services}
-        self.assets = {a["id"]: a for a in assets}
+        self.services = {(s.get("id") or s.get("service_id")): s for s in services}
+        self.assets = {(a.get("id") or a.get("asset_id")): a for a in assets}
         self.graph = nx.DiGraph()
         self._build_graph()
 
