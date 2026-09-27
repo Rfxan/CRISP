@@ -1,4 +1,5 @@
-from typing import Dict, Any, List
+import re
+from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 import xml.etree.ElementTree as ET
 import csv
@@ -13,8 +14,8 @@ logger = logging.getLogger(__name__)
 class OpenVASConnector(BaseConnector):
     """
     OpenVAS / Greenbone GMP Connector.
-    Parses OpenVAS XML/CSV/JSON reports into CRISP findings canonical model.
-    Never fabricates values — skips results with missing required fields.
+    Parses OpenVAS XML/CSV/JSON reports into CRISP canonical findings model.
+    Extracts real host identifiers from <host> tags and never fabricates business-context fields.
     """
     def __init__(self, raw_report_path: str = None):
         self.raw_report_path = raw_report_path
@@ -36,9 +37,10 @@ class OpenVASConnector(BaseConnector):
                     "id": item.get("id", f"FND-OV-{idx+1:03d}"),
                     "asset_id": item.get("asset_id"),
                     "cve_id": item.get("cve_id"),
+                    "name": item.get("name", "Vulnerability Finding"),
                     "cvss": float(item.get("cvss", 5.0)),
                     "severity": item.get("severity", "Medium"),
-                    "port": int(item.get("port", 80)),
+                    "port": int(item.get("port", 0)),
                     "first_seen": item.get("first_seen", datetime.now(timezone.utc).isoformat()),
                     "last_seen": item.get("last_seen", datetime.now(timezone.utc).isoformat()),
                     "source": "OpenVAS Scanner"
@@ -49,7 +51,8 @@ class OpenVASConnector(BaseConnector):
         """
         Parses OpenVAS report content (XML, CSV, or JSON) into standard findings.
         Returns { "findings": [...], "skipped": int, "skip_reasons": [...] }
-        Never fabricates values — skips results with missing required fields.
+        Extracts real host values from <host> tags.
+        Findings strictly contain technical scan attributes — never business metrics.
         """
         new_findings = []
         skipped = 0
@@ -59,48 +62,83 @@ class OpenVASConnector(BaseConnector):
         if fname.endswith(".json"):
             data = json.loads(content.decode("utf-8"))
             if isinstance(data, list):
-                new_findings = data
+                raw_list = data
             elif isinstance(data, dict) and "findings" in data:
-                new_findings = data["findings"]
+                raw_list = data["findings"]
+            else:
+                raw_list = []
+
+            for idx, item in enumerate(raw_list):
+                asset = item.get("asset_id") or item.get("host")
+                if not asset:
+                    skipped += 1
+                    skip_reasons.append(f"JSON item #{idx + 1}: missing asset_id/host")
+                    continue
+                try:
+                    cvss_val = float(item.get("cvss", 0.0))
+                except (ValueError, TypeError):
+                    cvss_val = 0.0
+
+                new_findings.append({
+                    "id": item.get("id", f"FND-OV-{finding_id_offset + len(new_findings) + 1:03d}"),
+                    "asset_id": str(asset).strip(),
+                    "cve_id": item.get("cve_id"),
+                    "name": item.get("name", "Vulnerability Finding"),
+                    "cvss": round(cvss_val, 1),
+                    "severity": item.get("severity", "Medium"),
+                    "port": int(item.get("port", 0)),
+                    "first_seen": item.get("first_seen", datetime.now(timezone.utc).isoformat()),
+                    "last_seen": item.get("last_seen", datetime.now(timezone.utc).isoformat()),
+                    "source": "OpenVAS Scanner"
+                })
 
         elif fname.endswith(".csv"):
             reader = csv.DictReader(io.StringIO(content.decode("utf-8", errors="ignore")))
             for row_idx, row in enumerate(reader):
+                asset = row.get("Host") or row.get("asset_id") or row.get("IP")
+                if not asset or not asset.strip():
+                    reason = f"CSV row {row_idx + 1}: missing Host / asset_id"
+                    skip_reasons.append(reason)
+                    skipped += 1
+                    continue
+
                 cve = row.get("CVE") or row.get("cve_id")
-                asset = row.get("Host") or row.get("asset_id")
+                if cve:
+                    cve = cve.strip()
+                    if cve.upper() in ["NOCVE", "NONE", ""]:
+                        cve = None
+
                 cvss_raw = row.get("CVSS") or row.get("cvss")
+                cvss_val = 0.0
+                if cvss_raw:
+                    try:
+                        cvss_val = float(cvss_raw)
+                    except ValueError:
+                        cvss_val = 0.0
 
-                missing = []
-                if not cve:
-                    missing.append("CVE/cve_id")
-                if not asset:
-                    missing.append("Host/asset_id")
-                if not cvss_raw:
-                    missing.append("CVSS/cvss")
+                port_raw = row.get("Port") or row.get("port") or "0"
+                port_m = re.match(r"^(\d+)", str(port_raw).strip())
+                port_val = int(port_m.group(1)) if port_m else 0
 
-                if missing:
-                    reason = f"CSV row {row_idx + 1}: missing {', '.join(missing)}"
-                    skip_reasons.append(reason)
-                    logger.warning(f"OpenVAS CSV parse skipped: {reason}")
-                    skipped += 1
-                    continue
-
-                try:
-                    cvss_val = float(cvss_raw)
-                except ValueError:
-                    reason = f"CSV row {row_idx + 1}: invalid CVSS value '{cvss_raw}'"
-                    skip_reasons.append(reason)
-                    logger.warning(f"OpenVAS CSV parse skipped: {reason}")
-                    skipped += 1
-                    continue
+                sev = row.get("Severity") or row.get("severity")
+                if not sev:
+                    if cvss_val >= 9.0:
+                        sev = "Critical"
+                    elif cvss_val >= 7.0:
+                        sev = "High"
+                    elif cvss_val >= 4.0:
+                        sev = "Medium"
+                    else:
+                        sev = "Low"
 
                 new_findings.append({
                     "id": f"FND-OV-{finding_id_offset + len(new_findings) + 1:03d}",
-                    "asset_id": asset,
+                    "asset_id": asset.strip(),
                     "cve_id": cve,
-                    "cvss": cvss_val,
-                    "severity": "Critical" if cvss_val >= 9.0 else ("High" if cvss_val >= 7.0 else "Medium"),
-                    "port": int(row.get("Port") or 80),
+                    "name": row.get("Name") or row.get("name") or "Vulnerability Finding",
+                    "cvss": round(cvss_val, 1),
+                    "severity": sev.capitalize(),
+                    "port": port_val,
                     "first_seen": datetime.now(timezone.utc).isoformat(),
                     "last_seen": datetime.now(timezone.utc).isoformat(),
                     "source": "Uploaded OpenVAS CSV"
@@ -109,62 +147,123 @@ class OpenVASConnector(BaseConnector):
         elif fname.endswith(".xml"):
             root = ET.fromstring(content)
             for result_idx, result in enumerate(root.iter("result")):
+                # 1. Real Host extraction
                 host_elem = result.find("host")
-                nvt_elem = result.find("nvt")
+                host = None
+                if host_elem is not None:
+                    direct_text = (host_elem.text or "").strip()
+                    if direct_text:
+                        host = direct_text
+                    else:
+                        hostname_elem = host_elem.find("hostname")
+                        if hostname_elem is not None and hostname_elem.text and hostname_elem.text.strip():
+                            host = hostname_elem.text.strip()
+                        else:
+                            all_text = "".join(host_elem.itertext()).strip()
+                            if all_text:
+                                host = all_text
 
-                if host_elem is None or not host_elem.text or not host_elem.text.strip():
+                if not host:
                     reason = f"XML <result> #{result_idx + 1}: missing or empty <host>"
                     skip_reasons.append(reason)
                     logger.warning(f"OpenVAS XML parse skipped: {reason}")
                     skipped += 1
                     continue
 
-                host = host_elem.text.strip()
+                # 2. Port extraction
+                port_elem = result.find("port")
+                port_val = 0
+                if port_elem is not None and port_elem.text and port_elem.text.strip():
+                    p_str = port_elem.text.strip()
+                    m = re.match(r"^(\d+)", p_str)
+                    if m:
+                        port_val = int(m.group(1))
 
-                if nvt_elem is None:
-                    reason = f"XML <result> #{result_idx + 1}: missing <nvt> element"
-                    skip_reasons.append(reason)
-                    logger.warning(f"OpenVAS XML parse skipped: {reason}")
-                    skipped += 1
-                    continue
+                # 3. NVT details (Name, CVE, CVSS)
+                nvt_elem = result.find("nvt")
+                finding_name = "Vulnerability Finding"
+                cve_id = None
+                cvss_val = None
 
-                cve_elem = nvt_elem.find("cve")
-                cvss_elem = nvt_elem.find("cvss_base")
+                if nvt_elem is not None:
+                    name_elem = nvt_elem.find("name")
+                    if name_elem is not None and name_elem.text and name_elem.text.strip():
+                        finding_name = name_elem.text.strip()
 
-                if cve_elem is None or not cve_elem.text or not cve_elem.text.strip():
-                    reason = f"XML <result> #{result_idx + 1}: missing or empty <cve> in <nvt>"
-                    skip_reasons.append(reason)
-                    logger.warning(f"OpenVAS XML parse skipped: {reason}")
-                    skipped += 1
-                    continue
+                    # Direct <cve> tag
+                    cve_elem = nvt_elem.find("cve")
+                    if cve_elem is not None and cve_elem.text and cve_elem.text.strip() and cve_elem.text.strip().upper() != "NOCVE":
+                        cve_id = cve_elem.text.split(",")[0].strip()
 
-                if cvss_elem is None or not cvss_elem.text or not cvss_elem.text.strip():
-                    reason = f"XML <result> #{result_idx + 1}: missing or empty <cvss_base> in <nvt>"
-                    skip_reasons.append(reason)
-                    logger.warning(f"OpenVAS XML parse skipped: {reason}")
-                    skipped += 1
-                    continue
+                    # Check <refs><ref type="cve" id="..."/>
+                    if not cve_id:
+                        for ref in nvt_elem.findall("refs/ref"):
+                            if ref.get("type", "").lower() == "cve" and ref.get("id"):
+                                cve_id = ref.get("id").strip()
+                                break
 
-                cve = cve_elem.text.split(",")[0].strip()
-                try:
-                    cvss_val = float(cvss_elem.text)
-                except ValueError:
-                    reason = f"XML <result> #{result_idx + 1}: invalid <cvss_base> value '{cvss_elem.text}'"
-                    skip_reasons.append(reason)
-                    logger.warning(f"OpenVAS XML parse skipped: {reason}")
-                    skipped += 1
-                    continue
+                    # Check <xref> tags for CVE patterns
+                    if not cve_id:
+                        for xref in nvt_elem.findall("xref"):
+                            if xref.text and "cve" in xref.text.lower():
+                                m = re.search(r"CVE-\d{4}-\d+", xref.text, re.IGNORECASE)
+                                if m:
+                                    cve_id = m.group(0).upper()
+                                    break
 
+                    # CVSS Base score from NVT
+                    cvss_elem = nvt_elem.find("cvss_base")
+                    if cvss_elem is not None and cvss_elem.text and cvss_elem.text.strip():
+                        try:
+                            cvss_val = float(cvss_elem.text.strip())
+                        except ValueError:
+                            pass
+                else:
+                    name_elem = result.find("name")
+                    if name_elem is not None and name_elem.text and name_elem.text.strip():
+                        finding_name = name_elem.text.strip()
+
+                # Fallback to result-level <severity>
+                if cvss_val is None:
+                    sev_elem = result.find("severity")
+                    if sev_elem is not None and sev_elem.text and sev_elem.text.strip():
+                        try:
+                            cvss_val = float(sev_elem.text.strip())
+                        except ValueError:
+                            pass
+
+                # Fallback to result-level <threat>
+                threat_elem = result.find("threat")
+                threat_str = (threat_elem.text.strip() if threat_elem is not None and threat_elem.text else "").capitalize()
+
+                if cvss_val is None:
+                    threat_cvss = {"Critical": 9.5, "High": 7.5, "Medium": 5.0, "Low": 2.5, "Log": 0.0}
+                    cvss_val = threat_cvss.get(threat_str, 0.0)
+
+                # Determine categorical severity
+                if cvss_val >= 9.0:
+                    severity = "Critical"
+                elif cvss_val >= 7.0:
+                    severity = "High"
+                elif cvss_val >= 4.0:
+                    severity = "Medium"
+                elif cvss_val > 0.0:
+                    severity = "Low"
+                else:
+                    severity = threat_str or "Info"
+
+                # Findings strictly contain technical attributes — never synthetic business values
                 new_findings.append({
                     "id": f"FND-OV-{finding_id_offset + len(new_findings) + 1:03d}",
                     "asset_id": host,
-                    "cve_id": cve,
-                    "cvss": cvss_val,
-                    "severity": "Critical" if cvss_val >= 9.0 else "High",
-                    "port": 443,
+                    "cve_id": cve_id,
+                    "name": finding_name,
+                    "cvss": round(cvss_val, 1),
+                    "severity": severity,
+                    "port": port_val,
                     "first_seen": datetime.now(timezone.utc).isoformat(),
                     "last_seen": datetime.now(timezone.utc).isoformat(),
-                    "source": "Uploaded OpenVAS XML"
+                    "source": "OpenVAS Scanner"
                 })
 
         return {

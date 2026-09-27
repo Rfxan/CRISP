@@ -21,9 +21,9 @@ class DependencyGraph:
                 a_id,
                 type="asset",
                 name=a["name"],
-                revenue_per_hour=a.get("revenue_per_hour", 0.0),
-                criticality=a.get("criticality_1_5", 3),
-                internet_facing=a.get("internet_facing", False)
+                revenue_per_hour=float(a.get("revenue_per_hour") or 0.0),
+                criticality=float(a.get("criticality_1_5") or 1.0),
+                internet_facing=bool(a.get("internet_facing", False))
             )
             svc_id = a.get("business_service_id")
             if svc_id and svc_id in self.services:

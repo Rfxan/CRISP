@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { 
   Database, UploadCloud, RefreshCw, Shield, AlertTriangle, 
   CheckCircle2, FileText, Sliders, Globe, Server, Activity,
-  Sparkles, Plus, Cpu
+  Sparkles, Plus, PlusCircle, Cpu
 } from 'lucide-react';
 import { formatINR } from '../utils/formatters';
 import { api } from '../services/api';
 import VendorWizard from './VendorWizard';
+import AddAssetForm from './AddAssetForm';
 
 export default function DataIngestionHub({ onDataUpdated }) {
   const [snapshot, setSnapshot] = useState(null);
@@ -19,6 +20,16 @@ export default function DataIngestionHub({ onDataUpdated }) {
   const [controlEdits, setControlEdits] = useState({});
   const [customVendors, setCustomVendors] = useState([]);
   const [uploadingVendorSlug, setUploadingVendorSlug] = useState(null);
+  const [showAddAssetModal, setShowAddAssetModal] = useState(false);
+
+  const handleAssetAdded = async (res) => {
+    setStatusMsg({
+      type: 'success',
+      text: `Asset '${res.asset?.name || res.asset?.id}' added successfully! Total assets: ${res.total_active_assets}. New Organization EAL: ${res.new_eal ? formatINR(res.new_eal) : 'Recalculated'}`
+    });
+    await fetchSnapshot();
+    if (onDataUpdated) onDataUpdated();
+  };
 
   const fetchVendors = async () => {
     try {
@@ -92,18 +103,6 @@ export default function DataIngestionHub({ onDataUpdated }) {
   const handleFileUpload = async (e, type) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    if (type === 'openvas') {
-      const assetCount = snapshot?.assets?.length || 0;
-      if (assetCount === 0) {
-        setStatusMsg({
-          type: 'error',
-          text: 'Please upload your asset inventory first — findings need to be linked to assets to calculate financial risk.'
-        });
-        e.target.value = '';
-        return;
-      }
-    }
 
     const formData = new FormData();
     formData.append('file', file);
@@ -613,7 +612,13 @@ export default function DataIngestionHub({ onDataUpdated }) {
                       <tr key={f.id || i} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
                         <td style={{ padding: '10px 12px', color: '#00f2fe', fontFamily: 'monospace' }}>{f.id}</td>
                         <td style={{ padding: '10px 12px', fontWeight: 600 }}>{f.asset_id}</td>
-                        <td style={{ padding: '10px 12px', color: '#f59e0b', fontFamily: 'monospace' }}>{f.cve_id}</td>
+                        <td style={{ padding: '10px 12px', color: '#f59e0b', fontFamily: 'monospace' }}>
+                          {f.cve_id ? (
+                            f.cve_id
+                          ) : (
+                            <span style={{ color: 'var(--text-dim)', fontStyle: 'italic', fontSize: 11 }}>No CVE (Plugin Finding)</span>
+                          )}
+                        </td>
                         <td style={{ padding: '10px 12px' }}>
                           <span style={{
                             padding: '2px 8px', borderRadius: 4,
@@ -656,7 +661,7 @@ export default function DataIngestionHub({ onDataUpdated }) {
               Upload your CMDB CSV export with columns: Asset ID, Name, Service, Criticality (1-5), Records, RevenuePerHour.
             </p>
 
-            <div style={{ display: 'inline-block' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
               <label className="btn btn-secondary" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px' }}>
                 <FileText size={16} />
                 <span>{uploadingAssets ? 'Loading Inventory...' : 'Upload Asset CSV'}</span>
@@ -668,6 +673,25 @@ export default function DataIngestionHub({ onDataUpdated }) {
                   style={{ display: 'none' }}
                 />
               </label>
+
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => setShowAddAssetModal(true)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '10px 20px',
+                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  color: '#fff',
+                  boxShadow: '0 0 15px rgba(16, 185, 129, 0.35)',
+                  cursor: 'pointer'
+                }}
+              >
+                <PlusCircle size={16} />
+                <span>Add Asset Manually</span>
+              </button>
             </div>
           </div>
 
@@ -700,25 +724,50 @@ export default function DataIngestionHub({ onDataUpdated }) {
                   {assets.map((a) => (
                     <tr key={a.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
                       <td style={{ padding: '10px 12px', color: '#00f2fe', fontFamily: 'monospace' }}>{a.id}</td>
-                      <td style={{ padding: '10px 12px', fontWeight: 600 }}>{a.name}</td>
-                      <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>{a.business_service_id}</td>
-                      <td style={{ padding: '10px 12px' }}>
-                        <span style={{
-                          padding: '2px 8px', borderRadius: 4,
-                          background: a.criticality_1_5 >= 4 ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)',
-                          color: a.criticality_1_5 >= 4 ? '#ef4444' : '#10b981',
-                          fontWeight: 700
-                        }}>
-                          Level {a.criticality_1_5} / 5
-                        </span>
+                      <td style={{ padding: '10px 12px', fontWeight: 600 }}>
+                        <div>{a.name || a.id}</div>
+                        {!a.has_business_context && !a.business_service_id && (
+                          <div style={{ marginTop: 3 }}>
+                            <span className="badge badge-amber" style={{ fontSize: 9, padding: '1px 6px' }}>
+                              No business context defined for this asset
+                            </span>
+                          </div>
+                        )}
                       </td>
-                      <td style={{ padding: '10px 12px' }}>{(a.records_count || 0).toLocaleString()}</td>
-                      <td style={{ padding: '10px 12px', color: '#10b981', fontWeight: 600 }}>{formatINR(a.revenue_per_hour || 0)}</td>
                       <td style={{ padding: '10px 12px' }}>
-                        {a.internet_facing ? (
-                          <span className="badge" style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}>Public</span>
+                        {a.business_service_id ? (
+                          <span style={{ color: 'var(--text-muted)' }}>{a.business_service_id}</span>
                         ) : (
+                          <span style={{ color: 'var(--text-dim)', fontStyle: 'italic', fontSize: 11 }}>Unassigned</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '10px 12px' }}>
+                        {a.criticality_1_5 != null ? (
+                          <span style={{
+                            padding: '2px 8px', borderRadius: 4,
+                            background: a.criticality_1_5 >= 4 ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)',
+                            color: a.criticality_1_5 >= 4 ? '#ef4444' : '#10b981',
+                            fontWeight: 700
+                          }}>
+                            Level {a.criticality_1_5} / 5
+                          </span>
+                        ) : (
+                          <span style={{ color: 'var(--text-dim)', fontStyle: 'italic', fontSize: 11 }}>Unassigned</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '10px 12px' }}>
+                        {a.records_count != null ? a.records_count.toLocaleString() : <span style={{ color: 'var(--text-dim)' }}>—</span>}
+                      </td>
+                      <td style={{ padding: '10px 12px', color: '#10b981', fontWeight: 600 }}>
+                        {a.revenue_per_hour != null ? formatINR(a.revenue_per_hour) : <span style={{ color: 'var(--text-dim)' }}>—</span>}
+                      </td>
+                      <td style={{ padding: '10px 12px' }}>
+                        {a.internet_facing === true ? (
+                          <span className="badge" style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}>Public</span>
+                        ) : a.internet_facing === false ? (
                           <span className="badge" style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10b981' }}>Internal</span>
+                        ) : (
+                          <span style={{ color: 'var(--text-dim)', fontStyle: 'italic', fontSize: 11 }}>Unknown</span>
                         )}
                       </td>
                     </tr>
@@ -742,6 +791,14 @@ export default function DataIngestionHub({ onDataUpdated }) {
           onCancel={() => setActiveSection('scans')}
         />
       )}
+
+      {/* Manual Asset Creation Modal */}
+      <AddAssetForm
+        isOpen={showAddAssetModal}
+        onClose={() => setShowAddAssetModal(false)}
+        existingServices={snapshot?.services || []}
+        onAssetAdded={handleAssetAdded}
+      />
     </div>
   );
 }

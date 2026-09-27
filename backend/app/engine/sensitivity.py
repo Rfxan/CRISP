@@ -38,18 +38,18 @@ class SensitivityAnalyzer:
 
             elif key == "cost_per_record":
                 for a in snap_low.get("assets", []):
-                    if "records_count" in a:
+                    if a.get("records_count") is not None:
                         a["records_count"] = int(a["records_count"] * 0.70)
                 for a in snap_high.get("assets", []):
-                    if "records_count" in a:
+                    if a.get("records_count") is not None:
                         a["records_count"] = int(a["records_count"] * 1.30)
 
             elif key == "dpdp_penalty":
                 for a in snap_low.get("assets", []):
-                    if a.get("data_classification") == "Restricted Financial PII":
+                    if a.get("data_classification") == "Restricted Financial PII" and a.get("records_count") is not None:
                         a["records_count"] = int(a["records_count"] * 0.70)
                 for a in snap_high.get("assets", []):
-                    if a.get("data_classification") == "Restricted Financial PII":
+                    if a.get("data_classification") == "Restricted Financial PII" and a.get("records_count") is not None:
                         a["records_count"] = int(a["records_count"] * 1.30)
 
             elif key == "downtime":

@@ -143,6 +143,19 @@ export const api = {
     return res.json();
   },
 
+  async addAsset(assetData) {
+    const res = await fetch(`${API_BASE}/assets/add`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(assetData)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to add asset');
+    }
+    return res.json();
+  },
+
   async inspectVendorFile(formData) {
     const res = await fetch(`${API_BASE}/vendors/inspect`, {
       method: 'POST',

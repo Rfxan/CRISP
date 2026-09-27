@@ -170,10 +170,10 @@ class FAIREngine:
                 pair_seed = int((active_seed * 10007 + sc_idx * 9973 + a_idx * 137) % (2**31 - 1))
                 rng_pair = np.random.default_rng(pair_seed)
 
-                crit = asset.get("criticality_1_5", 3)
-                is_pub = asset.get("internet_facing", False)
+                crit = float(asset.get("criticality_1_5") or 1.0)
+                is_pub = bool(asset.get("internet_facing", False))
                 svc_id = asset.get("business_service_id")
-                records = asset.get("records_count", 0)
+                records = int(asset.get("records_count") or 0)
 
                 # Compute asset exploitability P_vuln
                 f_list = asset_findings.get(a_id, [])

@@ -201,6 +201,23 @@ class ConnectionPayload(BaseModel):
     username: Optional[str] = ""
     password: Optional[str] = ""
 
+class AddAssetRequest(BaseModel):
+    id: Optional[str] = None
+    asset_id: Optional[str] = None
+    name: Optional[str] = None
+    business_service_id: Optional[str] = None
+    service: Optional[str] = None
+    criticality_1_5: Optional[int] = None
+    criticality: Optional[int] = None
+    records_count: Optional[int] = 0
+    records: Optional[int] = None
+    revenue_per_hour: Optional[float] = 0.0
+    internet_facing: Optional[bool] = False
+    type: Optional[str] = "Server"
+    owner: Optional[str] = None
+    environment: Optional[str] = "Production"
+    data_classification: Optional[str] = "Confidential"
+
 # --- API Endpoints matching Section 11 & Dynamic Ingestion ---
 
 @router.get("/risk/summary")
@@ -506,14 +523,9 @@ async def ingest_openvas_scan(file: UploadFile = File(...)):
     """
     Parses uploaded OpenVAS report (XML, CSV, or JSON format), extracts real findings,
     enriches them with threat intel, and updates the active snapshot.
-    Delegates parsing to OpenVASConnector — skips results with missing fields.
+    Delegates parsing to OpenVASConnector.
+    Never invents business metrics — discovered hosts are created with null business context.
     """
-    if len(store.current_snapshot.get("assets", [])) == 0:
-        raise HTTPException(
-            status_code=400,
-            detail="Please upload your asset inventory first — findings need to be linked to assets to calculate financial risk."
-        )
-
     content = await file.read()
     filename = file.filename or "report.xml"
 
@@ -528,16 +540,40 @@ async def ingest_openvas_scan(file: UploadFile = File(...)):
     skip_reasons = result["skip_reasons"]
 
     if new_findings:
-        store.current_snapshot["findings"].extend(new_findings)
-        # Fetch intel for new findings
+        # Register any discovered hosts in assets without inventing business context
+        existing_assets = {a.get("id"): a for a in store.current_snapshot.get("assets", [])}
         for f in new_findings:
-            cve = f["cve_id"]
-            if cve not in store.current_snapshot["cve_intel"]:
+            aid = f.get("asset_id")
+            if aid and aid not in existing_assets:
+                new_asset = {
+                    "id": aid,
+                    "name": aid,
+                    "type": "Discovered Host",
+                    "owner": None,
+                    "business_service_id": None,
+                    "environment": None,
+                    "internet_facing": None,
+                    "data_classification": None,
+                    "records_count": None,
+                    "revenue_per_hour": None,
+                    "criticality_1_5": None,
+                    "is_real_lab_asset": True,
+                    "has_business_context": False
+                }
+                store.current_snapshot.setdefault("assets", []).append(new_asset)
+                existing_assets[aid] = new_asset
+
+        store.current_snapshot["findings"].extend(new_findings)
+
+        # Fetch intel for new findings with valid cve_id
+        for f in new_findings:
+            cve = f.get("cve_id")
+            if cve and cve not in store.current_snapshot["cve_intel"]:
                 live_data = store.threat_intel.fetch_live_epss(cve)
                 if live_data:
                     store.current_snapshot["cve_intel"][cve] = {
                         "cve_id": cve,
-                        "description": "Vulnerability parsed from scan file",
+                        "description": f.get("name", "Vulnerability from scan"),
                         "epss": live_data["epss"],
                         "epss_percentile": live_data["epss_percentile"],
                         "in_kev": False,
@@ -547,7 +583,7 @@ async def ingest_openvas_scan(file: UploadFile = File(...)):
                 else:
                     store.current_snapshot["cve_intel"][cve] = {
                         "cve_id": cve,
-                        "description": "Vulnerability parsed from scan file (EPSS lookup failed)",
+                        "description": f.get("name", "Vulnerability from scan"),
                         "epss": 0.15,
                         "epss_percentile": 0.50,
                         "in_kev": False,
@@ -562,6 +598,7 @@ async def ingest_openvas_scan(file: UploadFile = File(...)):
         "skipped": skipped,
         "skip_reasons": skip_reasons,
         "total_active_findings": len(store.current_snapshot["findings"]),
+        "total_active_assets": len(store.current_snapshot["assets"]),
         "new_eal": store.cached_summary["org"]["eal"] if store.cached_summary else None
     }
 
@@ -573,12 +610,6 @@ async def ingest_unified_scan(file: UploadFile = File(...)):
     - Nessus (XML with <NessusClientData_v2> root)
     Auto-detects format from file content. Returns 400 for unknown formats.
     """
-    if len(store.current_snapshot.get("assets", [])) == 0:
-        raise HTTPException(
-            status_code=400,
-            detail="Please upload your asset inventory first — findings need to be linked to assets to calculate financial risk."
-        )
-
     content = await file.read()
     filename = file.filename or "scan.xml"
 
@@ -614,7 +645,31 @@ async def ingest_unified_scan(file: UploadFile = File(...)):
     skip_reasons = result["skip_reasons"]
 
     if new_findings:
+        # Register any discovered hosts in assets without inventing business context
+        existing_assets = {a.get("id"): a for a in store.current_snapshot.get("assets", [])}
+        for f in new_findings:
+            aid = f.get("asset_id")
+            if aid and aid not in existing_assets:
+                new_asset = {
+                    "id": aid,
+                    "name": aid,
+                    "type": "Discovered Host",
+                    "owner": None,
+                    "business_service_id": None,
+                    "environment": None,
+                    "internet_facing": None,
+                    "data_classification": None,
+                    "records_count": None,
+                    "revenue_per_hour": None,
+                    "criticality_1_5": None,
+                    "is_real_lab_asset": True,
+                    "has_business_context": False
+                }
+                store.current_snapshot.setdefault("assets", []).append(new_asset)
+                existing_assets[aid] = new_asset
+
         store.current_snapshot["findings"].extend(new_findings)
+
         # Fetch intel for new findings
         for f in new_findings:
             cve = f.get("cve_id")
@@ -623,7 +678,7 @@ async def ingest_unified_scan(file: UploadFile = File(...)):
                 if live_data:
                     store.current_snapshot["cve_intel"][cve] = {
                         "cve_id": cve,
-                        "description": "Vulnerability parsed from scan file",
+                        "description": f.get("name", "Vulnerability from scan"),
                         "epss": live_data["epss"],
                         "epss_percentile": live_data["epss_percentile"],
                         "in_kev": False,
@@ -633,7 +688,7 @@ async def ingest_unified_scan(file: UploadFile = File(...)):
                 else:
                     store.current_snapshot["cve_intel"][cve] = {
                         "cve_id": cve,
-                        "description": "Vulnerability parsed from scan file (EPSS lookup failed)",
+                        "description": f.get("name", "Vulnerability from scan"),
                         "epss": 0.15,
                         "epss_percentile": 0.50,
                         "in_kev": False,
@@ -1078,29 +1133,127 @@ async def ingest_custom_vendor_scan(vendor_slug: str, file: UploadFile = File(..
     }
 
 
+@router.post("/data/reset")
+def reset_all_data():
+    """Resets the snapshot to a completely empty state."""
+    store._init_empty()
+    return {"status": "RESET", "message": "All assets, findings, and telemetry cleared to initial state."}
+
+
 @router.post("/ingest/assets")
 async def ingest_assets_file(file: UploadFile = File(...)):
     """
     Parses uploaded Asset Inventory CSV, updating assets and business services dynamically.
+    Rejects XML/scan files and CSVs missing required asset schema columns.
+    Never fabricates fake business parameters.
     """
     content = await file.read()
+
+    # Guard against accidental XML/scan file upload to asset inventory
+    first_chunk = content[:300].strip()
+    if first_chunk.startswith(b"<?xml") or first_chunk.startswith(b"<") or b"<report" in first_chunk:
+        raise HTTPException(
+            status_code=400,
+            detail="The uploaded file appears to be an XML scan report, not an Asset Inventory CSV. Please upload it via the Vulnerability Scan section."
+        )
+
+    text_content = content.decode("utf-8", errors="ignore")
+    reader = csv.DictReader(io.StringIO(text_content))
+    headers = [h.strip() for h in (reader.fieldnames or [])]
+    headers_lower = {h.lower(): h for h in headers}
+
+    # 1. Guard against vulnerability scan CSV exports (e.g. OpenVAS CSV, Nessus CSV)
+    scan_indicators = {"cvss", "nvt name", "nvt oid", "cves", "port protocol", "solution type", "cve_id", "severity"}
+    matching_scan_cols = [headers_lower[c] for c in scan_indicators if c in headers_lower]
+    if len(matching_scan_cols) >= 2:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"This looks like a vulnerability scan export (found scan columns: {', '.join(matching_scan_cols)}), "
+                "not an asset inventory — please upload vulnerability scans via the 'Upload Vulnerability Scan' button."
+            )
+        )
+
+    # 2. Schema requirements from Step 1 UI:
+    # "Asset ID, Name, Service, Criticality (1-5), Records, RevenuePerHour"
+    asset_id_col = None
+    for alias in ["asset id", "assetid", "asset_id", "id"]:
+        if alias in headers_lower:
+            asset_id_col = headers_lower[alias]
+            break
+
+    service_col = None
+    for alias in ["service", "business_service_id", "business service", "service_id"]:
+        if alias in headers_lower:
+            service_col = headers_lower[alias]
+            break
+
+    crit_col = None
+    for alias in ["criticality", "criticality_1_5", "criticality (1-5)"]:
+        if alias in headers_lower:
+            crit_col = headers_lower[alias]
+            break
+
+    exposure_col = None
+    for alias in ["revenueperhour", "revenue_per_hour", "revenue exposure / hr", "revenue exposure/hr", "records", "records_count", "pii records"]:
+        if alias in headers_lower:
+            exposure_col = headers_lower[alias]
+            break
+
+    missing = []
+    if not asset_id_col:
+        missing.append("Asset ID (expected: 'Asset ID' or 'id')")
+    if not service_col:
+        missing.append("Service (expected: 'Service' or 'business_service_id')")
+    if not crit_col:
+        missing.append("Criticality (expected: 'Criticality' or 'criticality_1_5')")
+    if not exposure_col:
+        missing.append("RevenuePerHour or Records (expected: 'RevenuePerHour' or 'Records')")
+
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Missing required asset inventory columns: {', '.join(missing)}. "
+                "Please upload a CSV with columns: Asset ID, Name, Service, Criticality (1-5), Records, RevenuePerHour."
+            )
+        )
+
     new_assets = []
     try:
-        reader = csv.DictReader(io.StringIO(content.decode("utf-8", errors="ignore")))
         for idx, row in enumerate(reader):
-            a_id = row.get("Asset ID") or row.get("id") or f"AST-CUSTOM-{idx+1:03d}"
-            name = row.get("Name") or row.get("name") or f"Host {a_id}"
-            svc = row.get("Service") or row.get("business_service_id") or "SVC-PAY"
-            crit = int(row.get("Criticality") or row.get("criticality_1_5") or 3)
-            records = int(row.get("Records") or row.get("records_count") or 10000)
-            rev = float(row.get("RevenuePerHour") or row.get("revenue_per_hour") or 50000.0)
-            pub = str(row.get("InternetFacing", "")).lower() in ["true", "1", "yes"]
+            a_id = (row.get(asset_id_col) or "").strip()
+            if not a_id:
+                continue
+
+            name = (row.get("Name") or row.get("name") or f"Host {a_id}").strip()
+            svc = (row.get(service_col) or "").strip() or None
+
+            crit_raw = (row.get(crit_col) or "").strip() if crit_col else ""
+            crit = int(crit_raw) if crit_raw.isdigit() else None
+
+            rec_col = next((headers_lower[a] for a in ["records", "records_count", "pii records"] if a in headers_lower), None)
+            rec_raw = (row.get(rec_col) or "").strip() if rec_col else ""
+            records = int(rec_raw) if rec_raw.isdigit() else None
+
+            rev_col = next((headers_lower[a] for a in ["revenueperhour", "revenue_per_hour", "revenue exposure / hr", "revenue exposure/hr"] if a in headers_lower), None)
+            rev_raw = (row.get(rev_col) or "").strip() if rev_col else ""
+            try:
+                rev = float(rev_raw) if rev_raw else None
+            except ValueError:
+                rev = None
+
+            pub_col = next((headers_lower[a] for a in ["internetfacing", "internet_facing"] if a in headers_lower), None)
+            pub_raw = (row.get(pub_col) or "").strip().lower() if pub_col else ""
+            pub = pub_raw in ["true", "1", "yes"] if pub_raw else None
+
+            has_biz = bool(svc or crit is not None or records is not None or rev is not None)
 
             new_assets.append({
                 "id": a_id,
                 "name": name,
                 "type": row.get("Type", "Server"),
-                "owner": row.get("Owner", "SecOps"),
+                "owner": row.get("Owner"),
                 "business_service_id": svc,
                 "environment": row.get("Environment", "Production"),
                 "internet_facing": pub,
@@ -1108,16 +1261,22 @@ async def ingest_assets_file(file: UploadFile = File(...)):
                 "records_count": records,
                 "revenue_per_hour": rev,
                 "criticality_1_5": crit,
-                "is_real_lab_asset": True
+                "is_real_lab_asset": True,
+                "has_business_context": has_biz
             })
+
         if new_assets:
-            store.current_snapshot["assets"] = new_assets
+            existing_map = {a["id"]: a for a in store.current_snapshot.get("assets", [])}
+            for a in new_assets:
+                existing_map[a["id"]] = a
+            store.current_snapshot["assets"] = list(existing_map.values())
+
             if not store.current_snapshot.get("organization"):
                 store.current_snapshot["organization"] = {
                     "name": "Live Organization",
                     "risk_appetite_var95": settings.DEFAULT_RISK_APPETITE
                 }
-            svc_ids = {a["business_service_id"] for a in new_assets}
+            svc_ids = {a["business_service_id"] for a in new_assets if a["business_service_id"]}
             existing_svcs = {s["service_id"] for s in store.current_snapshot.get("services", [])}
             for sid in svc_ids:
                 if sid not in existing_svcs:
@@ -1128,14 +1287,106 @@ async def ingest_assets_file(file: UploadFile = File(...)):
                         "rto_hours": 4.0
                     })
             store.get_summary(force_refresh=True)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to parse Asset CSV: {str(e)}")
 
     return {
         "status": "ASSETS_INGESTED",
         "assets_loaded": len(new_assets),
+        "total_active_assets": len(store.current_snapshot["assets"]),
         "new_eal": store.cached_summary["org"]["eal"] if store.cached_summary else None
     }
+
+
+@router.post("/assets/add")
+def add_single_asset(payload: AddAssetRequest):
+    """
+    POST /api/assets/add
+    Accepts a single asset object matching the asset schema.
+    Validates required fields, checks for duplicate Asset IDs, appends to snapshot,
+    updates services if needed, re-runs risk summary recomputation, and returns the asset.
+    """
+    a_id = (payload.id or payload.asset_id or "").strip()
+    if not a_id:
+        raise HTTPException(status_code=400, detail="Asset ID / Hostname is required.")
+
+    # Duplicate check: check if an asset with this ID already exists
+    existing_assets = store.current_snapshot.get("assets", [])
+    if any(a.get("id") == a_id for a in existing_assets):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Asset with ID '{a_id}' already exists. Please choose a unique Asset ID."
+        )
+
+    crit = payload.criticality_1_5 if payload.criticality_1_5 is not None else payload.criticality
+    if crit is None or not (1 <= int(crit) <= 5):
+        raise HTTPException(status_code=400, detail="Criticality is required and must be an integer between 1 and 5.")
+    crit = int(crit)
+
+    rec = payload.records_count if payload.records_count is not None else payload.records
+    if rec is None:
+        rec = 0
+    if rec < 0:
+        raise HTTPException(status_code=400, detail="PII Records count cannot be negative.")
+
+    rev = payload.revenue_per_hour
+    if rev is None:
+        rev = 0.0
+    if rev < 0:
+        raise HTTPException(status_code=400, detail="Revenue per hour cannot be negative.")
+
+    svc = (payload.business_service_id or payload.service or "").strip() or None
+    name = (payload.name or "").strip() or f"Host {a_id}"
+
+    new_asset = {
+        "id": a_id,
+        "name": name,
+        "type": payload.type or "Server",
+        "owner": payload.owner or "Security Operations",
+        "business_service_id": svc,
+        "environment": payload.environment or "Production",
+        "internet_facing": bool(payload.internet_facing),
+        "data_classification": payload.data_classification or "Confidential",
+        "records_count": rec,
+        "revenue_per_hour": rev,
+        "criticality_1_5": crit,
+        "is_real_lab_asset": True,
+        "has_business_context": True
+    }
+
+    if not store.current_snapshot.get("organization"):
+        store.current_snapshot["organization"] = {
+            "name": "Live Organization",
+            "risk_appetite_var95": settings.DEFAULT_RISK_APPETITE
+        }
+
+    if "assets" not in store.current_snapshot:
+        store.current_snapshot["assets"] = []
+    store.current_snapshot["assets"].append(new_asset)
+
+    # Register service if not existing
+    if svc:
+        existing_svcs = {s.get("service_id") for s in store.current_snapshot.get("services", [])}
+        if svc not in existing_svcs:
+            store.current_snapshot.setdefault("services", []).append({
+                "service_id": svc,
+                "name": f"Service {svc}",
+                "criticality": crit,
+                "rto_hours": 4.0
+            })
+
+    # Re-run summary recomputation
+    store.get_summary(force_refresh=True)
+
+    return {
+        "status": "ASSET_ADDED",
+        "asset": new_asset,
+        "total_active_assets": len(store.current_snapshot["assets"]),
+        "new_eal": store.cached_summary["org"]["eal"] if store.cached_summary and "org" in store.cached_summary else None
+    }
+
 
 @router.post("/ingest/sync-live-intel")
 def sync_live_threat_intel():
