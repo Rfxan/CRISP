@@ -261,5 +261,37 @@ export const api = {
     });
     if (!res.ok) throw new Error('Failed to remove connection');
     return res.json();
+  },
+
+  async getAIConfig() {
+    const res = await fetch(`${API_BASE}/ai/config`);
+    if (!res.ok) throw new Error('Failed to fetch AI configuration');
+    return res.json();
+  },
+
+  async saveAIConfig(configData) {
+    const res = await fetch(`${API_BASE}/ai/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(configData)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to save AI configuration');
+    }
+    return res.json();
+  },
+
+  async testAIConnection(configData) {
+    const res = await fetch(`${API_BASE}/ai/test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(configData)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Test AI connection failed');
+    }
+    return res.json();
   }
 };

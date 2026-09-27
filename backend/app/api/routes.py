@@ -31,6 +31,8 @@ from app.connectors.format_detector import detect_scan_format
 from app.connectors.sniffer import detect_structure
 from app.connectors.generic import GenericVendorConnector
 from app.core.connections_store import connections_store
+from app.ai.llm_config_store import llm_config_store
+from app.ai.llm_service import llm_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -200,6 +202,14 @@ class ConnectionPayload(BaseModel):
     base_url: str
     username: Optional[str] = ""
     password: Optional[str] = ""
+
+class LLMConfigPayload(BaseModel):
+    provider: str
+    model: Optional[str] = None
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    temperature: Optional[float] = 0.2
+    enabled: Optional[bool] = True
 
 class AddAssetRequest(BaseModel):
     id: Optional[str] = None
@@ -1470,3 +1480,40 @@ def delete_connection_endpoint(category: str):
         "status": "REMOVED" if removed else "NOT_FOUND",
         "category": category
     }
+
+
+# --- Multi-Provider LLM Configuration Endpoints ---
+
+@router.get("/ai/config")
+def get_ai_config():
+    """
+    GET /api/ai/config
+    Returns active LLM provider, model, masked API key, and list of supported providers.
+    """
+    return llm_config_store.get_public_config()
+
+
+@router.post("/ai/config")
+def save_ai_config(payload: LLMConfigPayload):
+    """
+    POST /api/ai/config
+    Persists updated LLM settings with Fernet-encrypted API key.
+    """
+    return llm_config_store.save_config(
+        provider=payload.provider,
+        model=payload.model,
+        api_key=payload.api_key,
+        base_url=payload.base_url,
+        temperature=payload.temperature if payload.temperature is not None else 0.2,
+        enabled=payload.enabled if payload.enabled is not None else True
+    )
+
+
+@router.post("/ai/test")
+def test_ai_connection(payload: LLMConfigPayload):
+    """
+    POST /api/ai/test
+    Tests connection to the specified LLM provider and measures latency.
+    """
+    return llm_service.test_connection(payload.model_dump())
+

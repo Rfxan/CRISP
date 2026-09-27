@@ -1,26 +1,47 @@
-import React, { useState } from 'react';
-import { Bot, Send, Sparkles, Terminal, CheckCircle2, ShieldCheck, Database, Wrench } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { 
+  Bot, Send, Sparkles, Terminal, CheckCircle2, ShieldCheck, 
+  Database, Wrench, Settings, Cpu, Zap, Sliders, AlertCircle
+} from 'lucide-react';
 import { api } from '../services/api';
+import LLMSettingsModal from './LLMSettingsModal';
 
 export default function AIQueryCenter({ currentRunId }) {
   const [query, setQuery] = useState('');
   const [messages, setMessages] = useState([
     {
       sender: 'ai',
-      text: `Hello! I am the CRISP Decision Support Assistant. I answer executive risk and budget questions using strictly verified figures from the deterministic FAIR Monte Carlo engine and Integer Linear Programming solver. No hallucinated numbers.\n\nEvery answer is grounded and cites an active Run ID. You can choose a sample question below or type your own.`,
+      text: `Hello! I am the CRISP Executive Decision Support Assistant. I answer strategic risk, budget allocation, and compliance questions grounded in deterministic figures from the FAIR Monte Carlo engine and Integer Linear Programming solver.\n\nYou can connect an actual LLM (Gemini, OpenAI, Groq, Claude, or Local Ollama) using "AI Model Settings" above, or use the built-in verified mathematical reasoning engine. No hallucinated numbers.`,
       toolUsed: 'system_init',
       runId: currentRunId || 'RUN-INIT',
       assumptionsVer: 4,
-      sources: ['FAIR Engine', 'PuLP ILP Optimizer', 'SEBI CSCRF Engine']
+      sources: ['FAIR Engine', 'PuLP ILP Optimizer', 'SEBI CSCRF Engine'],
+      isLLM: false
     }
   ]);
   const [loading, setLoading] = useState(false);
+  const [aiConfig, setAiConfig] = useState(null);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+
+  useEffect(() => {
+    fetchAIConfig();
+  }, []);
+
+  const fetchAIConfig = async () => {
+    try {
+      const cfg = await api.getAIConfig();
+      setAiConfig(cfg);
+    } catch (err) {
+      console.error('Failed to load AI config:', err);
+    }
+  };
 
   const suggestedQuestions = [
     'What is our highest financial cyber risk today?',
     'How should we spend our ₹1 Crore security budget?',
     'Are we compliant with SEBI 6-hour reporting?',
-    'What if we deploy MFA on all privileged accounts?'
+    'What if we deploy MFA on all privileged accounts?',
+    'Explain our Value at Risk (VaR 95) for the Board of Directors'
   ];
 
   const handleSend = async (questionText) => {
@@ -41,7 +62,12 @@ export default function AIQueryCenter({ currentRunId }) {
         toolArgs: res.tool_args,
         runId: res.run_id,
         assumptionsVer: res.assumptions_version,
-        sources: res.sources
+        sources: res.sources,
+        isLLM: Boolean(res.is_llm),
+        llmProvider: res.llm_provider,
+        llmModel: res.llm_model,
+        latencyMs: res.latency_ms,
+        fallbackReason: res.fallback_reason
       };
       setMessages(prev => [...prev, aiMsg]);
     } catch (e) {
@@ -55,32 +81,69 @@ export default function AIQueryCenter({ currentRunId }) {
     }
   };
 
+  const isLLMActive = aiConfig && aiConfig.enabled && (aiConfig.has_api_key || aiConfig.provider === 'ollama');
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       
       {/* AI Header */}
       <div className="glass-panel" style={{ padding: 20, borderTop: '3px solid #00f2fe' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{
-              width: 36,
-              height: 36,
-              borderRadius: 8,
-              background: 'linear-gradient(135deg, #00f2fe 0%, #0284c7 100%)',
+              width: 40,
+              height: 40,
+              borderRadius: 10,
+              background: isLLMActive 
+                ? 'linear-gradient(135deg, #8b5cf6 0%, #00f2fe 100%)' 
+                : 'linear-gradient(135deg, #00f2fe 0%, #0284c7 100%)',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center'
+              justifyContent: 'center',
+              boxShadow: isLLMActive ? '0 0 15px rgba(139, 92, 246, 0.4)' : 'none'
             }}>
-              <Bot size={20} color="#051026" />
+              {isLLMActive ? <Sparkles size={22} color="#fff" /> : <Bot size={22} color="#051026" />}
             </div>
             <div>
-              <h3 style={{ margin: 0, fontSize: 16, color: '#fff' }}>Grounded Decision Support Layer</h3>
-              <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
-                Tool-calling architecture: maps questions directly to pure engine APIs (PRD Sec 7.2)
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <h3 style={{ margin: 0, fontSize: 16, color: '#fff', fontWeight: 700 }}>
+                  Grounded Decision Support Layer
+                </h3>
+                {isLLMActive ? (
+                  <span className="badge badge-cyan" style={{ fontSize: 10 }}>
+                    <Cpu size={11} style={{ marginRight: 3 }} /> LLM: {aiConfig.provider?.toUpperCase()} ({aiConfig.model})
+                  </span>
+                ) : (
+                  <span className="badge badge-simulated" style={{ fontSize: 10 }}>
+                    <ShieldCheck size={11} style={{ marginRight: 3 }} /> Deterministic Grounded Engine
+                  </span>
+                )}
+              </div>
+              <p style={{ margin: '3px 0 0 0', fontSize: 12, color: 'var(--text-dim)' }}>
+                Multi-provider LLM synthesis grounded in live FAIR Monte Carlo & PuLP ILP solver outputs.
               </p>
             </div>
           </div>
-          <span className="badge badge-real">Deterministic Citations (No Hallucinations)</span>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button
+              onClick={() => setShowSettingsModal(true)}
+              className="btn btn-secondary"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 12,
+                padding: '8px 14px',
+                background: 'rgba(255, 255, 255, 0.05)',
+                border: '1px solid rgba(0, 242, 254, 0.3)',
+                color: '#00f2fe'
+              }}
+            >
+              <Settings size={14} />
+              <span>AI Model Settings</span>
+            </button>
+          </div>
         </div>
 
         {/* Suggested Prompts */}
@@ -100,7 +163,7 @@ export default function AIQueryCenter({ currentRunId }) {
       </div>
 
       {/* Chat Messages Log */}
-      <div className="glass-panel" style={{ padding: 20, minHeight: 380, maxHeight: 520, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="glass-panel" style={{ padding: 20, minHeight: 400, maxHeight: 540, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
         {messages.map((m, idx) => {
           const isUser = m.sender === 'user';
           return (
@@ -108,41 +171,69 @@ export default function AIQueryCenter({ currentRunId }) {
               key={idx} 
               style={{
                 alignSelf: isUser ? 'flex-end' : 'flex-start',
-                maxWidth: isUser ? '75%' : '88%',
-                background: isUser ? 'rgba(0, 242, 254, 0.12)' : 'rgba(15, 23, 42, 0.9)',
+                maxWidth: isUser ? '75%' : '90%',
+                background: isUser ? 'rgba(0, 242, 254, 0.12)' : 'rgba(15, 23, 42, 0.95)',
                 border: isUser ? '1px solid rgba(0, 242, 254, 0.3)' : '1px solid var(--border-color)',
                 borderRadius: 12,
-                padding: '14px 18px'
+                padding: '16px 20px',
+                boxShadow: isUser ? '0 4px 15px rgba(0, 242, 254, 0.1)' : '0 4px 15px rgba(0, 0, 0, 0.3)'
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                {isUser ? (
-                  <strong style={{ fontSize: 12, color: '#00f2fe' }}>Executive User</strong>
-                ) : (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <strong style={{ fontSize: 12, color: '#fff' }}>CRISP Engine</strong>
-                    {m.runId && (
-                      <span className="mono badge badge-cyan" style={{ fontSize: 9 }}>
-                        {m.runId}
-                      </span>
-                    )}
-                    {m.toolUsed && (
-                      <span className="mono badge badge-simulated" style={{ fontSize: 9 }}>
-                        <Wrench size={10} /> tool: {m.toolUsed}
-                      </span>
-                    )}
-                  </div>
-                )}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {isUser ? (
+                    <strong style={{ fontSize: 12, color: '#00f2fe' }}>Executive User</strong>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <strong style={{ fontSize: 12, color: '#fff' }}>CRISP Engine</strong>
+                      {m.runId && (
+                        <span className="mono badge badge-cyan" style={{ fontSize: 9 }}>
+                          {m.runId}
+                        </span>
+                      )}
+                      {m.isLLM ? (
+                        <span className="badge badge-kev" style={{ fontSize: 9 }}>
+                          <Cpu size={10} style={{ marginRight: 3 }} /> {m.llmProvider?.toUpperCase()} ({m.llmModel}) {m.latencyMs ? `· ${m.latencyMs}ms` : ''}
+                        </span>
+                      ) : (
+                        m.toolUsed && (
+                          <span className="mono badge badge-simulated" style={{ fontSize: 9 }}>
+                            <Wrench size={10} style={{ marginRight: 3 }} /> {m.toolUsed}
+                          </span>
+                        )
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Message Content */}
-              <div style={{ fontSize: 13, color: '#f1f5f9', whiteSpace: 'pre-line', lineHeight: 1.5 }}>
+              <div style={{ fontSize: 13, color: '#f1f5f9', whiteSpace: 'pre-line', lineHeight: 1.6 }}>
                 {m.text}
               </div>
 
+              {/* Fallback Notice if LLM failed */}
+              {m.fallbackReason && (
+                <div style={{
+                  marginTop: 8,
+                  padding: '6px 10px',
+                  borderRadius: 6,
+                  background: 'rgba(245, 158, 11, 0.1)',
+                  border: '1px solid rgba(245, 158, 11, 0.3)',
+                  fontSize: 11,
+                  color: '#fbbf24',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6
+                }}>
+                  <AlertCircle size={12} />
+                  <span>Note: {m.fallbackReason}</span>
+                </div>
+              )}
+
               {/* Verified Sources Badge */}
               {!isUser && m.sources && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 10, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>
                   <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>Audited Sources:</span>
                   {m.sources.map((src, sIdx) => (
                     <span key={sIdx} className="badge" style={{ background: 'rgba(255,255,255,0.05)', color: '#94a3b8', fontSize: 9 }}>
@@ -155,8 +246,20 @@ export default function AIQueryCenter({ currentRunId }) {
           );
         })}
         {loading && (
-          <div style={{ color: 'var(--text-dim)', fontSize: 12, fontStyle: 'italic', padding: 10 }}>
-            Querying FAIR Monte Carlo engine & ILP solver...
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            color: '#00f2fe',
+            fontSize: 12,
+            padding: '10px 14px',
+            background: 'rgba(0, 242, 254, 0.05)',
+            borderRadius: 8,
+            border: '1px solid rgba(0, 242, 254, 0.2)',
+            alignSelf: 'flex-start'
+          }}>
+            <Sparkles size={14} className="animate-spin" />
+            <span>Consulting FAIR simulation engine & synthesizing executive guidance...</span>
           </div>
         )}
       </div>
@@ -177,15 +280,28 @@ export default function AIQueryCenter({ currentRunId }) {
             color: '#fff',
             fontSize: 13,
             fontFamily: 'var(--font-sans)',
-            padding: '4px 10px'
+            padding: '6px 12px'
           }}
         />
-        <button className="btn btn-primary" onClick={() => handleSend()} disabled={loading}>
+        <button 
+          className="btn btn-primary" 
+          onClick={() => handleSend()} 
+          disabled={loading}
+          style={{ padding: '8px 20px', gap: 8 }}
+        >
           <Send size={14} />
-          <span>Ask</span>
+          <span>Ask AI</span>
         </button>
       </div>
 
+      {/* LLM Settings Modal */}
+      <LLMSettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        onConfigSaved={(updated) => {
+          setAiConfig(updated);
+        }}
+      />
     </div>
   );
 }
