@@ -64,10 +64,10 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       
       {/* Framework Selector Tabs */}
-      <div className="glass-panel" style={{ padding: 18, borderTop: '3px solid #10b981' }}>
+      <div className="glass-panel" style={{ padding: 18, borderTop: '3px solid var(--accent-green)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 12 }}>
           <div>
-            <h3 style={{ margin: 0, fontSize: 16, color: '#fff' }}>Continuous Compliance & Evidence Center</h3>
+            <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>Continuous Compliance & Evidence Center</h3>
             <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
               Indicative mapping across national (India) and international standards with telemetry-backed evidence.
             </p>
@@ -100,11 +100,11 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
         
         {/* SEBI 6-Hour Incident Notification Readiness */}
         {sebi6h && (
-          <div className="glass-panel" style={{ padding: 22, borderLeft: '4px solid #00f2fe' }}>
+          <div className="glass-panel" style={{ padding: 22, borderLeft: '4px solid var(--primary)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Clock size={18} color="#00f2fe" />
-                <h4 style={{ margin: 0, fontSize: 14, color: '#fff' }}>SEBI CSCRF 6-Hour Reporting Readiness</h4>
+                <Clock size={18} color="var(--primary)" />
+                <h4 style={{ margin: 0, fontSize: 14, color: 'var(--text-main)' }}>SEBI CSCRF 6-Hour Reporting Readiness</h4>
               </div>
               <span className={`badge ${sebi6h.status === 'READY' ? 'badge-real' : 'badge-critical'}`}>
                 {sebi6h.status} ({sebi6h.readiness_score_pct}%)
@@ -126,10 +126,10 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
                   fontSize: 12
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    {item.pass ? <CheckCircle size={15} color="#10b981" /> : <AlertCircle size={15} color="#ef4444" />}
+                    {item.pass ? <CheckCircle size={15} color="var(--accent-green)" /> : <AlertCircle size={15} color="var(--accent-red)" />}
                     <span style={{ color: item.pass ? '#f8fafc' : '#f87171' }}>{item.item}</span>
                   </div>
-                  <span className="mono" style={{ color: '#00f2fe' }}>{item.coverage_pct}%</span>
+                  <span className="mono" style={{ color: 'var(--primary)' }}>{item.coverage_pct}%</span>
                 </div>
               ))}
             </div>
@@ -138,11 +138,11 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
 
         {/* DPDP Act 2025 Safeguards & Penalty Ceiling */}
         {dpdp && (
-          <div className="glass-panel" style={{ padding: 22, borderLeft: '4px solid #ef4444' }}>
+          <div className="glass-panel" style={{ padding: 22, borderLeft: '4px solid var(--accent-red)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <ShieldAlert size={18} color="#ef4444" />
-                <h4 style={{ margin: 0, fontSize: 14, color: '#fff' }}>DPDP Act 2025 Safeguards & Penalty Exposure</h4>
+                <ShieldAlert size={18} color="var(--accent-red)" />
+                <h4 style={{ margin: 0, fontSize: 14, color: 'var(--text-main)' }}>DPDP Act 2025 Safeguards & Penalty Exposure</h4>
               </div>
               <span className="badge badge-simulated">
                 {dpdp.status} ({dpdp.safeguards_score_pct}%)
@@ -164,10 +164,10 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
                   fontSize: 12
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    {item.pass ? <CheckCircle size={15} color="#10b981" /> : <AlertCircle size={15} color="#ef4444" />}
+                    {item.pass ? <CheckCircle size={15} color="var(--accent-green)" /> : <AlertCircle size={15} color="var(--accent-red)" />}
                     <span style={{ color: item.pass ? '#f8fafc' : '#f87171' }}>{item.item}</span>
                   </div>
-                  <span className="mono" style={{ color: '#00f2fe' }}>{item.coverage_pct}%</span>
+                  <span className="mono" style={{ color: 'var(--primary)' }}>{item.coverage_pct}%</span>
                 </div>
               ))}
             </div>
@@ -180,7 +180,7 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
       <div className="glass-panel" style={{ padding: 22 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div>
-            <h3 style={{ margin: 0, fontSize: 16, color: '#fff' }}>
+            <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>
               {evalData?.framework_name} — Control Registry & Audit Evidence
             </h3>
             <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
@@ -206,7 +206,7 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
               {evalData?.controls?.map((c, idx) => (
                 <tr key={idx}>
                   <td>
-                    <strong className="mono" style={{ color: '#fff' }}>{c.control_id}</strong>
+                    <strong className="mono" style={{ color: 'var(--text-main)' }}>{c.control_id}</strong>
                   </td>
                   <td>
                     <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>{c.name}</div>
@@ -220,7 +220,7 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
                         <div style={{
                           width: `${c.coverage_pct}%`,
                           height: '100%',
-                          background: c.coverage_pct >= 75 ? '#10b981' : (c.coverage_pct >= 50 ? '#f59e0b' : '#ef4444')
+                          background: c.coverage_pct >= 75 ? 'var(--accent-green)' : (c.coverage_pct >= 50 ? 'var(--accent-amber)' : 'var(--accent-red)')
                         }} />
                       </div>
                       <span className="mono" style={{ fontSize: 11 }}>{c.coverage_pct}%</span>

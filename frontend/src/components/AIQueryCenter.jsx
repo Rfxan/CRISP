@@ -87,7 +87,7 @@ export default function AIQueryCenter({ currentRunId }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       
       {/* AI Header */}
-      <div className="glass-panel" style={{ padding: 20, borderTop: '3px solid #00f2fe' }}>
+      <div className="glass-panel" style={{ padding: 20, borderTop: '3px solid var(--primary)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{
@@ -95,18 +95,18 @@ export default function AIQueryCenter({ currentRunId }) {
               height: 40,
               borderRadius: 10,
               background: isLLMActive 
-                ? 'linear-gradient(135deg, #8b5cf6 0%, #00f2fe 100%)' 
-                : 'linear-gradient(135deg, #00f2fe 0%, #0284c7 100%)',
+                ? 'linear-gradient(135deg, var(--accent-purple) 0%, var(--primary) 100%)' 
+                : 'linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              boxShadow: isLLMActive ? '0 0 15px rgba(139, 92, 246, 0.4)' : 'none'
+              boxShadow: isLLMActive ? '0 0 15px rgba(154, 150, 179, 0.4)' : 'none'
             }}>
-              {isLLMActive ? <Sparkles size={22} color="#fff" /> : <Bot size={22} color="#051026" />}
+              {isLLMActive ? <Sparkles size={22} color="var(--text-main)" /> : <Bot size={22} color="var(--text-main)" />}
             </div>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <h3 style={{ margin: 0, fontSize: 16, color: '#fff', fontWeight: 700 }}>
+                <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)', fontFamily: 'var(--font-rounded)', fontWeight: 800 }}>
                   Grounded Decision Support Layer
                 </h3>
                 {isLLMActive ? (
@@ -135,9 +135,9 @@ export default function AIQueryCenter({ currentRunId }) {
                 gap: 8,
                 fontSize: 12,
                 padding: '8px 14px',
-                background: 'rgba(255, 255, 255, 0.05)',
-                border: '1px solid rgba(0, 242, 254, 0.3)',
-                color: '#00f2fe'
+                background: 'var(--bg-main)',
+                border: '1px solid var(--primary)',
+                color: 'var(--primary)'
               }}
             >
               <Settings size={14} />
@@ -153,9 +153,9 @@ export default function AIQueryCenter({ currentRunId }) {
               key={idx}
               onClick={() => handleSend(sq)}
               className="btn btn-outline"
-              style={{ fontSize: 11, padding: '5px 12px', background: 'rgba(255,255,255,0.03)' }}
+              style={{ fontSize: 11, padding: '5px 12px', background: 'var(--bg-main)', color: 'var(--text-main)' }}
             >
-              <Sparkles size={12} color="#00f2fe" />
+              <Sparkles size={12} color="var(--primary)" />
               <span>{sq}</span>
             </button>
           ))}
@@ -172,20 +172,20 @@ export default function AIQueryCenter({ currentRunId }) {
               style={{
                 alignSelf: isUser ? 'flex-end' : 'flex-start',
                 maxWidth: isUser ? '75%' : '90%',
-                background: isUser ? 'rgba(0, 242, 254, 0.12)' : 'rgba(15, 23, 42, 0.95)',
-                border: isUser ? '1px solid rgba(0, 242, 254, 0.3)' : '1px solid var(--border-color)',
+                background: isUser ? 'var(--bg-main)' : 'var(--bg-card)',
+                border: isUser ? '1px solid var(--primary)' : '1px solid var(--border-color)',
                 borderRadius: 12,
                 padding: '16px 20px',
-                boxShadow: isUser ? '0 4px 15px rgba(0, 242, 254, 0.1)' : '0 4px 15px rgba(0, 0, 0, 0.3)'
+                boxShadow: isUser ? 'var(--clay-inner)' : 'var(--clay-shadow)'
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   {isUser ? (
-                    <strong style={{ fontSize: 12, color: '#00f2fe' }}>Executive User</strong>
+                    <strong style={{ fontSize: 12, color: 'var(--primary)' }}>Executive User</strong>
                   ) : (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      <strong style={{ fontSize: 12, color: '#fff' }}>CRISP Engine</strong>
+                      <strong style={{ fontSize: 12, color: 'var(--text-main)' }}>CRISP Engine</strong>
                       {m.runId && (
                         <span className="mono badge badge-cyan" style={{ fontSize: 9 }}>
                           {m.runId}
@@ -208,7 +208,7 @@ export default function AIQueryCenter({ currentRunId }) {
               </div>
 
               {/* Message Content */}
-              <div style={{ fontSize: 13, color: '#f1f5f9', whiteSpace: 'pre-line', lineHeight: 1.6 }}>
+              <div style={{ fontSize: 13, color: 'var(--text-main)', whiteSpace: 'pre-line', lineHeight: 1.6 }}>
                 {m.text}
               </div>
 
@@ -218,10 +218,10 @@ export default function AIQueryCenter({ currentRunId }) {
                   marginTop: 8,
                   padding: '6px 10px',
                   borderRadius: 6,
-                  background: 'rgba(245, 158, 11, 0.1)',
-                  border: '1px solid rgba(245, 158, 11, 0.3)',
+                  background: 'rgba(209, 184, 121, 0.1)',
+                  border: '1px solid rgba(209, 184, 121, 0.3)',
                   fontSize: 11,
-                  color: '#fbbf24',
+                  color: 'var(--accent-amber)',
                   display: 'flex',
                   alignItems: 'center',
                   gap: 6
@@ -236,7 +236,7 @@ export default function AIQueryCenter({ currentRunId }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>
                   <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>Audited Sources:</span>
                   {m.sources.map((src, sIdx) => (
-                    <span key={sIdx} className="badge" style={{ background: 'rgba(255,255,255,0.05)', color: '#94a3b8', fontSize: 9 }}>
+                    <span key={sIdx} className="badge" style={{ background: 'var(--bg-main)', color: 'var(--text-main)', fontSize: 9 }}>
                       {src}
                     </span>
                   ))}
@@ -250,12 +250,12 @@ export default function AIQueryCenter({ currentRunId }) {
             display: 'flex',
             alignItems: 'center',
             gap: 10,
-            color: '#00f2fe',
+            color: 'var(--primary)',
             fontSize: 12,
             padding: '10px 14px',
-            background: 'rgba(0, 242, 254, 0.05)',
+            background: 'var(--bg-main)',
             borderRadius: 8,
-            border: '1px solid rgba(0, 242, 254, 0.2)',
+            border: '1px solid var(--border-color)',
             alignSelf: 'flex-start'
           }}>
             <Sparkles size={14} className="animate-spin" />
@@ -277,7 +277,7 @@ export default function AIQueryCenter({ currentRunId }) {
             background: 'transparent',
             border: 'none',
             outline: 'none',
-            color: '#fff',
+            color: 'var(--text-main)',
             fontSize: 13,
             fontFamily: 'var(--font-sans)',
             padding: '6px 12px'

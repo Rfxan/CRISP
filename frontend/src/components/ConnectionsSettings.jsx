@@ -231,9 +231,9 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
           borderRadius: 20,
           fontSize: 12,
           fontWeight: 600,
-          background: 'rgba(16, 185, 129, 0.15)',
-          color: '#10b981',
-          border: '1px solid rgba(16, 185, 129, 0.4)'
+          background: 'rgba(126, 143, 129, 0.15)',
+          color: 'var(--accent-green)',
+          border: '1px solid rgba(126, 143, 129, 0.4)'
         }}>
           <CheckCircle2 size={14} /> Connected ✅ (synced {formatTimeAgo(conn.last_tested)})
         </span>
@@ -248,9 +248,9 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
           borderRadius: 20,
           fontSize: 12,
           fontWeight: 600,
-          background: 'rgba(239, 68, 68, 0.15)',
-          color: '#ef4444',
-          border: '1px solid rgba(239, 68, 68, 0.4)'
+          background: 'rgba(201, 114, 114, 0.15)',
+          color: 'var(--accent-red)',
+          border: '1px solid rgba(201, 114, 114, 0.4)'
         }} title={conn.last_test_detail || 'Connection failed'}>
           <XCircle size={14} /> Connection Failed ❌
         </span>
@@ -278,12 +278,12 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
       <div className="glass-panel" style={{
         padding: 24,
         borderRadius: 14,
-        background: 'rgba(13, 20, 36, 0.75)',
-        border: conn.connected ? '1px solid rgba(0, 242, 254, 0.3)' : '1px solid var(--border-color)',
+        background: 'var(--bg-card)',
+        border: conn.connected ? '1px solid var(--primary)' : '1px solid var(--border-color)',
         display: 'flex',
         flexDirection: 'column',
         gap: 20,
-        boxShadow: conn.connected ? '0 8px 32px rgba(0, 242, 254, 0.05)' : 'none'
+        boxShadow: conn.connected ? '0 8px 32px rgba(183, 140, 102, 0.05)' : 'none'
       }}>
         {/* Card Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
@@ -292,17 +292,17 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
               width: 44,
               height: 44,
               borderRadius: 10,
-              background: 'linear-gradient(135deg, rgba(0, 242, 254, 0.15) 0%, rgba(79, 70, 229, 0.15) 100%)',
-              border: '1px solid rgba(0, 242, 254, 0.25)',
+              background: 'linear-gradient(135deg, rgba(183, 140, 102, 0.15) 0%, rgba(79, 70, 229, 0.15) 100%)',
+              border: '1px solid rgba(183, 140, 102, 0.25)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: '#00f2fe'
+              color: 'var(--primary)'
             }}>
               {icon}
             </div>
             <div>
-              <h3 style={{ margin: 0, fontSize: 18, color: '#fff', fontWeight: 600 }}>{title}</h3>
+              <h3 style={{ margin: 0, fontSize: 18, color: 'var(--text-main)', fontWeight: 600 }}>{title}</h3>
               <p style={{ margin: '2px 0 0 0', fontSize: 13, color: 'var(--text-dim)' }}>{subtitle}</p>
             </div>
           </div>
@@ -314,29 +314,29 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
         {/* Current Connection Info (when not editing) */}
         {!form.editing ? (
           <div style={{
-            background: 'rgba(7, 11, 22, 0.6)',
+            background: 'var(--bg-main)',
             borderRadius: 10,
             padding: '16px 18px',
-            border: '1px solid rgba(255, 255, 255, 0.05)',
+            border: '1px solid var(--border-color)',
             display: 'flex',
             flexDirection: 'column',
             gap: 10
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
               <span style={{ color: 'var(--text-dim)' }}>Server Endpoint:</span>
-              <span style={{ color: '#fff', fontFamily: 'monospace' }}>
+              <span style={{ color: 'var(--text-main)', fontFamily: 'monospace' }}>
                 {conn.base_url || '—'}
               </span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
               <span style={{ color: 'var(--text-dim)' }}>API Username:</span>
-              <span style={{ color: '#fff', fontFamily: 'monospace' }}>
+              <span style={{ color: 'var(--text-main)', fontFamily: 'monospace' }}>
                 {conn.username || '—'}
               </span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
               <span style={{ color: 'var(--text-dim)' }}>Credential Storage:</span>
-              <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+              <span style={{ color: 'var(--accent-green)', display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
                 <Lock size={12} /> Fernet AES Encrypted
               </span>
             </div>
@@ -346,9 +346,9 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
                 padding: '8px 12px',
                 borderRadius: 6,
                 fontSize: 12,
-                background: conn.connected ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
-                color: conn.connected ? '#34d399' : '#f87171',
-                border: `1px solid ${conn.connected ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`
+                background: conn.connected ? 'rgba(126, 143, 129, 0.08)' : 'rgba(201, 114, 114, 0.08)',
+                color: conn.connected ? 'var(--accent-green)' : '#f87171',
+                border: `1px solid ${conn.connected ? 'rgba(126, 143, 129, 0.2)' : 'rgba(201, 114, 114, 0.2)'}`
               }}>
                 <strong>Last Result:</strong> {conn.last_test_detail}
               </div>
@@ -356,7 +356,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
 
             <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
               <button
-                className="crisp-btn primary"
+                className="btn btn-primary"
                 onClick={() => startEditing(category)}
                 style={{ padding: '8px 16px', fontSize: 13 }}
               >
@@ -364,14 +364,14 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
               </button>
               {conn.base_url && (
                 <button
-                  className="crisp-btn"
+                  className="btn btn-outline"
                   onClick={() => handleRemove(category)}
                   style={{
                     padding: '8px 14px',
                     fontSize: 13,
-                    color: '#ef4444',
-                    border: '1px solid rgba(239, 68, 68, 0.3)',
-                    background: 'rgba(239, 68, 68, 0.08)'
+                    color: 'var(--accent-red)',
+                    border: '1px solid rgba(201, 114, 114, 0.3)',
+                    background: 'rgba(201, 114, 114, 0.08)'
                   }}
                   title="Remove saved credentials"
                 >
@@ -383,10 +383,10 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
         ) : (
           /* Edit Form */
           <div style={{
-            background: 'rgba(7, 11, 22, 0.75)',
+            background: 'var(--bg-main)',
             borderRadius: 10,
             padding: 20,
-            border: '1px solid rgba(0, 242, 254, 0.2)',
+            border: '1px solid var(--primary)',
             display: 'flex',
             flexDirection: 'column',
             gap: 16
@@ -397,8 +397,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
               </label>
               <input
                 type="text"
-                className="crisp-input"
-                style={{ width: '100%', fontFamily: 'monospace', fontSize: 13 }}
+                style={{ width: '100%', fontFamily: 'monospace', fontSize: 13, padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: 8, background: 'var(--bg-card)' }}
                 placeholder={category === 'siem' ? 'https://192.168.1.100:55000' : 'http://localhost:8080'}
                 value={form.base_url}
                 onChange={(e) => handleInputChange(category, 'base_url', e.target.value)}
@@ -412,8 +411,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
                 </label>
                 <input
                   type="text"
-                  className="crisp-input"
-                  style={{ width: '100%', fontSize: 13 }}
+                  style={{ width: '100%', fontSize: 13, padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: 8, background: 'var(--bg-card)' }}
                   placeholder={category === 'siem' ? 'wazuh-wui' : 'admin'}
                   value={form.username}
                   onChange={(e) => handleInputChange(category, 'username', e.target.value)}
@@ -427,8 +425,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
                 <div style={{ position: 'relative' }}>
                   <input
                     type={form.showPassword ? 'text' : 'password'}
-                    className="crisp-input"
-                    style={{ width: '100%', paddingRight: 36, fontSize: 13 }}
+                    style={{ width: '100%', paddingRight: 36, fontSize: 13, padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: 8, background: 'var(--bg-card)' }}
                     placeholder={conn.base_url ? '•••••••• (unchanged)' : 'Enter password'}
                     value={form.password}
                     onChange={(e) => handleInputChange(category, 'password', e.target.value)}
@@ -463,9 +460,9 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
                 display: 'flex',
                 alignItems: 'flex-start',
                 gap: 10,
-                background: testResult.success ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                border: `1px solid ${testResult.success ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
-                color: testResult.success ? '#10b981' : '#f87171'
+                background: testResult.success ? 'rgba(126, 143, 129, 0.1)' : 'rgba(201, 114, 114, 0.1)',
+                border: `1px solid ${testResult.success ? 'rgba(126, 143, 129, 0.3)' : 'rgba(201, 114, 114, 0.3)'}`,
+                color: testResult.success ? 'var(--accent-green)' : '#f87171'
               }}>
                 {testResult.success ? (
                   <CheckCircle2 size={18} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -485,15 +482,15 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
                 {/* Test Connection Button */}
                 <button
                   type="button"
-                  className="crisp-btn"
+                  className="btn btn-outline"
                   onClick={() => handleTest(category)}
                   disabled={isTesting || !form.base_url}
                   style={{
                     padding: '8px 16px',
                     fontSize: 13,
-                    color: '#00f2fe',
-                    border: '1px solid rgba(0, 242, 254, 0.35)',
-                    background: 'rgba(0, 242, 254, 0.08)'
+                    color: 'var(--primary)',
+                    border: '1px solid rgba(183, 140, 102, 0.35)',
+                    background: 'rgba(183, 140, 102, 0.08)'
                   }}
                 >
                   {isTesting ? (
@@ -511,17 +508,17 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
                 {/* Explicit Behavior: Enabled after successful test; or allows saving with warning if unverified */}
                 <button
                   type="button"
-                  className="crisp-btn primary"
+                  className="btn btn-primary"
                   onClick={() => handleSave(category)}
                   disabled={isSaving || !form.base_url}
                   style={{
                     padding: '8px 18px',
                     fontSize: 13,
                     background: testResult?.success 
-                      ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' 
+                      ? 'linear-gradient(135deg, var(--accent-green) 0%, var(--accent-green) 100%)' 
                       : (testResult && !testResult.success 
                           ? 'linear-gradient(135deg, #d97706 0%, #b45309 100%)' 
-                          : 'linear-gradient(135deg, #00f2fe 0%, #4facfe 100%)')
+                          : 'linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%)')
                   }}
                 >
                   {isSaving ? (
@@ -541,7 +538,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
 
               <button
                 type="button"
-                className="crisp-btn"
+                className="btn btn-outline"
                 onClick={() => cancelEditing(category)}
                 style={{ padding: '8px 14px', fontSize: 13 }}
               >
@@ -553,7 +550,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
             <div style={{ fontSize: 11, color: 'var(--text-dim)', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 8 }}>
               🔒 <strong>Security Policy:</strong> Passwords are encrypted with symmetric Fernet keys before persisting. Passwords are never sent back in API responses.
               {testResult && !testResult.success && (
-                <span style={{ color: '#fbbf24', marginLeft: 6 }}>
+                <span style={{ color: 'var(--accent-amber)', marginLeft: 6 }}>
                   ⚠️ Warning: Saving with an unverified connection may cause scheduled telemetry sync to skip until credentials are valid.
                 </span>
               )}
@@ -570,8 +567,8 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
       <div className="glass-panel" style={{
         padding: '24px 28px',
         borderRadius: 14,
-        background: 'linear-gradient(135deg, rgba(13, 20, 36, 0.9) 0%, rgba(17, 24, 39, 0.9) 100%)',
-        border: '1px solid rgba(0, 242, 254, 0.25)',
+        background: 'var(--bg-card)',
+        border: '1px solid var(--border-color)',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
@@ -580,15 +577,15 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
       }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <h2 style={{ margin: 0, fontSize: 22, color: '#fff', fontWeight: 700 }}>
+            <h2 style={{ margin: 0, fontSize: 22, color: 'var(--text-main)', fontWeight: 700 }}>
               Live Telemetry Connections
             </h2>
             <span style={{
               fontSize: 11,
               padding: '2px 8px',
               borderRadius: 10,
-              background: 'rgba(0, 242, 254, 0.15)',
-              color: '#00f2fe',
+              background: 'rgba(183, 140, 102, 0.15)',
+              color: 'var(--primary)',
               fontWeight: 600
             }}>
               SECURE CREDENTIAL VAULT
@@ -602,7 +599,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
         </div>
 
         <button
-          className="crisp-btn"
+          className="btn btn-outline"
           onClick={() => { setRefreshing(true); fetchConnections(); }}
           disabled={refreshing}
           style={{ padding: '8px 16px', fontSize: 13 }}
@@ -619,15 +616,15 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
           borderRadius: 8,
           fontSize: 13,
           background: statusMessage.type === 'success' 
-            ? 'rgba(16, 185, 129, 0.15)' 
-            : (statusMessage.type === 'error' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(0, 242, 254, 0.15)'),
-          border: `1px solid ${statusMessage.type === 'success' ? '#10b981' : (statusMessage.type === 'error' ? '#ef4444' : '#00f2fe')}`,
-          color: '#fff',
+            ? 'rgba(126, 143, 129, 0.15)' 
+            : (statusMessage.type === 'error' ? 'rgba(201, 114, 114, 0.15)' : 'rgba(183, 140, 102, 0.15)'),
+          border: `1px solid ${statusMessage.type === 'success' ? 'var(--accent-green)' : (statusMessage.type === 'error' ? 'var(--accent-red)' : 'var(--primary)')}`,
+          color: 'var(--text-main)',
           display: 'flex',
           alignItems: 'center',
           gap: 10
         }}>
-          {statusMessage.type === 'success' ? <CheckCircle2 size={16} color="#10b981" /> : <AlertCircle size={16} />}
+          {statusMessage.type === 'success' ? <CheckCircle2 size={16} color="var(--accent-green)" /> : <AlertCircle size={16} />}
           <span>{statusMessage.text}</span>
         </div>
       )}
@@ -653,22 +650,22 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
       <div className="glass-panel" style={{
         padding: 20,
         borderRadius: 12,
-        background: 'rgba(7, 11, 22, 0.5)',
-        border: '1px solid rgba(255, 255, 255, 0.05)',
+        background: 'var(--bg-card)',
+        border: '1px solid var(--border-color)',
         fontSize: 12,
         color: 'var(--text-dim)',
         lineHeight: 1.6
       }}>
-        <strong style={{ color: '#fff' }}>Continuous Telemetry Synchronization Architecture:</strong>
+        <strong style={{ color: 'var(--text-main)' }}>Continuous Telemetry Synchronization Architecture:</strong>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginTop: 10 }}>
           <div>
-            <span style={{ color: '#00f2fe' }}>1. Zero Hardcoding:</span> All server endpoints and credentials are saved via <code style={{ color: '#fff' }}>connections.json</code> and encrypted with Fernet symmetric keys.
+            <span style={{ color: 'var(--primary)' }}>1. Zero Hardcoding:</span> All server endpoints and credentials are saved via <code style={{ color: 'var(--text-main)' }}>connections.json</code> and encrypted with Fernet symmetric keys.
           </div>
           <div>
-            <span style={{ color: '#00f2fe' }}>2. Isolated Scheduler:</span> APScheduler checks each connection every 30s. If any category is unconfigured, it skips silently without halting other integrations.
+            <span style={{ color: 'var(--primary)' }}>2. Isolated Scheduler:</span> APScheduler checks each connection every 30s. If any category is unconfigured, it skips silently without halting other integrations.
           </div>
           <div>
-            <span style={{ color: '#00f2fe' }}>3. Dynamic FAIR Recalibration:</span> Live agent coverage updates <code style={{ color: '#fff' }}>CTRL-EDR-01</code> and privileged account MFA updates <code style={{ color: '#fff' }}>CTRL-MFA-01</code>, recalculating Expected Annual Loss (EAL).
+            <span style={{ color: 'var(--primary)' }}>3. Dynamic FAIR Recalibration:</span> Live agent coverage updates <code style={{ color: 'var(--text-main)' }}>CTRL-EDR-01</code> and privileged account MFA updates <code style={{ color: 'var(--text-main)' }}>CTRL-MFA-01</code>, recalculating Expected Annual Loss (EAL).
           </div>
         </div>
       </div>

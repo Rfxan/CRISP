@@ -139,9 +139,9 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
           maxHeight: '92vh',
           overflowY: 'auto',
           backgroundColor: '#0c1322',
-          border: '1px solid rgba(0, 242, 254, 0.25)',
+          border: '1px solid rgba(183, 140, 102, 0.25)',
           borderRadius: 16,
-          boxShadow: '0 20px 50px rgba(0, 0, 0, 0.7), 0 0 30px rgba(0, 242, 254, 0.1)',
+          boxShadow: '0 20px 50px rgba(0, 0, 0, 0.7), 0 0 30px rgba(183, 140, 102, 0.1)',
           padding: 24,
           position: 'relative'
         }}
@@ -153,16 +153,16 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
               width: 42,
               height: 42,
               borderRadius: 10,
-              background: 'rgba(0, 242, 254, 0.12)',
-              border: '1px solid rgba(0, 242, 254, 0.3)',
+              background: 'rgba(183, 140, 102, 0.12)',
+              border: '1px solid rgba(183, 140, 102, 0.3)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center'
             }}>
-              <Server size={22} color="#00f2fe" />
+              <Server size={22} color="var(--primary)" />
             </div>
             <div>
-              <h3 style={{ margin: 0, fontSize: 18, color: '#fff', fontWeight: 700 }}>
+              <h3 style={{ margin: 0, fontSize: 18, color: 'var(--text-main)', fontWeight: 700 }}>
                 Add Network Asset Manually
               </h3>
               <p style={{ margin: '3px 0 0 0', fontSize: 12, color: 'var(--text-dim)' }}>
@@ -195,15 +195,15 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
             marginBottom: 18,
             padding: '10px 14px',
             borderRadius: 8,
-            background: 'rgba(239, 68, 68, 0.15)',
-            border: '1px solid #ef4444',
+            background: 'rgba(201, 114, 114, 0.15)',
+            border: '1px solid var(--accent-red)',
             color: '#fca5a5',
             fontSize: 12,
             display: 'flex',
             alignItems: 'center',
             gap: 10
           }}>
-            <AlertCircle size={16} color="#ef4444" style={{ flexShrink: 0 }} />
+            <AlertCircle size={16} color="var(--accent-red)" style={{ flexShrink: 0 }} />
             <span>{error}</span>
           </div>
         )}
@@ -212,8 +212,8 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
           {/* Row 1: Asset ID & Name */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 6 }}>
-                Asset ID / Hostname <span style={{ color: '#ef4444' }}>*</span>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-main)', marginBottom: 6 }}>
+                Asset ID / Hostname <span style={{ color: 'var(--accent-red)' }}>*</span>
               </label>
               <input
                 type="text"
@@ -226,7 +226,7 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
                   borderRadius: 8,
                   background: '#090e1a',
                   border: '1px solid var(--border-color)',
-                  color: '#fff',
+                  color: 'var(--text-main)',
                   fontFamily: 'monospace',
                   fontSize: 13
                 }}
@@ -238,7 +238,7 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 6 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-main)', marginBottom: 6 }}>
                 Asset Name / Role
               </label>
               <input
@@ -252,7 +252,7 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
                   borderRadius: 8,
                   background: '#090e1a',
                   border: '1px solid var(--border-color)',
-                  color: '#fff',
+                  color: 'var(--text-main)',
                   fontSize: 13
                 }}
               />
@@ -265,8 +265,8 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
           {/* Row 2: Business Service & Criticality */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 6 }}>
-                Business Service <span style={{ color: '#ef4444' }}>*</span>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-main)', marginBottom: 6 }}>
+                Business Service <span style={{ color: 'var(--accent-red)' }}>*</span>
               </label>
               <select
                 value={isCustomService ? '__NEW__' : selectedService}
@@ -277,7 +277,7 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
                   borderRadius: 8,
                   background: '#090e1a',
                   border: '1px solid var(--border-color)',
-                  color: '#fff',
+                  color: 'var(--text-main)',
                   fontSize: 13
                 }}
               >
@@ -304,8 +304,8 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
                     padding: '8px 12px',
                     borderRadius: 8,
                     background: '#090e1a',
-                    border: '1px solid rgba(0, 242, 254, 0.4)',
-                    color: '#fff',
+                    border: '1px solid rgba(183, 140, 102, 0.4)',
+                    color: 'var(--text-main)',
                     fontSize: 12,
                     marginTop: 8
                   }}
@@ -316,8 +316,8 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
 
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>
-                  Criticality (1-5) <span style={{ color: '#ef4444' }}>*</span>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-main)' }}>
+                  Criticality (1-5) <span style={{ color: 'var(--accent-red)' }}>*</span>
                 </label>
                 <span className={`badge ${criticality >= 4 ? 'badge-critical' : (criticality >= 3 ? 'badge-simulated' : 'badge-real')}`}>
                   Level {criticality} / 5
@@ -331,7 +331,7 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
                   step="1"
                   value={criticality}
                   onChange={(e) => setCriticality(Number(e.target.value))}
-                  style={{ flex: 1, accentColor: criticality >= 4 ? '#ef4444' : '#00f2fe', cursor: 'pointer' }}
+                  style={{ flex: 1, accentColor: criticality >= 4 ? 'var(--accent-red)' : 'var(--primary)', cursor: 'pointer' }}
                 />
                 <select
                   value={criticality}
@@ -342,7 +342,7 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
                     borderRadius: 6,
                     background: '#090e1a',
                     border: '1px solid var(--border-color)',
-                    color: '#fff',
+                    color: 'var(--text-main)',
                     fontSize: 12,
                     textAlign: 'center'
                   }}
@@ -363,7 +363,7 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
           {/* Row 3: PII Records & Revenue Exposure per Hour */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 6 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-main)', marginBottom: 6 }}>
                 PII / Sensitive Records Count
               </label>
               <div style={{ position: 'relative' }}>
@@ -379,7 +379,7 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
                     borderRadius: 8,
                     background: '#090e1a',
                     border: '1px solid var(--border-color)',
-                    color: '#fff',
+                    color: 'var(--text-main)',
                     fontSize: 13
                   }}
                 />
@@ -390,7 +390,7 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 6 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-main)', marginBottom: 6 }}>
                 Revenue Exposure / Hour (₹)
               </label>
               <div style={{ position: 'relative' }}>
@@ -406,7 +406,7 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
                     borderRadius: 8,
                     background: '#090e1a',
                     border: '1px solid var(--border-color)',
-                    color: '#10b981',
+                    color: 'var(--accent-green)',
                     fontWeight: 600,
                     fontSize: 13
                   }}
@@ -430,7 +430,7 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
               justifyContent: 'space-between'
             }}>
               <div>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 4 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-main)', marginBottom: 4 }}>
                   Internet-Facing Node?
                 </label>
                 <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
@@ -445,9 +445,9 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
                     flex: 1,
                     padding: '6px 12px',
                     borderRadius: 6,
-                    border: !internetFacing ? '1px solid #10b981' : '1px solid var(--border-color)',
-                    background: !internetFacing ? 'rgba(16, 185, 129, 0.15)' : 'transparent',
-                    color: !internetFacing ? '#34d399' : 'var(--text-dim)',
+                    border: !internetFacing ? '1px solid var(--accent-green)' : '1px solid var(--border-color)',
+                    background: !internetFacing ? 'rgba(126, 143, 129, 0.15)' : 'transparent',
+                    color: !internetFacing ? 'var(--accent-green)' : 'var(--text-dim)',
                     fontSize: 12,
                     fontWeight: 600,
                     cursor: 'pointer'
@@ -462,8 +462,8 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
                     flex: 1,
                     padding: '6px 12px',
                     borderRadius: 6,
-                    border: internetFacing ? '1px solid #ef4444' : '1px solid var(--border-color)',
-                    background: internetFacing ? 'rgba(239, 68, 68, 0.15)' : 'transparent',
+                    border: internetFacing ? '1px solid var(--accent-red)' : '1px solid var(--border-color)',
+                    background: internetFacing ? 'rgba(201, 114, 114, 0.15)' : 'transparent',
                     color: internetFacing ? '#f87171' : 'var(--text-dim)',
                     fontSize: 12,
                     fontWeight: 600,
@@ -485,7 +485,7 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
               justifyContent: 'space-between'
             }}>
               <div>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 4 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-main)', marginBottom: 4 }}>
                   Environment & Classification
                 </label>
                 <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
@@ -501,7 +501,7 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
                     borderRadius: 6,
                     background: '#090e1a',
                     border: '1px solid var(--border-color)',
-                    color: '#fff',
+                    color: 'var(--text-main)',
                     fontSize: 11
                   }}
                 >
@@ -518,7 +518,7 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
                     borderRadius: 6,
                     background: '#090e1a',
                     border: '1px solid var(--border-color)',
-                    color: '#fff',
+                    color: 'var(--text-main)',
                     fontSize: 11
                   }}
                 >
@@ -558,7 +558,7 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
                 display: 'flex',
                 alignItems: 'center',
                 gap: 8,
-                background: 'linear-gradient(135deg, #00f2fe 0%, #0284c7 100%)',
+                background: 'linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%)',
                 color: '#031326',
                 fontWeight: 700
               }}

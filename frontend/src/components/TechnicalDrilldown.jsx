@@ -24,9 +24,9 @@ export default function TechnicalDrilldown({ summary, driversData, entitiesData,
       <div className="glass-panel" style={{ padding: 22 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Network size={20} color="#00f2fe" />
+            <Network size={20} color="var(--primary)" />
             <div>
-              <h3 style={{ margin: 0, fontSize: 16, color: '#fff' }}>Asset Topology & High-Centrality Choke Points</h3>
+              <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>Asset Topology & High-Centrality Choke Points</h3>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
                 Assets identified by NetworkX directed graph where failure propagates to multiple critical business services
               </p>
@@ -39,18 +39,18 @@ export default function TechnicalDrilldown({ summary, driversData, entitiesData,
           {chokePoints.map((cp, idx) => (
             <div key={idx} className="glass-panel" style={{
               padding: 16,
-              borderLeft: '4px solid #00f2fe',
+              borderLeft: '4px solid var(--primary)',
               background: 'rgba(255,255,255,0.02)'
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <strong style={{ fontSize: 13, color: '#fff' }}>{cp.asset_name}</strong>
+                <strong style={{ fontSize: 13, color: 'var(--text-main)' }}>{cp.asset_name}</strong>
                 <span className="mono badge badge-cyan">{cp.asset_id}</span>
               </div>
               <div style={{ margin: '8px 0', fontSize: 12, color: 'var(--text-muted)' }}>
                 Supports <strong>{cp.dependent_service_count} downstream service{cp.dependent_service_count !== 1 ? 's' : ''}</strong>:
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
                   {cp.dependent_services.map((sName, sIdx) => (
-                    <span key={sIdx} className="badge" style={{ background: 'rgba(0, 242, 254, 0.1)', color: '#38bdf8', fontSize: 10 }}>
+                    <span key={sIdx} className="badge" style={{ background: 'rgba(183, 140, 102, 0.1)', color: '#38bdf8', fontSize: 10 }}>
                       {sName}
                     </span>
                   ))}
@@ -58,7 +58,7 @@ export default function TechnicalDrilldown({ summary, driversData, entitiesData,
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-dim)', borderTop: '1px solid var(--border-color)', paddingTop: 6, marginTop: 8 }}>
                 <span>Effective Revenue at Risk:</span>
-                <span className="mono" style={{ color: '#00f2fe', fontWeight: 600 }}>{formatINR(cp.effective_revenue_per_hour)}/hr</span>
+                <span className="mono" style={{ color: 'var(--primary)', fontWeight: 600 }}>{formatINR(cp.effective_revenue_per_hour)}/hr</span>
               </div>
             </div>
           ))}
@@ -69,9 +69,9 @@ export default function TechnicalDrilldown({ summary, driversData, entitiesData,
       <div className="glass-panel" style={{ padding: 22 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Flame size={20} color="#ef4444" />
+            <Flame size={20} color="var(--accent-red)" />
             <div>
-              <h3 style={{ margin: 0, fontSize: 16, color: '#fff' }}>Vulnerability Remediation Backlog (Ranked by Marginal EAL)</h3>
+              <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>Vulnerability Remediation Backlog (Ranked by Marginal EAL)</h3>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
                 Leave-One-Out (LOO) marginal risk contribution: exact expected financial loss removed if patched
               </p>
@@ -97,7 +97,7 @@ export default function TechnicalDrilldown({ summary, driversData, entitiesData,
                 <tr key={idx}>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <strong className="mono" style={{ color: '#fff', fontSize: 13 }}>{d.id}</strong>
+                      <strong className="mono" style={{ color: 'var(--text-main)', fontSize: 13 }}>{d.id}</strong>
                     </div>
                   </td>
                   <td>
@@ -143,7 +143,7 @@ export default function TechnicalDrilldown({ summary, driversData, entitiesData,
       <div className="glass-panel" style={{ padding: 22 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div>
-            <h3 style={{ margin: 0, fontSize: 16, color: '#fff' }}>Business Services Financial Exposure</h3>
+            <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>Business Services Financial Exposure</h3>
             <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
               Service level EAL aggregated across dependent asset graphs and RTO tolerances
             </p>
@@ -166,19 +166,19 @@ export default function TechnicalDrilldown({ summary, driversData, entitiesData,
               {services.map((svc, idx) => (
                 <tr key={idx}>
                   <td>
-                    <strong style={{ color: '#fff' }}>{svc.name}</strong>
+                    <strong style={{ color: 'var(--text-main)' }}>{svc.name}</strong>
                     <div className="mono" style={{ fontSize: 11, color: 'var(--text-dim)' }}>{svc.service_id}</div>
                   </td>
                   <td className="mono" style={{ color: '#38bdf8' }}>
                     {formatINR(svc.revenue_per_hour)}/hr
                   </td>
                   <td>
-                    <span className="badge" style={{ background: 'rgba(255,255,255,0.05)', color: '#fff' }}>
+                    <span className="badge" style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text-main)' }}>
                       {svc.rto_hours || 4} Hours Max Outage
                     </span>
                   </td>
                   <td>
-                    <strong className="mono" style={{ color: '#00f2fe' }}>{formatINR(svc.eal)}</strong>
+                    <strong className="mono" style={{ color: 'var(--primary)' }}>{formatINR(svc.eal)}</strong>
                   </td>
                   <td>
                     <strong className="mono" style={{ color: '#f87171' }}>{formatINR(svc.var95)}</strong>

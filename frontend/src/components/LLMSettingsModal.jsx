@@ -183,9 +183,9 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
           maxHeight: '92vh',
           overflowY: 'auto',
           backgroundColor: '#0c1322',
-          border: '1px solid rgba(0, 242, 254, 0.3)',
+          border: '1px solid rgba(183, 140, 102, 0.3)',
           borderRadius: 16,
-          boxShadow: '0 20px 50px rgba(0, 0, 0, 0.8), 0 0 30px rgba(0, 242, 254, 0.15)',
+          boxShadow: '0 20px 50px rgba(0, 0, 0, 0.8), 0 0 30px rgba(183, 140, 102, 0.15)',
           padding: 24,
           position: 'relative'
         }}
@@ -197,16 +197,16 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
               width: 44,
               height: 44,
               borderRadius: 12,
-              background: 'linear-gradient(135deg, rgba(0, 242, 254, 0.2) 0%, rgba(139, 92, 246, 0.2) 100%)',
-              border: '1px solid rgba(0, 242, 254, 0.4)',
+              background: 'linear-gradient(135deg, rgba(183, 140, 102, 0.2) 0%, rgba(154, 150, 179, 0.2) 100%)',
+              border: '1px solid rgba(183, 140, 102, 0.4)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center'
             }}>
-              <Sparkles size={24} color="#00f2fe" />
+              <Sparkles size={24} color="var(--primary)" />
             </div>
             <div>
-              <h3 style={{ margin: 0, fontSize: 18, color: '#fff', fontWeight: 700 }}>
+              <h3 style={{ margin: 0, fontSize: 18, color: 'var(--text-main)', fontWeight: 700 }}>
                 CRISP LLM Configuration & Model Selection
               </h3>
               <p style={{ margin: '3px 0 0 0', fontSize: 12, color: 'var(--text-dim)' }}>
@@ -236,14 +236,14 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
             padding: '10px 14px',
             borderRadius: 8,
             fontSize: 12,
-            background: statusMsg.type === 'success' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-            border: `1px solid ${statusMsg.type === 'success' ? '#10b981' : '#ef4444'}`,
-            color: '#fff',
+            background: statusMsg.type === 'success' ? 'rgba(126, 143, 129, 0.15)' : 'rgba(201, 114, 114, 0.15)',
+            border: `1px solid ${statusMsg.type === 'success' ? 'var(--accent-green)' : 'var(--accent-red)'}`,
+            color: 'var(--text-main)',
             display: 'flex',
             alignItems: 'center',
             gap: 10
           }}>
-            {statusMsg.type === 'success' ? <CheckCircle2 size={16} color="#10b981" /> : <AlertCircle size={16} color="#ef4444" />}
+            {statusMsg.type === 'success' ? <CheckCircle2 size={16} color="var(--accent-green)" /> : <AlertCircle size={16} color="var(--accent-red)" />}
             <span>{statusMsg.text}</span>
           </div>
         )}
@@ -251,7 +251,7 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
         <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
           {/* 1. Select Provider */}
           <div>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#fff', marginBottom: 8 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-main)', marginBottom: 8 }}>
               1. Choose LLM Provider
             </label>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
@@ -264,17 +264,17 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
                     style={{
                       padding: '12px 14px',
                       borderRadius: 10,
-                      background: isSelected ? 'rgba(0, 242, 254, 0.12)' : 'rgba(255, 255, 255, 0.02)',
-                      border: isSelected ? '1.5px solid #00f2fe' : '1px solid var(--border-color)',
+                      background: isSelected ? 'rgba(183, 140, 102, 0.12)' : 'rgba(255, 255, 255, 0.02)',
+                      border: isSelected ? '1.5px solid var(--primary)' : '1px solid var(--border-color)',
                       cursor: 'pointer',
                       transition: 'all 0.2s ease'
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                      <strong style={{ fontSize: 13, color: isSelected ? '#00f2fe' : '#fff' }}>
+                      <strong style={{ fontSize: 13, color: isSelected ? 'var(--primary)' : 'var(--text-main)' }}>
                         {p.name}
                       </strong>
-                      {isSelected && <CheckCircle2 size={14} color="#00f2fe" />}
+                      {isSelected && <CheckCircle2 size={14} color="var(--primary)" />}
                     </div>
                     <p style={{ margin: 0, fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.3 }}>
                       {p.desc}
@@ -288,16 +288,16 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
           {/* 2. Model Identifier (Editable + Presets) */}
           <div style={{
             background: 'rgba(255, 255, 255, 0.02)',
-            border: '1px solid rgba(0, 242, 254, 0.2)',
+            border: '1px solid rgba(183, 140, 102, 0.2)',
             borderRadius: 12,
             padding: 16
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
-              <label style={{ fontSize: 12, fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Edit3 size={14} color="#00f2fe" />
+              <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Edit3 size={14} color="var(--primary)" />
                 <span>2. Model Identifier (Custom / Editable)</span>
               </label>
-              <span style={{ fontSize: 11, color: '#00f2fe' }}>
+              <span style={{ fontSize: 11, color: 'var(--primary)' }}>
                 ✏️ Type any custom model or click a preset below
               </span>
             </div>
@@ -313,13 +313,13 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
                   padding: '11px 14px',
                   borderRadius: 8,
                   background: '#090e1a',
-                  border: '1px solid rgba(0, 242, 254, 0.4)',
-                  color: '#00f2fe',
+                  border: '1px solid rgba(183, 140, 102, 0.4)',
+                  color: 'var(--primary)',
                   fontSize: 13,
                   fontWeight: 600,
                   fontFamily: 'monospace',
                   letterSpacing: '0.02em',
-                  boxShadow: '0 0 10px rgba(0, 242, 254, 0.1)'
+                  boxShadow: '0 0 10px rgba(183, 140, 102, 0.1)'
                 }}
                 required
               />
@@ -346,9 +346,9 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
                           fontFamily: 'monospace',
                           cursor: 'pointer',
                           transition: 'all 0.15s ease',
-                          background: isMatch ? 'rgba(0, 242, 254, 0.25)' : 'rgba(255, 255, 255, 0.04)',
-                          border: isMatch ? '1px solid #00f2fe' : '1px solid rgba(255, 255, 255, 0.12)',
-                          color: isMatch ? '#00f2fe' : 'var(--text-muted)',
+                          background: isMatch ? 'rgba(183, 140, 102, 0.25)' : 'rgba(255, 255, 255, 0.04)',
+                          border: isMatch ? '1px solid var(--primary)' : '1px solid rgba(255, 255, 255, 0.12)',
+                          color: isMatch ? 'var(--primary)' : 'var(--text-muted)',
                           fontWeight: isMatch ? 700 : 500
                         }}
                       >
@@ -364,7 +364,7 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
           {/* 3. Base URL & API Key */}
           <div style={{ display: 'grid', gridTemplateColumns: provider === 'ollama' ? '1fr' : '1fr 1fr', gap: 14 }}>
             <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 6 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-main)', marginBottom: 6 }}>
                 Base URL {provider === 'ollama' ? '(Default: http://localhost:11434/v1)' : provider === 'deepseek' ? '(Default: https://api.deepseek.com)' : '(Optional Override)'}
               </label>
               <input
@@ -384,7 +384,7 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
                   borderRadius: 8,
                   background: '#090e1a',
                   border: '1px solid var(--border-color)',
-                  color: '#fff',
+                  color: 'var(--text-main)',
                   fontSize: 13,
                   fontFamily: 'monospace'
                 }}
@@ -395,7 +395,7 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
             {provider !== 'ollama' && (
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-main)' }}>
                     {currentProviderOpt.name} API Key
                   </label>
                   <span className="badge badge-cyan" style={{ fontSize: 9 }}>
@@ -414,7 +414,7 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
                       borderRadius: 8,
                       background: '#090e1a',
                       border: '1px solid var(--border-color)',
-                      color: '#fff',
+                      color: 'var(--text-main)',
                       fontFamily: 'monospace',
                       fontSize: 13
                     }}
@@ -447,9 +447,9 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
               padding: '10px 14px',
               borderRadius: 8,
               fontSize: 12,
-              background: testResult.connected ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
-              border: `1px solid ${testResult.connected ? '#10b981' : '#ef4444'}`,
-              color: testResult.connected ? '#34d399' : '#f87171'
+              background: testResult.connected ? 'rgba(126, 143, 129, 0.12)' : 'rgba(201, 114, 114, 0.12)',
+              border: `1px solid ${testResult.connected ? 'var(--accent-green)' : 'var(--accent-red)'}`,
+              color: testResult.connected ? 'var(--accent-green)' : '#f87171'
             }}>
               <strong>{testResult.connected ? '✓ Connection Verified:' : '✗ Connection Failed:'}</strong>{' '}
               {testResult.detail || testResult.error}
@@ -471,7 +471,7 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
               className="btn btn-outline"
               style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}
             >
-              {testing ? <RefreshCw size={13} className="animate-spin" /> : <Zap size={13} color="#00f2fe" />}
+              {testing ? <RefreshCw size={13} className="animate-spin" /> : <Zap size={13} color="var(--primary)" />}
               <span>{testing ? 'Probing...' : 'Test Connection'}</span>
             </button>
 
@@ -493,7 +493,7 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
                   alignItems: 'center',
                   gap: 8,
                   fontSize: 13,
-                  background: 'linear-gradient(135deg, #00f2fe 0%, #0284c7 100%)',
+                  background: 'linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%)',
                   color: '#031326',
                   fontWeight: 700
                 }}

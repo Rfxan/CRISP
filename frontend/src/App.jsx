@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
+import Sidebar from './components/Sidebar';
 import ExecutiveView from './components/ExecutiveView';
 import TechnicalDrilldown from './components/TechnicalDrilldown';
 import OptimizerView from './components/OptimizerView';
@@ -69,20 +70,26 @@ export default function App() {
   };
 
   const tabs = [
-    { id: 'executive', label: 'Executive Overview', icon: BarChart3 },
-    { id: 'drilldown', label: 'Technical Drill-Down', icon: Search },
-    { id: 'optimizer', label: 'Investment Optimizer & Benchmark', icon: Target },
-    { id: 'whatif', label: 'What-If Simulator', icon: Sparkles },
-    { id: 'compliance', label: 'Compliance & India Regs', icon: FileCheck },
-    { id: 'ai', label: 'AI Decision Support', icon: Bot },
-    { id: 'ingestion', label: 'Data Ingestion & Telemetry', icon: Database },
-    { id: 'connections', label: 'Connections (SIEM/IAM)', icon: Radio }
+    { id: 'executive', label: 'Executive Overview', shortLabel: 'Dashboard', icon: BarChart3 },
+    { id: 'drilldown', label: 'Technical Drill-Down', shortLabel: 'Drilldown', icon: Search },
+    { id: 'optimizer', label: 'Investment Optimizer & Benchmark', shortLabel: 'Optimizer', icon: Target },
+    { id: 'whatif', label: 'What-If Simulator', shortLabel: 'What-If', icon: Sparkles },
+    { id: 'compliance', label: 'Compliance & India Regs', shortLabel: 'Compliance', icon: FileCheck },
+    { id: 'ai', label: 'AI Decision Support', shortLabel: 'AI Copilot', icon: Bot },
+    { id: 'ingestion', label: 'Data Ingestion & Telemetry', shortLabel: 'Ingestion', icon: Database },
+    { id: 'connections', label: 'Connections (SIEM/IAM)', shortLabel: 'Connectors', icon: Radio }
   ];
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'row', backgroundColor: 'var(--bg-main)' }}>
       
-      {/* Top Navbar */}
+      {/* Left Sidebar */}
+      <Sidebar tabs={tabs} activeTab={activeTab} setActiveTab={setActiveTab} />
+      
+      {/* Right Content Area */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        
+        {/* Top Navbar */}
       <Navbar 
         runId={summary?.run_id}
         assumptionsVer={summary?.assumptions_version}
@@ -124,48 +131,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Tab Navigation */}
-        <div style={{
-          display: 'flex',
-          gap: 6,
-          background: 'rgba(15, 23, 42, 0.6)',
-          backdropFilter: 'blur(12px)',
-          border: '1px solid var(--border-color)',
-          borderRadius: 12,
-          padding: 6,
-          marginBottom: 24,
-          overflowX: 'auto'
-        }}>
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const isSelected = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '10px 16px',
-                  borderRadius: 8,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  border: 'none',
-                  fontFamily: 'var(--font-sans)',
-                  background: isSelected ? 'linear-gradient(135deg, #00f2fe 0%, #0284c7 100%)' : 'transparent',
-                  color: isSelected ? '#051026' : 'var(--text-muted)',
-                  transition: 'all 0.2s ease',
-                  whiteSpace: 'nowrap'
-                }}
-              >
-                <Icon size={16} strokeWidth={isSelected ? 2.5 : 2} />
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
-        </div>
+
 
         {/* Active Tab Screen */}
         {loading ? (
@@ -227,6 +193,7 @@ export default function App() {
         </div>
       </footer>
 
+      </div>
     </div>
   );
 }

@@ -27,11 +27,11 @@ export default function ExecutiveView({ summary, curveData, tornadoData, onNavig
 
   // Breakdown data for bar chart
   const breakdownData = summary.loss_breakdown ? [
-    { name: 'Downtime', amount: summary.loss_breakdown.downtime, fill: '#00f2fe' },
+    { name: 'Downtime', amount: summary.loss_breakdown.downtime, fill: 'var(--primary)' },
     { name: 'Incident Resp', amount: summary.loss_breakdown.incident_response, fill: '#38bdf8' },
     { name: 'Data Breach', amount: summary.loss_breakdown.data_breach, fill: '#818cf8' },
     { name: 'DPDP Penalty', amount: summary.loss_breakdown.regulatory_penalty, fill: '#f43f5e' },
-    { name: 'Reputation', amount: summary.loss_breakdown.reputational, fill: '#f59e0b' }
+    { name: 'Reputation', amount: summary.loss_breakdown.reputational, fill: 'var(--accent-amber)' }
   ] : [];
 
   // Exceedance curve formatted
@@ -47,8 +47,8 @@ export default function ExecutiveView({ summary, curveData, tornadoData, onNavig
       {/* Risk Appetite Alert Banner if Exceeded */}
       {isAppetiteExceeded && (
         <div style={{
-          background: 'rgba(239, 68, 68, 0.12)',
-          border: '1px solid rgba(239, 68, 68, 0.4)',
+          background: 'rgba(201, 114, 114, 0.12)',
+          border: '1px solid rgba(201, 114, 114, 0.4)',
           borderRadius: 12,
           padding: '12px 20px',
           display: 'flex',
@@ -58,7 +58,7 @@ export default function ExecutiveView({ summary, curveData, tornadoData, onNavig
           gap: 12
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <AlertOctagon size={22} color="#ef4444" />
+            <AlertOctagon size={22} color="var(--accent-red)" />
             <div>
               <strong style={{ color: '#f87171', fontSize: 14 }}>Board Risk Appetite Limit Exceeded</strong>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)' }}>
@@ -76,7 +76,7 @@ export default function ExecutiveView({ summary, curveData, tornadoData, onNavig
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 16 }}>
         
         {/* EAL Card */}
-        <div className="glass-panel" style={{ padding: 22, borderTop: '3px solid #00f2fe' }}>
+        <div className="glass-panel" style={{ padding: 22, borderTop: '3px solid var(--primary)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Expected Annual Loss (EAL)</span>
             <span className="badge badge-cyan">FAIR Mean</span>
@@ -90,7 +90,7 @@ export default function ExecutiveView({ summary, curveData, tornadoData, onNavig
         </div>
 
         {/* VaR95 Card */}
-        <div className="glass-panel" style={{ padding: 22, borderTop: '3px solid #ef4444' }}>
+        <div className="glass-panel" style={{ padding: 22, borderTop: '3px solid var(--accent-red)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Value at Risk (VaR 95)</span>
             <span className="badge badge-critical">1-in-20 Year</span>
@@ -104,12 +104,12 @@ export default function ExecutiveView({ summary, curveData, tornadoData, onNavig
         </div>
 
         {/* Tail Loss & Score Card */}
-        <div className="glass-panel" style={{ padding: 22, borderTop: '3px solid #8b5cf6' }}>
+        <div className="glass-panel" style={{ padding: 22, borderTop: '3px solid var(--accent-purple)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Tail Loss & Risk Score</span>
-            <span className="badge" style={{ background: 'rgba(139, 92, 246, 0.18)', color: '#c4b5fd' }}>Score {score}/100</span>
+            <span className="badge" style={{ background: 'rgba(154, 150, 179, 0.18)', color: 'var(--accent-purple)' }}>Score {score}/100</span>
           </div>
-          <div className="display-title" style={{ fontSize: 32, margin: '10px 0 4px 0', color: '#c4b5fd' }}>
+          <div className="display-title" style={{ fontSize: 32, margin: '10px 0 4px 0', color: 'var(--accent-purple)' }}>
             {formatINR(tail)}
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
@@ -118,14 +118,14 @@ export default function ExecutiveView({ summary, curveData, tornadoData, onNavig
         </div>
 
         {/* Appetite Headroom Card */}
-        <div className="glass-panel" style={{ padding: 22, borderTop: `3px solid ${isAppetiteExceeded ? '#ef4444' : '#10b981'}` }}>
+        <div className="glass-panel" style={{ padding: 22, borderTop: `3px solid ${isAppetiteExceeded ? 'var(--accent-red)' : 'var(--accent-green)'}` }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Appetite Headroom</span>
             <span className={`badge ${isAppetiteExceeded ? 'badge-critical' : 'badge-real'}`}>
               {isAppetiteExceeded ? 'Exceeded' : 'Within Limits'}
             </span>
           </div>
-          <div className="display-title" style={{ fontSize: 32, margin: '10px 0 4px 0', color: isAppetiteExceeded ? '#f87171' : '#34d399' }}>
+          <div className="display-title" style={{ fontSize: 32, margin: '10px 0 4px 0', color: isAppetiteExceeded ? '#f87171' : 'var(--accent-green)' }}>
             {formatINR(headroom)}
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
@@ -142,7 +142,7 @@ export default function ExecutiveView({ summary, curveData, tornadoData, onNavig
         <div className="glass-panel" style={{ padding: 22 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div>
-              <h3 style={{ margin: 0, fontSize: 16, color: '#fff' }}>Loss Exceedance Curve P(Loss &gt; X)</h3>
+              <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>Loss Exceedance Curve P(Loss &gt; X)</h3>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
                 Empirical probability distribution from 10,000 vectorized trials
               </p>
@@ -155,18 +155,18 @@ export default function ExecutiveView({ summary, curveData, tornadoData, onNavig
               <AreaChart data={formattedCurve} margin={{ top: 10, right: 15, left: -10, bottom: 0 }}>
                 <defs>
                   <linearGradient id="curveGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#00f2fe" stopOpacity={0.4}/>
-                    <stop offset="95%" stopColor="#00f2fe" stopOpacity={0.0}/>
+                    <stop offset="5%" stopcolor="var(--primary)" stopOpacity={0.4}/>
+                    <stop offset="95%" stopcolor="var(--primary)" stopOpacity={0.0}/>
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
                 <XAxis dataKey="lossFormatted" stroke="#64748b" fontSize={11} interval={8} />
                 <YAxis stroke="#64748b" fontSize={11} tickFormatter={(v) => `${v}%`} />
                 <Tooltip 
-                  contentStyle={{ background: '#0d1527', border: '1px solid rgba(0, 242, 254, 0.3)', borderRadius: 8, fontSize: 12 }}
+                  contentStyle={{ background: 'var(--bg-card)', border: '1px solid rgba(183, 140, 102, 0.3)', borderRadius: 8, fontSize: 12 }}
                   formatter={(val, name, item) => [`${val.toFixed(1)}% chance of loss exceeding ${item.payload.lossFormatted}`, 'Exceedance Probability']}
                 />
-                <Area type="monotone" dataKey="probability" stroke="#00f2fe" strokeWidth={2.5} fillOpacity={1} fill="url(#curveGrad)" />
+                <Area type="monotone" dataKey="probability" stroke="var(--primary)" strokeWidth={2.5} fillOpacity={1} fill="url(#curveGrad)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -179,7 +179,7 @@ export default function ExecutiveView({ summary, curveData, tornadoData, onNavig
         <div className="glass-panel" style={{ padding: 22 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div>
-              <h3 style={{ margin: 0, fontSize: 16, color: '#fff' }}>Financial Loss Decomposition</h3>
+              <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>Financial Loss Decomposition</h3>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
                 Component allocation across downtime, breach forensics, and regulatory penalties
               </p>
@@ -194,7 +194,7 @@ export default function ExecutiveView({ summary, curveData, tornadoData, onNavig
                 <XAxis dataKey="name" stroke="#64748b" fontSize={11} />
                 <YAxis stroke="#64748b" fontSize={11} tickFormatter={(v) => formatINR(v)} />
                 <Tooltip 
-                  contentStyle={{ background: '#0d1527', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 12 }}
+                  contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 12 }}
                   formatter={(val) => [formatINRFull(val), 'Expected Loss']}
                 />
                 <Bar dataKey="amount" radius={[6, 6, 0, 0]} />
@@ -215,7 +215,7 @@ export default function ExecutiveView({ summary, curveData, tornadoData, onNavig
         <div className="glass-panel" style={{ padding: 22 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <div>
-              <h3 style={{ margin: 0, fontSize: 16, color: '#fff' }}>30 / 60 / 90-Day Risk Trajectory</h3>
+              <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>30 / 60 / 90-Day Risk Trajectory</h3>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
                 Projection if identified vulnerabilities remain unpatched
               </p>
@@ -236,24 +236,24 @@ export default function ExecutiveView({ summary, curveData, tornadoData, onNavig
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, margin: '16px 0' }}>
                 <div className="glass-panel" style={{ padding: 14, textAlign: 'center', background: 'rgba(255,255,255,0.02)' }}>
                   <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>+30 Days</div>
-                  <div className="display-title" style={{ fontSize: 20, color: '#fbbf24', marginTop: 4 }}>
+                  <div className="display-title" style={{ fontSize: 20, color: 'var(--accent-amber)', marginTop: 4 }}>
                     {formatINR(p30)}
                   </div>
-                  <div style={{ fontSize: 10, color: '#ef4444' }}>+{d30}% Expected Drift</div>
+                  <div style={{ fontSize: 10, color: 'var(--accent-red)' }}>+{d30}% Expected Drift</div>
                 </div>
                 <div className="glass-panel" style={{ padding: 14, textAlign: 'center', background: 'rgba(255,255,255,0.02)' }}>
                   <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>+60 Days</div>
                   <div className="display-title" style={{ fontSize: 20, color: '#f97316', marginTop: 4 }}>
                     {formatINR(p60)}
                   </div>
-                  <div style={{ fontSize: 10, color: '#ef4444' }}>+{d60}% Expected Drift</div>
+                  <div style={{ fontSize: 10, color: 'var(--accent-red)' }}>+{d60}% Expected Drift</div>
                 </div>
                 <div className="glass-panel" style={{ padding: 14, textAlign: 'center', background: 'rgba(255,255,255,0.02)' }}>
                   <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>+90 Days</div>
-                  <div className="display-title" style={{ fontSize: 20, color: '#ef4444', marginTop: 4 }}>
+                  <div className="display-title" style={{ fontSize: 20, color: 'var(--accent-red)', marginTop: 4 }}>
                     {formatINR(p90)}
                   </div>
-                  <div style={{ fontSize: 10, color: '#ef4444' }}>+{d90}% Expected Drift</div>
+                  <div style={{ fontSize: 10, color: 'var(--accent-red)' }}>+{d90}% Expected Drift</div>
                 </div>
               </div>
             );
@@ -268,7 +268,7 @@ export default function ExecutiveView({ summary, curveData, tornadoData, onNavig
         <div className="glass-panel" style={{ padding: 22 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <div>
-              <h3 style={{ margin: 0, fontSize: 16, color: '#fff' }}>Tornado Sensitivity Analysis (±30%)</h3>
+              <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>Tornado Sensitivity Analysis (±30%)</h3>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
                 Computed Monte Carlo EAL sensitivity swings across key model inputs
               </p>
@@ -287,11 +287,11 @@ export default function ExecutiveView({ summary, curveData, tornadoData, onNavig
                     <div style={{
                       width: `${Math.max(10, Math.min(100, ((item.swing_spread || 0) / maxSpread) * 100))}%`,
                       height: '100%',
-                      background: 'linear-gradient(90deg, #00f2fe 0%, #8b5cf6 100%)',
+                      background: 'linear-gradient(90deg, var(--primary) 0%, var(--accent-purple) 100%)',
                       borderRadius: 4
                     }} />
                   </div>
-                  <span className="mono" style={{ color: '#00f2fe', flex: 1.5, textAlign: 'right', fontWeight: 600 }}>
+                  <span className="mono" style={{ color: 'var(--primary)', flex: 1.5, textAlign: 'right', fontWeight: 600 }}>
                     ±{formatINR(item.swing_spread / 2)}
                   </span>
                 </div>

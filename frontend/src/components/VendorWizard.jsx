@@ -184,13 +184,13 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
   const availableFields = inspectResult?.available_fields || [];
 
   return (
-    <div className="glass-panel" style={{ padding: 26, border: '1px solid #00f2fe', position: 'relative' }}>
+    <div className="glass-panel" style={{ padding: 26, border: '1px solid var(--primary)', position: 'relative' }}>
       {/* Wizard Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span className="badge badge-cyan" style={{ fontSize: 11 }}>NO-CODE INTEGRATION</span>
-            <h3 style={{ margin: 0, fontSize: 18, color: '#fff' }}>Vendor Onboarding Wizard</h3>
+            <h3 style={{ margin: 0, fontSize: 18, color: 'var(--text-main)' }}>Vendor Onboarding Wizard</h3>
           </div>
           <p style={{ margin: '4px 0 0 0', fontSize: 12, color: 'var(--text-dim)' }}>
             Teach CRISP to ingest any scanner export (Qualys, Rapid7, Snyk, Prisma, etc.) by uploading one sample and mapping fields once.
@@ -226,14 +226,14 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
                 padding: '10px 14px',
                 borderRadius: 8,
                 background: isActive 
-                  ? 'rgba(0, 242, 254, 0.12)' 
+                  ? 'rgba(183, 140, 102, 0.12)' 
                   : isDone 
-                  ? 'rgba(16, 185, 129, 0.1)' 
+                  ? 'rgba(126, 143, 129, 0.1)' 
                   : 'rgba(255,255,255,0.02)',
                 border: isActive 
-                  ? '1px solid #00f2fe' 
+                  ? '1px solid var(--primary)' 
                   : isDone 
-                  ? '1px solid #10b981' 
+                  ? '1px solid var(--accent-green)' 
                   : '1px solid var(--border-color)',
                 display: 'flex',
                 alignItems: 'center',
@@ -244,8 +244,8 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
                 width: 26,
                 height: 26,
                 borderRadius: '50%',
-                background: isDone ? '#10b981' : isActive ? '#00f2fe' : 'rgba(255,255,255,0.1)',
-                color: isDone || isActive ? '#000' : '#fff',
+                background: isDone ? 'var(--accent-green)' : isActive ? 'var(--primary)' : 'var(--bg-card)',
+                color: isDone || isActive ? 'var(--bg-main)' : 'var(--text-main)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -255,7 +255,7 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
                 {isDone ? <CheckCircle2 size={16} /> : s.num}
               </div>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: isActive ? '#00f2fe' : isDone ? '#10b981' : '#fff' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: isActive ? 'var(--primary)' : isDone ? 'var(--accent-green)' : 'var(--text-main)' }}>
                   {s.title}
                 </div>
                 <div style={{ fontSize: 10, color: 'var(--text-dim)' }}>{s.desc}</div>
@@ -279,8 +279,8 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
               textAlign: 'center'
             }}
           >
-            <UploadCloud size={40} color="#00f2fe" style={{ margin: '0 auto 12px auto' }} />
-            <h4 style={{ margin: 0, fontSize: 15, color: '#fff' }}>
+            <UploadCloud size={40} color="var(--primary)" style={{ margin: '0 auto 12px auto' }} />
+            <h4 style={{ margin: 0, fontSize: 15, color: 'var(--text-main)' }}>
               Step 1: Upload a Sample File from the New Tool
             </h4>
             <p style={{ margin: '6px auto 16px auto', fontSize: 12, color: 'var(--text-dim)', maxWidth: 480 }}>
@@ -300,7 +300,7 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
             </label>
 
             {inspecting && (
-              <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: 12, color: '#00f2fe' }}>
+              <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: 12, color: 'var(--primary)' }}>
                 <RefreshCw size={14} className="animate-spin" />
                 <span>Inspecting structure, record boundaries, and tag paths...</span>
               </div>
@@ -310,20 +310,20 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
           {step1Error && (
             <div style={{
               padding: '10px 14px', borderRadius: 8,
-              background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #ef4444',
-              color: '#fff', fontSize: 12, display: 'flex', alignItems: 'center', gap: 8
+              background: 'rgba(201, 114, 114, 0.15)', border: '1px solid var(--accent-red)',
+              color: 'var(--text-main)', fontSize: 12, display: 'flex', alignItems: 'center', gap: 8
             }}>
-              <AlertTriangle size={16} color="#ef4444" />
+              <AlertTriangle size={16} color="var(--accent-red)" />
               <span>Inspection Error: {step1Error}</span>
             </div>
           )}
 
           {inspectResult && (
-            <div className="glass-panel" style={{ padding: 18, background: 'rgba(0, 242, 254, 0.03)' }}>
+            <div className="glass-panel" style={{ padding: 18, background: 'rgba(183, 140, 102, 0.03)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <CheckCircle2 size={18} color="#10b981" />
-                  <strong style={{ fontSize: 13, color: '#fff' }}>Structure Detected Successfully</strong>
+                  <CheckCircle2 size={18} color="var(--accent-green)" />
+                  <strong style={{ fontSize: 13, color: 'var(--text-main)' }}>Structure Detected Successfully</strong>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <span className="badge badge-cyan" style={{ textTransform: 'uppercase' }}>Format: {inspectResult.format}</span>
@@ -332,11 +332,11 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
               </div>
 
               <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 10 }}>
-                <strong>Detected Record Path:</strong> <code style={{ color: '#00f2fe', background: 'rgba(0,0,0,0.3)', padding: '2px 6px', borderRadius: 4 }}>{inspectResult.detected_record_path || 'Direct Rows'}</code>
+                <strong>Detected Record Path:</strong> <code style={{ color: 'var(--primary)', background: 'rgba(0,0,0,0.3)', padding: '2px 6px', borderRadius: 4 }}>{inspectResult.detected_record_path || 'Direct Rows'}</code>
               </div>
 
               <div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#fff', marginBottom: 6 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-main)', marginBottom: 6 }}>
                   Available Fields Inside Finding Record ({availableFields.length}):
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 110, overflowY: 'auto', padding: 6, background: 'rgba(0,0,0,0.2)', borderRadius: 6 }}>
@@ -374,7 +374,7 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <h4 style={{ margin: 0, fontSize: 15, color: '#fff' }}>Step 2: Map Fields to CRISP Standard Canonical Model</h4>
+              <h4 style={{ margin: 0, fontSize: 15, color: 'var(--text-main)' }}>Step 2: Map Fields to CRISP Standard Canonical Model</h4>
               <p style={{ margin: '4px 0 0 0', fontSize: 12, color: 'var(--text-dim)' }}>
                 Select which field in the vendor file corresponds to each CRISP property. Heuristics have suggested matches below.
               </p>
@@ -386,7 +386,7 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
               style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, padding: '5px 10px' }}
               title="Re-run auto-suggest heuristics"
             >
-              <Sparkles size={13} color="#00f2fe" />
+              <Sparkles size={13} color="var(--primary)" />
               <span>Auto-Suggest</span>
             </button>
           </div>
@@ -394,7 +394,7 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
           {/* Toggle for non-CVE / CSPM scanners */}
           <div style={{
             padding: '10px 14px', borderRadius: 8,
-            background: 'rgba(167, 139, 250, 0.08)', border: '1px solid rgba(167, 139, 250, 0.3)',
+            background: 'rgba(154, 150, 179, 0.08)', border: '1px solid rgba(154, 150, 179, 0.3)',
             display: 'flex', alignItems: 'center', gap: 10
           }}>
             <input
@@ -404,7 +404,7 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
               onChange={(e) => setIsNonCve(e.target.checked)}
               style={{ cursor: 'pointer', width: 16, height: 16 }}
             />
-            <label htmlFor="nonCveToggle" style={{ fontSize: 12, color: '#fff', cursor: 'pointer', userSelect: 'none' }}>
+            <label htmlFor="nonCveToggle" style={{ fontSize: 12, color: 'var(--text-main)', cursor: 'pointer', userSelect: 'none' }}>
               <strong>N/A — This is a Configuration / Misconfiguration / CSPM Scanner</strong>
               <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
                 Bypasses CVE requirement and maps an Issue/Check Type instead (e.g. S3 Public Access, Root MFA Disabled).
@@ -417,8 +417,8 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
             {/* 1. Asset ID (Required) */}
             <div className="glass-panel" style={{ padding: 14 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>
-                  Target Asset ID <span style={{ color: '#ef4444' }}>*</span>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-main)' }}>
+                  Target Asset ID <span style={{ color: 'var(--accent-red)' }}>*</span>
                 </label>
                 <span className="badge badge-cyan" style={{ fontSize: 9 }}>Required</span>
               </div>
@@ -426,7 +426,7 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
               <select
                 value={mapping.asset_id}
                 onChange={(e) => setMapping(m => ({ ...m, asset_id: e.target.value }))}
-                style={{ width: '100%', padding: '8px 10px', borderRadius: 6, background: '#0f172a', border: '1px solid var(--border-color)', color: '#fff', fontSize: 12 }}
+                style={{ width: '100%', padding: '8px 10px', borderRadius: 6, background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontSize: 12 }}
               >
                 <option value="">-- Select Field --</option>
                 {availableFields.map((f, i) => (
@@ -438,8 +438,8 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
             {/* 2. Severity (Required) */}
             <div className="glass-panel" style={{ padding: 14 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>
-                  Severity Level <span style={{ color: '#ef4444' }}>*</span>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-main)' }}>
+                  Severity Level <span style={{ color: 'var(--accent-red)' }}>*</span>
                 </label>
                 <span className="badge badge-cyan" style={{ fontSize: 9 }}>Required</span>
               </div>
@@ -447,7 +447,7 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
               <select
                 value={mapping.severity}
                 onChange={(e) => setMapping(m => ({ ...m, severity: e.target.value }))}
-                style={{ width: '100%', padding: '8px 10px', borderRadius: 6, background: '#0f172a', border: '1px solid var(--border-color)', color: '#fff', fontSize: 12 }}
+                style={{ width: '100%', padding: '8px 10px', borderRadius: 6, background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontSize: 12 }}
               >
                 <option value="">-- Select Field --</option>
                 {availableFields.map((f, i) => (
@@ -460,8 +460,8 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
             {!isNonCve && (
               <div className="glass-panel" style={{ padding: 14 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>
-                    CVE Identifier <span style={{ color: '#ef4444' }}>*</span>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-main)' }}>
+                    CVE Identifier <span style={{ color: 'var(--accent-red)' }}>*</span>
                   </label>
                   <span className="badge badge-amber" style={{ fontSize: 9 }}>Required for Vuln Scanners</span>
                 </div>
@@ -469,7 +469,7 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
                 <select
                   value={mapping.cve_id}
                   onChange={(e) => setMapping(m => ({ ...m, cve_id: e.target.value }))}
-                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, background: '#0f172a', border: '1px solid var(--border-color)', color: '#fff', fontSize: 12 }}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontSize: 12 }}
                 >
                   <option value="">-- Select Field --</option>
                   {availableFields.map((f, i) => (
@@ -481,18 +481,18 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
 
             {/* 4. Issue Type (Shown when isNonCve or optional) */}
             {isNonCve && (
-              <div className="glass-panel" style={{ padding: 14, border: '1px solid #a78bfa' }}>
+              <div className="glass-panel" style={{ padding: 14, border: '1px solid var(--accent-purple)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: '#a78bfa' }}>
-                    Issue / Check ID <span style={{ color: '#ef4444' }}>*</span>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent-purple)' }}>
+                    Issue / Check ID <span style={{ color: 'var(--accent-red)' }}>*</span>
                   </label>
-                  <span className="badge" style={{ background: 'rgba(167, 139, 250, 0.2)', color: '#a78bfa', fontSize: 9 }}>Required for CSPM</span>
+                  <span className="badge" style={{ background: 'rgba(154, 150, 179, 0.2)', color: 'var(--accent-purple)', fontSize: 9 }}>Required for CSPM</span>
                 </div>
                 <p style={{ margin: '0 0 8px 0', fontSize: 11, color: 'var(--text-dim)' }}>Check rule ID or title (e.g. s3_public_access)</p>
                 <select
                   value={mapping.issue_type}
                   onChange={(e) => setMapping(m => ({ ...m, issue_type: e.target.value }))}
-                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, background: '#0f172a', border: '1px solid var(--border-color)', color: '#fff', fontSize: 12 }}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontSize: 12 }}
                 >
                   <option value="">-- Select Field --</option>
                   {availableFields.map((f, i) => (
@@ -505,14 +505,14 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
             {/* 5. CVSS Score (Optional) */}
             <div className="glass-panel" style={{ padding: 14 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>CVSS Score (0.0 - 10.0)</label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-main)' }}>CVSS Score (0.0 - 10.0)</label>
                 <span className="badge" style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--text-dim)', fontSize: 9 }}>Optional</span>
               </div>
               <p style={{ margin: '0 0 8px 0', fontSize: 11, color: 'var(--text-dim)' }}>Base CVSS score numeric value</p>
               <select
                 value={mapping.cvss}
                 onChange={(e) => setMapping(m => ({ ...m, cvss: e.target.value }))}
-                style={{ width: '100%', padding: '8px 10px', borderRadius: 6, background: '#0f172a', border: '1px solid var(--border-color)', color: '#fff', fontSize: 12 }}
+                style={{ width: '100%', padding: '8px 10px', borderRadius: 6, background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontSize: 12 }}
               >
                 <option value="">-- None / N/A --</option>
                 {availableFields.map((f, i) => (
@@ -524,14 +524,14 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
             {/* 6. Port (Optional) */}
             <div className="glass-panel" style={{ padding: 14 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>Network Port / Service</label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-main)' }}>Network Port / Service</label>
                 <span className="badge" style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--text-dim)', fontSize: 9 }}>Optional</span>
               </div>
               <p style={{ margin: '0 0 8px 0', fontSize: 11, color: 'var(--text-dim)' }}>Port number or service string (e.g. 443/tcp)</p>
               <select
                 value={mapping.port}
                 onChange={(e) => setMapping(m => ({ ...m, port: e.target.value }))}
-                style={{ width: '100%', padding: '8px 10px', borderRadius: 6, background: '#0f172a', border: '1px solid var(--border-color)', color: '#fff', fontSize: 12 }}
+                style={{ width: '100%', padding: '8px 10px', borderRadius: 6, background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontSize: 12 }}
               >
                 <option value="">-- None / N/A --</option>
                 {availableFields.map((f, i) => (
@@ -555,7 +555,7 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
               onClick={handlePreview}
               disabled={previewing}
               className="btn btn-primary"
-              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', fontSize: 13, background: 'linear-gradient(135deg, #00f2fe 0%, #4facfe 100%)' }}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', fontSize: 13, background: 'linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%)' }}
             >
               <Eye size={15} />
               <span>{previewing ? 'Parsing Preview...' : 'Preview Extracted Findings'}</span>
@@ -565,21 +565,21 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
           {mappingError && (
             <div style={{
               padding: '10px 14px', borderRadius: 8,
-              background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #ef4444',
-              color: '#fff', fontSize: 12, display: 'flex', alignItems: 'center', gap: 8
+              background: 'rgba(201, 114, 114, 0.15)', border: '1px solid var(--accent-red)',
+              color: 'var(--text-main)', fontSize: 12, display: 'flex', alignItems: 'center', gap: 8
             }}>
-              <AlertTriangle size={16} color="#ef4444" />
+              <AlertTriangle size={16} color="var(--accent-red)" />
               <span>{mappingError}</span>
             </div>
           )}
 
           {/* Live Preview Verification Table */}
           {previewResult && (
-            <div className="glass-panel" style={{ padding: 18, background: 'rgba(0,0,0,0.2)', border: '1px solid #10b981' }}>
+            <div className="glass-panel" style={{ padding: 18, background: 'rgba(0,0,0,0.2)', border: '1px solid var(--accent-green)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <ShieldCheck size={18} color="#10b981" />
-                  <strong style={{ fontSize: 13, color: '#fff' }}>Live Validation Preview</strong>
+                  <ShieldCheck size={18} color="var(--accent-green)" />
+                  <strong style={{ fontSize: 13, color: 'var(--text-main)' }}>Live Validation Preview</strong>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <span className="badge badge-cyan">Extracted: {previewResult.total_extracted}</span>
@@ -603,16 +603,16 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
                     <tbody>
                       {previewResult.sample_findings.map((f, i) => (
                         <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                          <td style={{ padding: '8px 10px', color: '#00f2fe', fontFamily: 'monospace' }}>{f.id}</td>
+                          <td style={{ padding: '8px 10px', color: 'var(--primary)', fontFamily: 'monospace' }}>{f.id}</td>
                           <td style={{ padding: '8px 10px', fontWeight: 600 }}>{f.asset_id}</td>
-                          <td style={{ padding: '8px 10px', color: f.cve_id ? '#f59e0b' : '#a78bfa', fontFamily: 'monospace' }}>
+                          <td style={{ padding: '8px 10px', color: f.cve_id ? 'var(--accent-amber)' : 'var(--accent-purple)', fontFamily: 'monospace' }}>
                             {f.cve_id || f.issue_type}
                           </td>
                           <td style={{ padding: '8px 10px' }}>
                             <span style={{
                               padding: '2px 8px', borderRadius: 4,
-                              background: f.severity === 'Critical' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.2)',
-                              color: f.severity === 'Critical' ? '#ef4444' : '#f59e0b',
+                              background: f.severity === 'Critical' ? 'rgba(201, 114, 114, 0.2)' : 'rgba(209, 184, 121, 0.2)',
+                              color: f.severity === 'Critical' ? 'var(--accent-red)' : 'var(--accent-amber)',
                               fontWeight: 700
                             }}>
                               {f.severity}
@@ -626,13 +626,13 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
                   </table>
                 </div>
               ) : (
-                <div style={{ padding: 16, textAlign: 'center', color: '#ef4444', fontSize: 12 }}>
+                <div style={{ padding: 16, textAlign: 'center', color: 'var(--accent-red)', fontSize: 12 }}>
                   No findings extracted with this mapping. Please check field selections.
                 </div>
               )}
 
               {previewResult.skip_reasons?.length > 0 && (
-                <div style={{ fontSize: 11, color: '#f59e0b', marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: 'var(--accent-amber)', marginBottom: 12 }}>
                   <strong>Skipped Records Note:</strong> {previewResult.skip_reasons.join('; ')}
                 </div>
               )}
@@ -660,15 +660,15 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
       {currentStep === 3 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
           <div>
-            <h4 style={{ margin: 0, fontSize: 15, color: '#fff' }}>Step 3: Name and Save Your Vendor Configuration</h4>
+            <h4 style={{ margin: 0, fontSize: 15, color: 'var(--text-main)' }}>Step 3: Name and Save Your Vendor Configuration</h4>
             <p style={{ margin: '4px 0 0 0', fontSize: 12, color: 'var(--text-dim)' }}>
               Provide a name for this tool. Once saved, it will appear as a permanent ingestion source in the CRISP dashboard with no backend code changes.
             </p>
           </div>
 
           <div className="glass-panel" style={{ padding: 20 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#fff', display: 'block', marginBottom: 6 }}>
-              Human-Readable Vendor / Tool Name <span style={{ color: '#ef4444' }}>*</span>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-main)', display: 'block', marginBottom: 6 }}>
+              Human-Readable Vendor / Tool Name <span style={{ color: 'var(--accent-red)' }}>*</span>
             </label>
             <input
               type="text"
@@ -679,18 +679,18 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
                 width: '100%',
                 padding: '10px 14px',
                 borderRadius: 8,
-                background: '#0f172a',
+                background: 'var(--bg-card)',
                 border: '1px solid var(--border-color)',
-                color: '#fff',
+                color: 'var(--text-main)',
                 fontSize: 14,
                 marginBottom: 14
               }}
             />
 
             <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 18 }}>
-              <strong>Generated Slug:</strong> <code style={{ color: '#00f2fe' }}>{vendorName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'custom_vendor'}</code>
+              <strong>Generated Slug:</strong> <code style={{ color: 'var(--primary)' }}>{vendorName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'custom_vendor'}</code>
               <br />
-              <strong>Ingestion API Endpoint:</strong> <code style={{ color: '#10b981' }}>POST /api/ingest/vendor/{'{vendor_slug}'}</code>
+              <strong>Ingestion API Endpoint:</strong> <code style={{ color: 'var(--accent-green)' }}>POST /api/ingest/vendor/{'{vendor_slug}'}</code>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -708,7 +708,7 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
                 className="btn btn-primary"
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8, padding: '10px 24px', fontSize: 13,
-                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+                  background: 'linear-gradient(135deg, var(--accent-green) 0%, var(--accent-green) 100%)'
                 }}
               >
                 <Save size={16} />
@@ -720,10 +720,10 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
           {saveError && (
             <div style={{
               padding: '10px 14px', borderRadius: 8,
-              background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #ef4444',
-              color: '#fff', fontSize: 12, display: 'flex', alignItems: 'center', gap: 8
+              background: 'rgba(201, 114, 114, 0.15)', border: '1px solid var(--accent-red)',
+              color: 'var(--text-main)', fontSize: 12, display: 'flex', alignItems: 'center', gap: 8
             }}>
-              <AlertTriangle size={16} color="#ef4444" />
+              <AlertTriangle size={16} color="var(--accent-red)" />
               <span>{saveError}</span>
             </div>
           )}
@@ -731,13 +731,13 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
           {saveSuccess && (
             <div style={{
               padding: '18px 20px', borderRadius: 10,
-              background: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10b981',
-              color: '#fff', display: 'flex', flexDirection: 'column', gap: 10
+              background: 'rgba(126, 143, 129, 0.15)', border: '1px solid var(--accent-green)',
+              color: 'var(--text-main)', display: 'flex', flexDirection: 'column', gap: 10
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <CheckCircle2 size={24} color="#10b981" />
+                <CheckCircle2 size={24} color="var(--accent-green)" />
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#10b981' }}>Vendor Successfully Onboarded!</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent-green)' }}>Vendor Successfully Onboarded!</div>
                   <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
                     "{saveSuccess.vendor_name}" has been saved to disk and is now ready for production report uploads.
                   </div>

@@ -84,12 +84,12 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       
       {/* Interactive Budget Control Bar */}
-      <div className="glass-panel" style={{ padding: 22, borderTop: '3px solid #00f2fe' }}>
+      <div className="glass-panel" style={{ padding: 22, borderTop: '3px solid var(--primary)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Sliders size={22} color="#00f2fe" />
+            <Sliders size={22} color="var(--primary)" />
             <div>
-              <h3 style={{ margin: 0, fontSize: 16, color: '#fff' }}>Security Investment Budget Allocator</h3>
+              <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>Security Investment Budget Allocator</h3>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
                 Set available capital for cybersecurity patches and controls. Integer Linear Programming (PuLP) selects the optimal mix.
               </p>
@@ -97,7 +97,7 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Target Budget:</span>
-            <span className="display-title" style={{ fontSize: 24, color: '#00f2fe' }}>{formatINR(budget)}</span>
+            <span className="display-title" style={{ fontSize: 24, color: 'var(--primary)' }}>{formatINR(budget)}</span>
             <span className="mono" style={{ fontSize: 12, color: 'var(--text-dim)' }}>({formatINRFull(budget)})</span>
           </div>
         </div>
@@ -114,7 +114,7 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
             onTouchEnd={handleSliderRelease}
             style={{
               width: '100%',
-              accentColor: '#00f2fe',
+              accentcolor: 'var(--primary)',
               cursor: 'pointer'
             }}
           />
@@ -132,8 +132,8 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 14 }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Award size={22} color="#00f2fe" />
-              <h2 className="display-title" style={{ margin: 0, fontSize: 18, color: '#fff' }}>
+              <Award size={22} color="var(--primary)" />
+              <h2 className="display-title" style={{ margin: 0, fontSize: 18, color: 'var(--text-main)' }}>
                 Live Benchmark Proof: CRISP ILP vs. Industry Baselines
               </h2>
             </div>
@@ -151,8 +151,8 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
         {/* Headline Victory Banner */}
         {headline && (
           <div style={{
-            background: 'linear-gradient(90deg, rgba(0, 242, 254, 0.12) 0%, rgba(16, 185, 129, 0.12) 100%)',
-            border: '1px solid rgba(0, 242, 254, 0.3)',
+            background: 'linear-gradient(90deg, rgba(183, 140, 102, 0.12) 0%, rgba(126, 143, 129, 0.12) 100%)',
+            border: '1px solid rgba(183, 140, 102, 0.3)',
             borderRadius: 10,
             padding: '12px 18px',
             margin: '16px 0',
@@ -165,7 +165,7 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
             <div style={{ fontSize: 13, color: '#e2e8f0' }}>
               <strong>The Headline Finding:</strong> {headline.proof_summary}
             </div>
-            <div className="mono" style={{ color: '#34d399', fontSize: 13, fontWeight: 700 }}>
+            <div className="mono" style={{ color: 'var(--accent-green)', fontSize: 13, fontWeight: 700 }}>
               Extra Loss Prevented: {formatINR(headline.extra_rupees_saved)}
             </div>
           </div>
@@ -178,8 +178,8 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
             return (
               <div key={idx} className="glass-panel" style={{
                 padding: 18,
-                border: isWinner ? '2px solid #00f2fe' : '1px solid var(--border-color)',
-                background: isWinner ? 'rgba(0, 242, 254, 0.05)' : 'rgba(255,255,255,0.02)',
+                border: isWinner ? '2px solid var(--primary)' : '1px solid var(--border-color)',
+                background: isWinner ? 'rgba(183, 140, 102, 0.05)' : 'rgba(255,255,255,0.02)',
                 position: 'relative'
               }}>
                 {isWinner && (
@@ -187,8 +187,8 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
                     position: 'absolute',
                     top: -10,
                     right: 14,
-                    background: '#00f2fe',
-                    color: '#070a12',
+                    background: 'var(--primary)',
+                    color: 'var(--bg-main)',
                     fontSize: 10,
                     fontWeight: 800,
                     padding: '2px 8px',
@@ -198,7 +198,7 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
                     Recommended Optimal
                   </div>
                 )}
-                <div style={{ fontSize: 13, fontWeight: 700, color: isWinner ? '#00f2fe' : '#fff' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: isWinner ? 'var(--primary)' : 'var(--text-main)' }}>
                   {strat.strategy_name}
                 </div>
                 <p style={{ fontSize: 11, color: 'var(--text-dim)', margin: '4px 0 14px 0' }}>
@@ -208,11 +208,11 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span style={{ color: 'var(--text-muted)' }}>Budget Spent:</span>
-                    <strong className="mono" style={{ color: '#fff' }}>{formatINR(strat.spend)}</strong>
+                    <strong className="mono" style={{ color: 'var(--text-main)' }}>{formatINR(strat.spend)}</strong>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span style={{ color: 'var(--text-muted)' }}>Expected Loss Reduction:</span>
-                    <strong className="mono display-title" style={{ color: isWinner ? '#34d399' : '#fff', fontSize: 16 }}>
+                    <strong className="mono display-title" style={{ color: isWinner ? 'var(--accent-green)' : 'var(--text-main)', fontSize: 16 }}>
                       {formatINR(strat.eal_reduction)}
                     </strong>
                   </div>
@@ -222,7 +222,7 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border-color)', paddingTop: 6 }}>
                     <span style={{ color: 'var(--text-muted)' }}>Reduction per Rupee:</span>
-                    <strong className="mono" style={{ color: isWinner ? '#00f2fe' : 'var(--text-dim)' }}>
+                    <strong className="mono" style={{ color: isWinner ? 'var(--primary)' : 'var(--text-dim)' }}>
                       {strat.reduction_per_rupee}x
                     </strong>
                   </div>
@@ -240,7 +240,7 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
         <div className="glass-panel" style={{ padding: 22 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div>
-              <h3 style={{ margin: 0, fontSize: 16, color: '#fff' }}>Recommended Action Portfolio ({plan?.all_actions?.length || 0} Actions)</h3>
+              <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>Recommended Action Portfolio ({plan?.all_actions?.length || 0} Actions)</h3>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
                 Total Allocated: <strong>{formatINR(plan?.total_spent || 0)}</strong> | Overall Portfolio ROSI: <strong>{plan?.overall_rosi || 0}x</strong>
               </p>
@@ -252,32 +252,32 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
             {plan?.all_actions?.map((act, idx) => (
               <div key={idx} className="glass-panel" style={{
                 padding: 14,
-                borderLeft: act.type === 'control' ? '3px solid #00f2fe' : '3px solid #8b5cf6',
+                borderLeft: act.type === 'control' ? '3px solid var(--primary)' : '3px solid var(--accent-purple)',
                 background: 'rgba(255,255,255,0.02)'
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
                     <span className="badge" style={{
-                      background: act.type === 'control' ? 'rgba(0, 242, 254, 0.1)' : 'rgba(139, 92, 246, 0.1)',
-                      color: act.type === 'control' ? '#00f2fe' : '#c4b5fd',
+                      background: act.type === 'control' ? 'rgba(183, 140, 102, 0.1)' : 'rgba(154, 150, 179, 0.1)',
+                      color: act.type === 'control' ? 'var(--primary)' : 'var(--accent-purple)',
                       fontSize: 10,
                       marginBottom: 4
                     }}>
                       {act.type === 'control' ? 'Security Control' : 'Vulnerability Patch'}
                     </span>
-                    <h4 style={{ margin: 0, fontSize: 13, color: '#fff' }}>{act.name || act.cve_id}</h4>
+                    <h4 style={{ margin: 0, fontSize: 13, color: 'var(--text-main)' }}>{act.name || act.cve_id}</h4>
                     {act.asset_id && (
                       <div className="mono" style={{ fontSize: 10, color: 'var(--text-dim)' }}>Target: {act.asset_id}</div>
                     )}
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <div className="mono" style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>{formatINR(act.cost)}</div>
+                    <div className="mono" style={{ color: 'var(--text-main)', fontSize: 13, fontWeight: 700 }}>{formatINR(act.cost)}</div>
                     <span className="badge badge-real" style={{ fontSize: 10 }}>ROSI: {act.rosi}x</span>
                   </div>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-dim)', marginTop: 8, borderTop: '1px solid var(--border-color)', paddingTop: 6 }}>
                   <span>EAL Risk Reduction:</span>
-                  <span className="mono" style={{ color: '#34d399', fontWeight: 600 }}>{formatINR(act.estimated_reduction)}</span>
+                  <span className="mono" style={{ color: 'var(--accent-green)', fontWeight: 600 }}>{formatINR(act.estimated_reduction)}</span>
                 </div>
               </div>
             ))}
@@ -288,7 +288,7 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
         <div className="glass-panel" style={{ padding: 22 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div>
-              <h3 style={{ margin: 0, fontSize: 16, color: '#fff' }}>Pareto Frontier & Diminishing Returns</h3>
+              <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>Pareto Frontier & Diminishing Returns</h3>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
                 EAL Reduction vs Budget Sweep (₹10L to ₹5Cr) marking the optimal knee point
               </p>
@@ -303,16 +303,16 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
                 <XAxis dataKey="budgetFormatted" stroke="#64748b" fontSize={11} interval={2} />
                 <YAxis stroke="#64748b" fontSize={11} tickFormatter={(v) => formatINR(v)} />
                 <Tooltip 
-                  contentStyle={{ background: '#0d1527', border: '1px solid #00f2fe', borderRadius: 8, fontSize: 12 }}
+                  contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--primary)', borderRadius: 8, fontSize: 12 }}
                   formatter={(val, name, item) => [formatINRFull(val), 'EAL Reduction']}
                   labelFormatter={(lbl, item) => `Budget: ${lbl}`}
                 />
                 <Line 
                   type="monotone" 
                   dataKey="ealReduction" 
-                  stroke="#00f2fe" 
+                  stroke="var(--primary)" 
                   strokeWidth={3} 
-                  dot={{ r: 3, fill: '#00f2fe' }} 
+                  dot={{ r: 3, fill: 'var(--primary)' }} 
                   activeDot={{ r: 6 }} 
                 />
                 {kneePoint && (
@@ -320,8 +320,8 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
                     x={formatINR(kneePoint.budget)} 
                     y={kneePoint.eal_reduction} 
                     r={7} 
-                    fill="#10b981" 
-                    stroke="#fff" 
+                    fill="var(--accent-green)" 
+                    stroke="var(--text-main)" 
                   />
                 )}
               </LineChart>
@@ -330,8 +330,8 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
 
           {kneePoint && (
             <div style={{
-              background: 'rgba(16, 185, 129, 0.08)',
-              border: '1px solid rgba(16, 185, 129, 0.3)',
+              background: 'rgba(126, 143, 129, 0.08)',
+              border: '1px solid rgba(126, 143, 129, 0.3)',
               borderRadius: 8,
               padding: '10px 14px',
               marginTop: 12,
@@ -341,7 +341,7 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
               fontSize: 12
             }}>
               <div>
-                <strong style={{ color: '#34d399' }}>Optimal "Knee" Point: {formatINR(kneePoint.budget)}</strong>
+                <strong style={{ color: 'var(--accent-green)' }}>Optimal "Knee" Point: {formatINR(kneePoint.budget)}</strong>
                 <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>
                   Achieves {formatINR(kneePoint.eal_reduction)} reduction before marginal return per rupee drops.
                 </span>

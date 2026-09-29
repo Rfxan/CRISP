@@ -17,8 +17,8 @@ export default function EmptyState({
     <div className="glass-panel" style={{
       padding: '48px 32px',
       textAlign: 'center',
-      border: '1px dashed rgba(0, 242, 254, 0.3)',
-      background: 'rgba(15, 23, 42, 0.4)',
+      border: '1px dashed rgba(183, 140, 102, 0.3)',
+      background: 'var(--bg-card)',
       backdropFilter: 'blur(12px)',
       borderRadius: 16,
       maxWidth: 720,
@@ -32,12 +32,12 @@ export default function EmptyState({
         width: 64,
         height: 64,
         borderRadius: '50%',
-        background: isNoFindings ? 'rgba(245, 158, 11, 0.1)' : 'rgba(0, 242, 254, 0.1)',
-        border: `1px solid ${isNoFindings ? 'rgba(245, 158, 11, 0.4)' : 'rgba(0, 242, 254, 0.4)'}`,
+        background: isNoFindings ? 'rgba(209, 184, 121, 0.1)' : 'rgba(183, 140, 102, 0.1)',
+        border: `1px solid ${isNoFindings ? 'rgba(209, 184, 121, 0.4)' : 'rgba(183, 140, 102, 0.4)'}`,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        color: isNoFindings ? '#f59e0b' : '#00f2fe'
+        color: isNoFindings ? 'var(--accent-amber)' : 'var(--primary)'
       }}>
         {isNoFindings ? <ShieldAlert size={30} /> : <Database size={30} />}
       </div>
@@ -46,7 +46,7 @@ export default function EmptyState({
         <div className="badge badge-cyan" style={{ marginBottom: 10, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           {isNoFindings ? 'Step 2 Required: Vulnerability Scan' : 'System Initialized — Empty State'}
         </div>
-        <h2 style={{ fontSize: 22, fontWeight: 700, color: '#fff', margin: '0 0 8px 0' }}>
+        <h2 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-main)', margin: '0 0 8px 0' }}>
           {title}
         </h2>
         <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.6, maxWidth: 540, margin: 0 }}>
