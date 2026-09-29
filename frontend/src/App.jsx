@@ -17,7 +17,7 @@ import {
 import { formatINR } from './utils/formatters';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('executive');
+  const [activeTab, setActiveTab] = useState('home');
   const [summary, setSummary] = useState(null);
   const [curveData, setCurveData] = useState(null);
   const [tornadoData, setTornadoData] = useState(null);
