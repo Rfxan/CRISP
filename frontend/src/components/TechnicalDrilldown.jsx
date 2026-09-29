@@ -1,5 +1,5 @@
 import React from 'react';
-import { GitBranch, Server, AlertTriangle, ShieldCheck, Flame, ExternalLink, Network } from 'lucide-react';
+import { GitBranch, Server, AlertTriangle, ShieldCheck, Flame, ExternalLink, Network, AlertCircle } from 'lucide-react';
 import { formatINR, formatINRFull } from '../utils/formatters';
 import EmptyState from './EmptyState';
 
@@ -20,6 +20,36 @@ export default function TechnicalDrilldown({ summary, driversData, entitiesData,
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       
+      {/* Excluded Assets Visibility Banner */}
+      {summary?.excluded_assets_count > 0 && (
+        <div className="glass-panel" style={{
+          borderLeft: '4px solid var(--accent-amber)',
+          padding: '16px 20px',
+          background: 'rgba(217, 119, 6, 0.06)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <AlertCircle size={20} color="var(--accent-amber)" />
+              <div>
+                <strong style={{ color: 'var(--text-main)', fontSize: 14 }}>
+                  EAL Excludes {summary.excluded_assets_count} Discovered Asset{summary.excluded_assets_count > 1 ? 's' : ''} (₹0 Loss Imputed)
+                </strong>
+                <p style={{ margin: '2px 0 0 0', fontSize: 12, color: 'var(--text-muted)' }}>
+                  FAIR risk engine excludes assets without declared business context. Pending: {summary.excluded_assets.map(a => a.name || a.asset_id).join(', ')}.
+                </p>
+              </div>
+            </div>
+            <button
+              className="btn btn-outline"
+              style={{ fontSize: 11, padding: '5px 12px' }}
+              onClick={onNavigateToIngestion}
+            >
+              Assign Business Context →
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Choke Points Section */}
       <div className="glass-panel" style={{ padding: 22 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>

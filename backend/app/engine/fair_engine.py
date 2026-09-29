@@ -53,7 +53,9 @@ class FAIREngine:
             "scenario_eals": {},
             "assets": [],
             "services": [],
-            "choke_points": []
+            "choke_points": [],
+            "excluded_assets": [],
+            "excluded_assets_count": 0
         }
 
     def run(self, snapshot: Dict[str, Any], params: Dict[str, Any] = None, seed: int = None) -> Dict[str, Any]:
@@ -140,6 +142,27 @@ class FAIREngine:
             "reputational": 0.0
         }
 
+        # ── Exclude assets with no declared business context (Approach A) ────────
+        # Assets auto-created by scan ingestion or missing criticality_1_5 have no
+        # known business value. Silently defaulting criticality to 1.0 or assuming
+        # revenue would artificially inflate EAL (e.g. ₹20L on unassigned IPs).
+        # We strictly identify these assets, exclude them from loss magnitude computation,
+        # and surface them in the response for UI transparency.
+        excluded_assets = []
+        for a in assets:
+            a_id = a.get("id") or a.get("asset_id")
+            crit_val = a.get("criticality_1_5")
+            has_ctx = a.get("has_business_context")
+            # Distinct from a genuinely-declared 0 or 1: check for actual None / missing
+            if crit_val is None or has_ctx is False:
+                excluded_assets.append({
+                    "asset_id": a_id,
+                    "name": a.get("name", a_id),
+                    "criticality": None,
+                    "reason": "Missing business context (criticality not declared)"
+                })
+        excluded_asset_ids = {item["asset_id"] for item in excluded_assets}
+
         # Simulation Loop over Scenarios and Assets with aligned per-scenario RNG
         for sc_idx, sc in enumerate(scenarios):
             sc_id = sc["id"]
@@ -166,14 +189,20 @@ class FAIREngine:
             control_mitigation = np.clip(control_mitigation, 0.05, 1.0)
 
             for a_idx, asset in enumerate(assets):
-                a_id = asset["id"]
+                a_id = asset.get("id") or asset.get("asset_id")
+
+                # Approach A: Skip loss magnitude computation entirely for assets with no declared business context
+                if a_id in excluded_asset_ids:
+                    continue
+
                 pair_seed = int((active_seed * 10007 + sc_idx * 9973 + a_idx * 137) % (2**31 - 1))
                 rng_pair = np.random.default_rng(pair_seed)
 
-                crit = float(asset.get("criticality_1_5") or 1.0)
-                is_pub = bool(asset.get("internet_facing", False))
+                crit = float(asset["criticality_1_5"])
+                is_pub = bool(asset.get("internet_facing") is True)
                 svc_id = asset.get("business_service_id")
-                records = int(asset.get("records_count") or 0)
+                raw_records = asset.get("records_count")
+                records = int(raw_records) if raw_records is not None else 0
 
                 # Compute asset exploitability P_vuln
                 f_list = asset_findings.get(a_id, [])
@@ -212,14 +241,18 @@ class FAIREngine:
 
                 # Compute loss magnitude components
                 effective_hourly_rev = dep_graph.compute_asset_effective_revenue_impact(a_id)
-                rto = 4.0
-                for s in services:
-                    if (s.get("id") or s.get("service_id")) == svc_id:
-                        rto = s.get("rto_hours", 4.0)
-                        break
+                rto = 0.0
+                if svc_id:
+                    for s in services:
+                        if (s.get("id") or s.get("service_id")) == svc_id:
+                            rto = float(s.get("rto_hours", 4.0))
+                            break
 
-                outage_hours = sample_pert(max(0.5, 0.5 * rto), rto, 3.0 * rto, size=num_trials, rng=rng_pair)
-                downtime_loss = n_events * outage_hours * effective_hourly_rev * 0.75
+                if rto > 0 and effective_hourly_rev > 0:
+                    outage_hours = sample_pert(max(0.5, 0.5 * rto), rto, 3.0 * rto, size=num_trials, rng=rng_pair)
+                    downtime_loss = n_events * outage_hours * effective_hourly_rev * 0.75
+                else:
+                    downtime_loss = np.zeros(num_trials, dtype=np.float64)
 
                 ir_base = sample_pert(500000.0, 1500000.0, 4500000.0, size=num_trials, rng=rng_pair)
                 ir_loss = n_events * ir_base * (crit / 3.0)
@@ -284,20 +317,24 @@ class FAIREngine:
             intel = cve_intel.get(f_cve, {}) if f_cve else {}
             # Marginal contribution approximation based on asset share and exploitability
             asset_eal = float(np.mean(asset_trial_losses.get(f_asset_id, np.zeros(1))))
-            epss_val = intel.get("epss", SEVERITY_EXPLOITABILITY_PRIORS.get(f.get("severity", "Medium"), 0.20))
+            f_sev = f.get("severity")
+            epss_val = intel.get("epss") if intel else None
+            if epss_val is None:
+                epss_val = SEVERITY_EXPLOITABILITY_PRIORS.get(f_sev, 0.20) if f_sev else 0.20
             in_kev = intel.get("in_kev", False)
             weight = epss_val * (1.5 if in_kev else 1.0)
             marginal_eal = round(asset_eal * min(0.9, weight * 0.75), 2)
             # For non-CVE findings (e.g. CSPM / cloud misconfigurations), use the finding's own 'id' field
-            # (e.g. 'MISCONF-001') rather than inventing a fake CVE-shaped string.
             driver_id = f_cve or f.get("id") or "UNKNOWN-FINDING"
+            raw_cvss = f.get("cvss")
+            cvss_val = float(raw_cvss) if raw_cvss is not None else 0.0
             drivers.append({
                 "type": "finding",
                 "id": driver_id,
                 "finding_id": f.get("id"),
                 "asset_id": f_asset_id,
-                "asset_name": next((a["name"] for a in assets if a["id"] == f_asset_id), f_asset_id),
-                "cvss": float(f.get("cvss") or 7.0),
+                "asset_name": next((a.get("name") or a.get("id") for a in assets if (a.get("id") or a.get("asset_id")) == f_asset_id), f_asset_id),
+                "cvss": cvss_val,
                 "severity": f.get("severity", "High"),
                 "epss": epss_val,
                 "in_kev": in_kev,
@@ -309,18 +346,21 @@ class FAIREngine:
         # Asset-level summary
         asset_summaries = []
         for a in assets:
-            a_id = a["id"]
+            a_id = a.get("id") or a.get("asset_id")
             a_loss = asset_trial_losses.get(a_id, np.zeros(1))
             a_eal = float(np.mean(a_loss))
-            if a_eal > 0 or a.get("is_real_lab_asset", False):
+            is_excluded = a_id in excluded_asset_ids
+            if a_eal > 0 or a.get("is_real_lab_asset", False) or is_excluded:
                 asset_summaries.append({
                     "asset_id": a_id,
-                    "name": a["name"],
-                    "criticality": a.get("criticality_1_5", 3),
+                    "name": a.get("name", a_id),
+                    "criticality": a.get("criticality_1_5"),
                     "service_id": a.get("business_service_id"),
                     "eal": round(a_eal, 2),
                     "var95": round(float(np.percentile(a_loss, 95)), 2),
-                    "is_real_lab_asset": a.get("is_real_lab_asset", False)
+                    "is_real_lab_asset": a.get("is_real_lab_asset", False),
+                    "excluded_from_eal": is_excluded,
+                    "has_business_context": not is_excluded
                 })
         asset_summaries.sort(key=lambda x: x["eal"], reverse=True)
 
@@ -332,7 +372,7 @@ class FAIREngine:
             service_summaries.append({
                 "service_id": s_id,
                 "name": s["name"],
-                "revenue_per_hour": s.get("revenue_per_hour", 0.0),
+                "revenue_per_hour": float(s.get("revenue_per_hour") or 0.0),
                 "eal": round(float(np.mean(s_loss)), 2),
                 "var95": round(float(np.percentile(s_loss, 95)), 2)
             })
@@ -374,5 +414,7 @@ class FAIREngine:
             "curve": curve_points,
             "assets": asset_summaries[:15],
             "services": service_summaries,
-            "choke_points": choke_points
+            "choke_points": choke_points,
+            "excluded_assets": excluded_assets,
+            "excluded_assets_count": len(excluded_assets)
         }

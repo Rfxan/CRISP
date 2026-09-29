@@ -250,7 +250,9 @@ def get_risk_summary(refresh: bool = False):
             "org": summary["org"],
             "loss_breakdown": {},
             "trend": {"historical": []},
-            "drivers_count": 0
+            "drivers_count": 0,
+            "excluded_assets": summary.get("excluded_assets", []),
+            "excluded_assets_count": summary.get("excluded_assets_count", 0)
         }
 
     current_eal = summary["org"]["eal"]
@@ -289,7 +291,9 @@ def get_risk_summary(refresh: bool = False):
         "org": summary["org"],
         "loss_breakdown": summary["loss_breakdown"],
         "trend": trend,
-        "drivers_count": len(summary["drivers"])
+        "drivers_count": len(summary["drivers"]),
+        "excluded_assets": summary.get("excluded_assets", []),
+        "excluded_assets_count": summary.get("excluded_assets_count", 0)
     }
 
 @router.get("/risk/entities")
@@ -297,9 +301,9 @@ def get_risk_entities(level: str = Query("asset", pattern="^(org|business_unit|s
     """GET /risk/entities?level=org|business_unit|service|asset"""
     summary = store.get_summary()
     if store._is_empty_state(summary):
-        return {"level": level, "entities": [], "total": 0, "status": summary.get("status")}
+        return {"level": level, "entities": [], "total": 0, "status": summary.get("status"), "excluded_assets": summary.get("excluded_assets", []), "excluded_assets_count": summary.get("excluded_assets_count", 0)}
     if level == "asset":
-        return {"level": "asset", "entities": summary["assets"], "total": len(summary["assets"])}
+        return {"level": "asset", "entities": summary["assets"], "total": len(summary["assets"]), "excluded_assets": summary.get("excluded_assets", []), "excluded_assets_count": summary.get("excluded_assets_count", 0)}
     elif level == "service":
         return {"level": "service", "entities": summary["services"], "total": len(summary["services"])}
     elif level == "business_unit":

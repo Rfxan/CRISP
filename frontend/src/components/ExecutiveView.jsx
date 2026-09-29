@@ -3,7 +3,7 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, 
   BarChart, Bar, CartesianGrid, Legend 
 } from 'recharts';
-import { ShieldCheck, TrendingUp, AlertOctagon, HelpCircle, Layers, Award } from 'lucide-react';
+import { ShieldCheck, TrendingUp, AlertOctagon, HelpCircle, Layers, Award, AlertCircle } from 'lucide-react';
 import { formatINR, formatINRFull } from '../utils/formatters';
 import EmptyState from './EmptyState';
 
@@ -44,6 +44,40 @@ export default function ExecutiveView({ summary, curveData, tornadoData, onNavig
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       
+      {/* Excluded Assets Visibility Banner */}
+      {summary.excluded_assets_count > 0 && (
+        <div style={{
+          background: 'rgba(217, 119, 6, 0.08)',
+          border: '1px solid rgba(217, 119, 6, 0.35)',
+          borderRadius: 12,
+          padding: '12px 18px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 12
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <AlertCircle size={20} color="var(--accent-amber)" />
+            <div>
+              <strong style={{ color: 'var(--accent-amber)', fontSize: 13 }}>
+                EAL excludes {summary.excluded_assets_count} asset{summary.excluded_assets_count > 1 ? 's' : ''} with no declared business context
+              </strong>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                Assets without declared criticality or revenue impact are excluded from loss magnitude calculations to prevent fabricated estimates.
+              </div>
+            </div>
+          </div>
+          <button
+            className="btn btn-outline"
+            style={{ fontSize: 11, padding: '5px 12px' }}
+            onClick={onNavigateToIngestion}
+          >
+            Assign Criticality →
+          </button>
+        </div>
+      )}
+
       {/* Risk Appetite Alert Banner if Exceeded */}
       {isAppetiteExceeded && (
         <div style={{
