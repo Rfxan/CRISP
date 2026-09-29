@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import ExecutiveView from './components/ExecutiveView';
@@ -17,7 +18,8 @@ import {
 import { formatINR } from './utils/formatters';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('home');
+  const [activeTab, setActiveTab] = useState('executive');
+  const navigate = useNavigate();
   const [summary, setSummary] = useState(null);
   const [curveData, setCurveData] = useState(null);
   const [tornadoData, setTornadoData] = useState(null);
@@ -81,11 +83,7 @@ export default function App() {
     { id: 'connections', label: 'Connections (SIEM/IAM)', shortLabel: 'Connectors', icon: Radio }
   ];
 
-  if (activeTab === 'home') {
-    return <LandingPage onSignIn={() => setActiveTab('executive')} />;
-  }
-
-  return (
+  const DashboardLayout = () => (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'row', backgroundColor: 'var(--bg-main)' }}>
       
       {/* Left Sidebar */}
@@ -247,5 +245,13 @@ export default function App() {
 
       </div>
     </div>
+  );
+
+  return (
+    <Routes>
+      <Route path="/home" element={<LandingPage onSignIn={() => navigate('/dashboard')} />} />
+      <Route path="/dashboard" element={<DashboardLayout />} />
+      <Route path="*" element={<Navigate to="/home" replace />} />
+    </Routes>
   );
 }
