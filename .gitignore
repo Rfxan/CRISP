@@ -31,6 +31,8 @@ htmlcov/
 .env
 .env.*
 !.env.example
+*llm_config.json
+connections.json
 
 # Logs
 *.log

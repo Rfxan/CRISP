@@ -17,12 +17,13 @@ from app.core.security import encrypt_credential, decrypt_credential
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODELS = {
-    "gemini": "gemini-1.5-flash",
+    "gemini": "gemini-2.0-flash",
     "openai": "gpt-4o-mini",
     "groq": "llama-3.3-70b-versatile",
-    "anthropic": "claude-3-5-sonnet-20241022",
-    "ollama": "llama3.2",
-    "custom": "gpt-4o-mini"
+    "anthropic": "claude-sonnet-5",
+    "deepseek": "deepseek-chat",
+    "ollama": "deepseek-r1",
+    "custom": "custom-model"
 }
 
 DEFAULT_BASE_URLS = {
@@ -30,6 +31,7 @@ DEFAULT_BASE_URLS = {
     "openai": "https://api.openai.com/v1",
     "groq": "https://api.groq.com/openai/v1",
     "anthropic": "https://api.anthropic.com/v1",
+    "deepseek": "https://api.deepseek.com",
     "ollama": "http://localhost:11434/v1",
     "custom": ""
 }
@@ -127,6 +129,8 @@ class LLMConfigStore:
                 api_key = os.getenv("GROQ_API_KEY", "")
             elif provider == "anthropic":
                 api_key = os.getenv("ANTHROPIC_API_KEY", "")
+            elif provider == "deepseek":
+                api_key = os.getenv("DEEPSEEK_API_KEY", "")
             elif provider == "ollama":
                 api_key = "ollama"
 
@@ -163,11 +167,12 @@ class LLMConfigStore:
             "temperature": cfg["temperature"],
             "enabled": cfg["enabled"],
             "available_providers": [
-                {"id": "gemini", "name": "Google Gemini", "default_model": "gemini-1.5-flash"},
+                {"id": "gemini", "name": "Google Gemini", "default_model": "gemini-2.0-flash"},
+                {"id": "anthropic", "name": "Anthropic Claude", "default_model": "claude-3-7-sonnet-20250219"},
                 {"id": "openai", "name": "OpenAI", "default_model": "gpt-4o-mini"},
+                {"id": "deepseek", "name": "DeepSeek", "default_model": "deepseek-chat"},
                 {"id": "groq", "name": "Groq (Fast Open-Source)", "default_model": "llama-3.3-70b-versatile"},
-                {"id": "anthropic", "name": "Anthropic Claude", "default_model": "claude-3-5-sonnet-20241022"},
-                {"id": "ollama", "name": "Local Ollama", "default_model": "llama3.2"},
+                {"id": "ollama", "name": "Local Ollama", "default_model": "deepseek-r1"},
                 {"id": "custom", "name": "Custom OpenAI-Compatible", "default_model": "custom-model"}
             ]
         }

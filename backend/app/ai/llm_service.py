@@ -26,6 +26,8 @@ class LLMService:
             active_url = active_url or "https://generativelanguage.googleapis.com/v1beta/openai/"
         elif provider == "groq":
             active_url = active_url or "https://api.groq.com/openai/v1"
+        elif provider == "deepseek":
+            active_url = active_url or "https://api.deepseek.com"
         elif provider == "ollama":
             active_url = active_url or "http://localhost:11434/v1"
             api_key = api_key or "ollama"
@@ -71,11 +73,19 @@ class LLMService:
                 "model": model,
                 "max_tokens": 1200,
                 "system": system_context,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": temperature
+                "messages": [{"role": "user", "content": prompt}]
             }
+            # Only add temperature if not using models that deprecate it
+            if not any(k in model for k in ["-5", "-4-6", "-4-7", "-4-8"]):
+                body["temperature"] = temperature
+
             with httpx.Client(timeout=timeout) as client:
                 res = client.post("https://api.anthropic.com/v1/messages", headers=headers, json=body)
+                if not res.is_success and res.status_code == 400 and "temperature" in res.text:
+                    # Retry without temperature for models that deprecate temperature
+                    body.pop("temperature", None)
+                    res = client.post("https://api.anthropic.com/v1/messages", headers=headers, json=body)
+
                 if not res.is_success:
                     err_msg = res.json().get("error", {}).get("message", res.text)
                     raise RuntimeError(f"Anthropic API Error ({res.status_code}): {err_msg}")
@@ -116,18 +126,33 @@ class LLMService:
                     else:
                         raise RuntimeError(f"Unexpected Gemini response structure: {gem_data}")
 
-        # Provider 3: OpenAI, Groq, Ollama, Custom (All standard OpenAI-compatible)
+        # Provider 3: OpenAI, DeepSeek, Groq, Ollama, Custom (All standard OpenAI-compatible)
         else:
             client = LLMService._get_client_for_provider(provider, api_key, base_url, timeout=timeout, max_retries=max_retries)
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_context},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=temperature,
-                max_tokens=1200
-            )
+            
+            # Special handling for reasoning models (OpenAI o1/o3 or DeepSeek-reasoner)
+            is_o_series = provider == "openai" and (model.startswith("o1") or model.startswith("o3"))
+            is_reasoner = is_o_series or model == "deepseek-reasoner"
+
+            messages = [
+                {"role": "system" if not is_o_series else "user", "content": system_context},
+                {"role": "user", "content": prompt}
+            ]
+
+            kwargs = {
+                "model": model,
+                "messages": messages
+            }
+
+            if is_o_series:
+                kwargs["max_completion_tokens"] = 1200
+            elif is_reasoner:
+                kwargs["max_tokens"] = 1200
+            else:
+                kwargs["temperature"] = temperature
+                kwargs["max_tokens"] = 1200
+
+            response = client.chat.completions.create(**kwargs)
             answer = response.choices[0].message.content or ""
 
         duration_ms = int((time.time() - start_time) * 1000)

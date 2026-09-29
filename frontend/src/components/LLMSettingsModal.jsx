@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   X, Cpu, Key, Globe, CheckCircle2, AlertCircle, Eye, EyeOff, 
-  Sparkles, RefreshCw, Zap, Sliders, Shield
+  Sparkles, RefreshCw, Zap, Sliders, Shield, Edit3
 } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -9,42 +9,56 @@ const PROVIDER_OPTIONS = [
   { 
     id: 'gemini', 
     name: 'Google Gemini', 
-    desc: 'Fast, high-quality, generous free tier',
-    defaultModel: 'gemini-1.5-flash',
-    models: ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro']
-  },
-  { 
-    id: 'openai', 
-    name: 'OpenAI', 
-    desc: 'Industry standard reasoning & tool execution',
-    defaultModel: 'gpt-4o-mini',
-    models: ['gpt-4o-mini', 'gpt-4o', 'gpt-3.5-turbo']
-  },
-  { 
-    id: 'groq', 
-    name: 'Groq (Ultra-Fast Llama 3)', 
-    desc: 'Sub-second LPUs for Llama-3.3-70B, free tier',
-    defaultModel: 'llama-3.3-70b-versatile',
-    models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768']
+    desc: 'Ultra-fast multimodal 2.0 & 2.5 models with 1M+ context window',
+    defaultModel: 'gemini-2.0-flash',
+    models: ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-pro', 'gemini-1.5-flash']
   },
   { 
     id: 'anthropic', 
     name: 'Anthropic Claude', 
-    desc: 'Nuanced financial reasoning & safety',
-    defaultModel: 'claude-3-5-sonnet-20241022',
-    models: ['claude-3-5-sonnet-20241022', 'claude-3-haiku-20240307']
+    desc: 'Premier hybrid reasoning, nuanced analysis & executive synthesis',
+    defaultModel: 'claude-sonnet-5',
+    models: [
+      'claude-sonnet-5',
+      'claude-opus-5',
+      'claude-sonnet-4-5-20250929',
+      'claude-haiku-4-5-20251001',
+      'claude-opus-4-5-20251101',
+      'claude-3-7-sonnet-20250219'
+    ]
+  },
+  { 
+    id: 'openai', 
+    name: 'OpenAI', 
+    desc: 'Frontier reasoning & multimodal intelligence (GPT-4o, o3-mini, o1)',
+    defaultModel: 'gpt-4o',
+    models: ['gpt-4o', 'gpt-4o-mini', 'o3-mini', 'o1', 'chatgpt-4o-latest']
+  },
+  { 
+    id: 'deepseek', 
+    name: 'DeepSeek', 
+    desc: 'Cutting-edge DeepSeek-V3 & R1 reasoning models',
+    defaultModel: 'deepseek-chat',
+    models: ['deepseek-chat', 'deepseek-reasoner']
+  },
+  { 
+    id: 'groq', 
+    name: 'Groq (Ultra-Fast LPUs)', 
+    desc: 'Sub-second LPUs delivering 500+ tokens/sec on Llama 3.3 & DeepSeek',
+    defaultModel: 'llama-3.3-70b-versatile',
+    models: ['llama-3.3-70b-versatile', 'deepseek-r1-distill-llama-70b', 'llama-3.1-8b-instant', 'qwen-2.5-32b']
   },
   { 
     id: 'ollama', 
     name: 'Local Ollama (100% Free / Offline)', 
-    desc: 'Runs on localhost:11434 with zero API keys',
-    defaultModel: 'llama3.2',
-    models: ['llama3.2', 'mistral', 'deepseek-r1', 'phi3']
+    desc: 'Local GPU/CPU inference at localhost:11434 with zero API keys',
+    defaultModel: 'deepseek-r1',
+    models: ['deepseek-r1', 'llama3.3', 'llama3.2', 'qwen2.5', 'phi4', 'mistral']
   },
   { 
     id: 'custom', 
     name: 'Custom OpenAI-Compatible Endpoint', 
-    desc: 'Self-hosted vLLM, LM Studio, or OpenRouter',
+    desc: 'Self-hosted vLLM, LM Studio, OpenRouter, or internal LLM proxies',
     defaultModel: 'custom-model',
     models: []
   }
@@ -53,7 +67,7 @@ const PROVIDER_OPTIONS = [
 export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
   const [config, setConfig] = useState(null);
   const [provider, setProvider] = useState('gemini');
-  const [model, setModel] = useState('gemini-1.5-flash');
+  const [model, setModel] = useState('gemini-2.0-flash');
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [showKey, setShowKey] = useState(false);
@@ -73,7 +87,7 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
       const data = await api.getAIConfig();
       setConfig(data);
       setProvider(data.provider || 'gemini');
-      setModel(data.model || 'gemini-1.5-flash');
+      setModel(data.model || 'gemini-2.0-flash');
       setBaseUrl(data.base_url || '');
       setApiKey(data.masked_api_key || '');
       setTestResult(null);
@@ -92,6 +106,7 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
     const pOpt = PROVIDER_OPTIONS.find(p => p.id === pId);
     if (pOpt) {
       setModel(pOpt.defaultModel);
+      setBaseUrl(pId === 'deepseek' ? 'https://api.deepseek.com' : '');
     }
     setTestResult(null);
   };
@@ -102,7 +117,7 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
     try {
       const res = await api.testAIConnection({
         provider,
-        model,
+        model: model.trim(),
         api_key: apiKey,
         base_url: baseUrl
       });
@@ -119,17 +134,21 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
 
   const handleSave = async (e) => {
     e.preventDefault();
+    if (!model.trim()) {
+      setStatusMsg({ type: 'error', text: 'Model name cannot be empty. Please enter or select a model.' });
+      return;
+    }
     setSaving(true);
     setStatusMsg(null);
     try {
       const updated = await api.saveAIConfig({
         provider,
-        model,
+        model: model.trim(),
         api_key: apiKey,
         base_url: baseUrl,
         enabled: true
       });
-      setStatusMsg({ type: 'success', text: `AI configuration saved! Model set to ${provider.toUpperCase()} (${model}).` });
+      setStatusMsg({ type: 'success', text: `AI configuration saved! Model set to ${provider.toUpperCase()} (${model.trim()}).` });
       if (onConfigSaved) onConfigSaved(updated);
       setTimeout(() => {
         onClose();
@@ -160,7 +179,7 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
         className="glass-panel"
         style={{
           width: '100%',
-          maxWidth: 680,
+          maxWidth: 720,
           maxHeight: '92vh',
           overflowY: 'auto',
           backgroundColor: '#0c1322',
@@ -188,10 +207,10 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
             </div>
             <div>
               <h3 style={{ margin: 0, fontSize: 18, color: '#fff', fontWeight: 700 }}>
-                CRISP Multi-Provider LLM Configuration
+                CRISP LLM Configuration & Model Selection
               </h3>
               <p style={{ margin: '3px 0 0 0', fontSize: 12, color: 'var(--text-dim)' }}>
-                Connect an actual LLM model to power executive conversational reasoning over audited FAIR metrics.
+                Select latest frontier models or type any custom model ID to power grounded C-suite risk advisory.
               </p>
             </div>
           </div>
@@ -235,7 +254,7 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
             <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#fff', marginBottom: 8 }}>
               1. Choose LLM Provider
             </label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
               {PROVIDER_OPTIONS.map(p => {
                 const isSelected = provider === p.id;
                 return (
@@ -266,61 +285,97 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
             </div>
           </div>
 
-          {/* 2. Model Selection & Base URL */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 6 }}>
-                Model Identifier
+          {/* 2. Model Identifier (Editable + Presets) */}
+          <div style={{
+            background: 'rgba(255, 255, 255, 0.02)',
+            border: '1px solid rgba(0, 242, 254, 0.2)',
+            borderRadius: 12,
+            padding: 16
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Edit3 size={14} color="#00f2fe" />
+                <span>2. Model Identifier (Custom / Editable)</span>
               </label>
-              {currentProviderOpt.models.length > 0 ? (
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <select
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '9px 12px',
-                      borderRadius: 8,
-                      background: '#090e1a',
-                      border: '1px solid var(--border-color)',
-                      color: '#fff',
-                      fontSize: 13,
-                      fontFamily: 'monospace'
-                    }}
-                  >
-                    {currentProviderOpt.models.map(m => (
-                      <option key={m} value={m}>{m}</option>
-                    ))}
-                  </select>
-                </div>
-              ) : (
-                <input
-                  type="text"
-                  placeholder="e.g. meta-llama/Llama-3-70b-chat"
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '9px 12px',
-                    borderRadius: 8,
-                    background: '#090e1a',
-                    border: '1px solid var(--border-color)',
-                    color: '#fff',
-                    fontSize: 13,
-                    fontFamily: 'monospace'
-                  }}
-                  required
-                />
-              )}
+              <span style={{ fontSize: 11, color: '#00f2fe' }}>
+                ✏️ Type any custom model or click a preset below
+              </span>
             </div>
 
+            <div style={{ position: 'relative', marginBottom: 10 }}>
+              <input
+                type="text"
+                placeholder="Type or paste any model ID (e.g. claude-3-7-sonnet-20250219, gemini-2.0-flash, gpt-4o, deepseek-reasoner)"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '11px 14px',
+                  borderRadius: 8,
+                  background: '#090e1a',
+                  border: '1px solid rgba(0, 242, 254, 0.4)',
+                  color: '#00f2fe',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  fontFamily: 'monospace',
+                  letterSpacing: '0.02em',
+                  boxShadow: '0 0 10px rgba(0, 242, 254, 0.1)'
+                }}
+                required
+              />
+            </div>
+
+            {/* Quick Clickable Preset Badges */}
+            {currentProviderOpt.models.length > 0 && (
+              <div>
+                <span style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 6 }}>
+                  Popular Latest {currentProviderOpt.name} Presets:
+                </span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {currentProviderOpt.models.map(m => {
+                    const isMatch = model === m;
+                    return (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setModel(m)}
+                        style={{
+                          padding: '5px 10px',
+                          borderRadius: 6,
+                          fontSize: 11,
+                          fontFamily: 'monospace',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                          background: isMatch ? 'rgba(0, 242, 254, 0.25)' : 'rgba(255, 255, 255, 0.04)',
+                          border: isMatch ? '1px solid #00f2fe' : '1px solid rgba(255, 255, 255, 0.12)',
+                          color: isMatch ? '#00f2fe' : 'var(--text-muted)',
+                          fontWeight: isMatch ? 700 : 500
+                        }}
+                      >
+                        {isMatch && '✓ '}{m}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 3. Base URL & API Key */}
+          <div style={{ display: 'grid', gridTemplateColumns: provider === 'ollama' ? '1fr' : '1fr 1fr', gap: 14 }}>
             <div>
               <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 6 }}>
-                Custom Base URL {provider === 'ollama' ? '(Default: http://localhost:11434/v1)' : '(Optional)'}
+                Base URL {provider === 'ollama' ? '(Default: http://localhost:11434/v1)' : provider === 'deepseek' ? '(Default: https://api.deepseek.com)' : '(Optional Override)'}
               </label>
               <input
                 type="text"
-                placeholder={provider === 'ollama' ? 'http://localhost:11434/v1' : 'https://api.example.com/v1'}
+                placeholder={
+                  provider === 'ollama' 
+                    ? 'http://localhost:11434/v1' 
+                    : provider === 'deepseek' 
+                      ? 'https://api.deepseek.com' 
+                      : 'https://api.example.com/v1'
+                }
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
                 style={{
@@ -335,59 +390,56 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
                 }}
               />
             </div>
-          </div>
 
-          {/* 3. API Key */}
-          {provider !== 'ollama' && (
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>
-                  {currentProviderOpt.name} API Key
-                </label>
-                <span className="badge badge-cyan" style={{ fontSize: 9 }}>
-                  <Shield size={10} style={{ marginRight: 4 }} /> Fernet AES-256 Encrypted
-                </span>
+            {/* API Key */}
+            {provider !== 'ollama' && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>
+                    {currentProviderOpt.name} API Key
+                  </label>
+                  <span className="badge badge-cyan" style={{ fontSize: 9 }}>
+                    <Shield size={10} style={{ marginRight: 4 }} /> Fernet AES-256
+                  </span>
+                </div>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showKey ? 'text' : 'password'}
+                    placeholder={config?.has_api_key && config?.provider === provider ? '•••••••• (Encrypted key saved - leave blank or paste to replace)' : 'Paste API Key'}
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '9px 38px 9px 12px',
+                      borderRadius: 8,
+                      background: '#090e1a',
+                      border: '1px solid var(--border-color)',
+                      color: '#fff',
+                      fontFamily: 'monospace',
+                      fontSize: 13
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowKey(!showKey)}
+                    style={{
+                      position: 'absolute',
+                      right: 10,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--text-dim)',
+                      cursor: 'pointer',
+                      padding: 4
+                    }}
+                  >
+                    {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
               </div>
-              <div style={{ position: 'relative' }}>
-                <input
-                  type={showKey ? 'text' : 'password'}
-                  placeholder={config?.has_api_key ? '•••••••• (Encrypted key saved - leave blank or paste to replace)' : 'Paste API Key (e.g. AIzaSy... or sk-...)'}
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 42px 10px 14px',
-                    borderRadius: 8,
-                    background: '#090e1a',
-                    border: '1px solid var(--border-color)',
-                    color: '#fff',
-                    fontFamily: 'monospace',
-                    fontSize: 13
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowKey(!showKey)}
-                  style={{
-                    position: 'absolute',
-                    right: 10,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'transparent',
-                    border: 'none',
-                    color: 'var(--text-dim)',
-                    cursor: 'pointer',
-                    padding: 4
-                  }}
-                >
-                  {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-              <span style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4, display: 'block' }}>
-                Saved locally to <code>backend/data/llm_config.json</code> with symmetric encryption.
-              </span>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* Test Probe Result Box */}
           {testResult && (
