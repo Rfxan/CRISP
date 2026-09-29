@@ -11,7 +11,7 @@ import DataIngestionHub from './components/DataIngestionHub';
 import ConnectionsSettings from './components/ConnectionsSettings';
 import { api } from './services/api';
 import { 
-  BarChart3, Search, Target, Sparkles, FileCheck, Bot, AlertTriangle, ShieldCheck, Database, Radio
+  BarChart3, Search, Target, Sparkles, FileCheck, Bot, AlertTriangle, AlertCircle, ShieldCheck, Database, Radio
 } from 'lucide-react';
 import { formatINR } from './utils/formatters';
 
@@ -132,6 +132,53 @@ export default function App() {
         )}
 
 
+
+        {/* Excluded Assets Transparency Banner (PRD FAIR Engine Context Enforcement) */}
+        {summary?.excluded_assets_count > 0 && (
+          <div style={{
+            background: 'var(--bg-card)',
+            border: '1px solid rgba(217, 119, 6, 0.4)',
+            boxShadow: 'var(--clay-shadow-sm)',
+            borderRadius: 14,
+            padding: '14px 20px',
+            marginBottom: 20,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 12
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{
+                width: 36,
+                height: 36,
+                borderRadius: 10,
+                background: 'rgba(217, 119, 6, 0.12)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0
+              }}>
+                <AlertCircle size={20} color="var(--accent-amber)" />
+              </div>
+              <div>
+                <strong style={{ color: 'var(--text-main)', fontSize: 13 }}>
+                  EAL excludes {summary.excluded_assets_count} asset{summary.excluded_assets_count > 1 ? 's' : ''} with no declared business context — add criticality/revenue data to include them.
+                </strong>
+                <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)' }}>
+                  Unassigned discovered hosts ({summary.excluded_assets.map(a => a.name || a.asset_id).join(', ')}) contribute ₹0 to quantitative risk to prevent artificial loss inflation.
+                </p>
+              </div>
+            </div>
+            <button 
+              className="btn btn-outline"
+              style={{ fontSize: 12, padding: '7px 14px' }}
+              onClick={() => setActiveTab('ingestion')}
+            >
+              Add Business Context →
+            </button>
+          </div>
+        )}
 
         {/* Active Tab Screen */}
         {loading ? (

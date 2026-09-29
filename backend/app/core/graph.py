@@ -17,13 +17,15 @@ class DependencyGraph:
 
         # Add assets and link to their primary business services
         for a_id, a in self.assets.items():
+            raw_rev = a.get("revenue_per_hour")
+            raw_crit = a.get("criticality_1_5")
             self.graph.add_node(
                 a_id,
                 type="asset",
-                name=a["name"],
-                revenue_per_hour=float(a.get("revenue_per_hour") or 0.0),
-                criticality=float(a.get("criticality_1_5") or 1.0),
-                internet_facing=bool(a.get("internet_facing", False))
+                name=a.get("name", a_id),
+                revenue_per_hour=float(raw_rev) if raw_rev is not None else 0.0,
+                criticality=float(raw_crit) if raw_crit is not None else None,
+                internet_facing=bool(a.get("internet_facing") is True)
             )
             svc_id = a.get("business_service_id")
             if svc_id and svc_id in self.services:
@@ -69,8 +71,8 @@ class DependencyGraph:
                 "dependent_services": [self.services[s]["name"] for s in dep_svcs if s in self.services],
                 "effective_revenue_per_hour": total_impact,
                 "betweenness_score": round(centrality.get(a_id, 0.0), 4),
-                "criticality": asset_info.get("criticality_1_5", 3),
-                "internet_facing": asset_info.get("internet_facing", False)
+                "criticality": asset_info.get("criticality_1_5"),
+                "internet_facing": bool(asset_info.get("internet_facing") is True)
             })
 
         # Sort by dependent service count, then effective revenue, then betweenness
