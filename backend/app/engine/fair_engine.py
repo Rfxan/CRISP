@@ -328,6 +328,7 @@ class FAIREngine:
             driver_id = f_cve or f.get("id") or "UNKNOWN-FINDING"
             raw_cvss = f.get("cvss")
             cvss_val = float(raw_cvss) if raw_cvss is not None else 0.0
+            exploitability_label = "KEV-confirmed active exploitation" if in_kev else "Standard exploit likelihood"
             drivers.append({
                 "type": "finding",
                 "id": driver_id,
@@ -338,6 +339,7 @@ class FAIREngine:
                 "severity": f.get("severity", "High"),
                 "epss": epss_val,
                 "in_kev": in_kev,
+                "exploitability_label": exploitability_label,
                 "marginal_eal": marginal_eal
             })
 

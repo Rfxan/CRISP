@@ -1,0 +1,6 @@
+Timestamp,DeviceId,DeviceName,AlertId,Title,Severity,Category,AttackTechniques
+2026-09-29T10:15:32Z,dev-wks-001,AST-PAY-GW-01,dae-9412,Suspicious PowerShell Execution,High,Execution,T1059.001
+2026-09-29T10:30:11Z,dev-srv-002,AST-PAY-GW-01,dae-9413,Credential Dumping via LSASS,Critical,CredentialAccess,"T1003.001, T1003"
+2026-09-29T11:05:44Z,dev-wks-003,AST-PAY-GW-01,dae-9414,Remote Desktop Service Discovery,Medium,Discovery,T1018
+2026-09-29T11:45:00Z,dev-srv-004,AST-CORE-DB-01,dae-9415,Anomalous Scheduled Task Creation,Low,Persistence,T1053.005
+2026-09-29T12:00:00Z,dev-srv-005,AST-CORE-DB-01,dae-9416,Suspicious Script Execution Detected,Informational,Execution,T1059

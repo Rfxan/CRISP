@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  FileText, ShieldCheck, AlertCircle, Clock, ExternalLink, Download, CheckCircle, ShieldAlert 
+  FileText, ShieldCheck, AlertCircle, Clock, ExternalLink, Download, CheckCircle, ShieldAlert, ChevronDown, ChevronUp, Info, HelpCircle 
 } from 'lucide-react';
 import { formatINR } from '../utils/formatters';
 import { api } from '../services/api';
@@ -9,17 +9,19 @@ import EmptyState from './EmptyState';
 export default function ComplianceHub({ status, onNavigateToIngestion }) {
   const [selectedFramework, setSelectedFramework] = useState('sebi');
   const [evalData, setEvalData] = useState(null);
+  const [frameworkSummaries, setFrameworkSummaries] = useState({});
   const [loading, setLoading] = useState(false);
+  const [showUnmapped, setShowUnmapped] = useState(true);
 
   const isEmpty = status === 'NO_DATA' || status === 'NO_FINDINGS';
 
   const frameworks = [
-    { id: 'sebi', name: 'SEBI CSCRF (Aug 2024)', desc: 'Cyber Resilience Framework & 6-Hour Reporting' },
-    { id: 'dpdp', name: 'DPDP Act & Rules 2025', desc: 'Digital Personal Data Safeguards & ₹250 Cr Cap' },
-    { id: 'rbi', name: 'RBI Cyber Security Framework', desc: 'Banking & NBFC IT Governance Directions' },
+    { id: 'sebi', name: 'SEBI CSCRF 2024', desc: 'Cyber Resilience Framework & 6-Hour Incident Notification' },
+    { id: 'rbi', name: 'RBI Cyber Security Framework', desc: 'Banking & NBFC IT Governance & Telemetry Directions' },
     { id: 'iso', name: 'ISO/IEC 27001:2022', desc: 'Annex A Information Security Controls' },
     { id: 'nist', name: 'NIST CSF 2.0', desc: 'Govern, Identify, Protect, Detect, Respond, Recover' },
-    { id: 'cis', name: 'CIS Controls v8', desc: 'Prioritized Safeguards & Asset Hygiene' }
+    { id: 'cis', name: 'CIS Controls v8', desc: 'Prioritized Technical Safeguards & Host Hygiene' },
+    { id: 'dpdp', name: 'DPDP Act & Rules 2025', desc: 'Digital Personal Data Safeguards & Statutory Cap' }
   ];
 
   const loadCompliance = async (fw) => {
@@ -36,9 +38,19 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
     }
   };
 
+  const loadSummaries = async () => {
+    try {
+      const summaries = await api.getComplianceSummary();
+      setFrameworkSummaries(summaries);
+    } catch (e) {
+      console.error('Compliance summary error:', e);
+    }
+  };
+
   useEffect(() => {
     if (!isEmpty) {
       loadCompliance('sebi');
+      loadSummaries();
     }
   }, [status]);
 
@@ -56,43 +68,165 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
   const sebi6h = evalData?.sebi_6hour_readiness;
   const dpdp = evalData?.dpdp_readiness;
 
-  const handleExportReport = () => {
-    window.open(`/api/report/${selectedFramework}`, '_blank');
+  const handleExportHTML = () => {
+    window.open(`/api/compliance/${selectedFramework}/evidence-report?format=html`, '_blank');
+  };
+
+  const handleDownloadCSV = () => {
+    window.open(`/api/compliance/${selectedFramework}/evidence-report?format=csv`, '_blank');
+  };
+
+  // Get live summary stats for current framework
+  const activeSummary = frameworkSummaries[selectedFramework] || {
+    mapping_coverage_pct: evalData?.mapping_coverage_pct ?? 0,
+    total_framework_requirements: evalData?.total_framework_requirements ?? 0,
+    mapped_requirements_count: evalData?.mapped_requirements_count ?? 0,
+    unmapped_requirements_count: evalData?.unmapped_requirements_count ?? 0
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       
-      {/* Framework Selector Tabs */}
-      <div className="glass-panel" style={{ padding: 18, borderTop: '3px solid var(--accent-green)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 12 }}>
+      {/* Framework Selector Tabs with Honest Mapping Badges */}
+      <div className="glass-panel" style={{ padding: 20, borderTop: '3px solid var(--accent-green)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
           <div>
             <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>Continuous Compliance & Evidence Center</h3>
             <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
-              Indicative mapping across national (India) and international standards with telemetry-backed evidence.
+              Ground-truth regulatory auditing backed by continuous technical telemetry (EDR, SIEM, IAM, Vulnerability Scanners).
             </p>
           </div>
-          <button className="btn btn-primary" onClick={handleExportReport}>
-            <Download size={15} />
-            <span>Export Audit Evidence Report (HTML/Print)</span>
-          </button>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button 
+              className="btn btn-outline" 
+              onClick={handleDownloadCSV} 
+              style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, background: 'rgba(255,255,255,0.03)' }}
+              title="Download RFC 4180 CSV evidence report for spreadsheet analysis"
+            >
+              <Download size={15} />
+              <span>Download Evidence (CSV)</span>
+            </button>
+            <button 
+              className="btn btn-primary" 
+              onClick={handleExportHTML} 
+              style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}
+              title="Open printable HTML audit report with executive KPIs and evidence matrix"
+            >
+              <ExternalLink size={15} />
+              <span>Print Audit Report (HTML)</span>
+            </button>
+          </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
+        {/* Framework Selector Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
           {frameworks.map((fw) => {
             const isSelected = selectedFramework === fw.id;
+            const summary = frameworkSummaries[fw.id];
+            const mappingPct = summary ? summary.mapping_coverage_pct : (selectedFramework === fw.id ? evalData?.mapping_coverage_pct : null);
+            const unmappedCount = summary ? summary.unmapped_requirements_count : (selectedFramework === fw.id ? evalData?.unmapped_requirements_count : null);
+
             return (
               <button
                 key={fw.id}
                 onClick={() => loadCompliance(fw.id)}
-                className={`btn ${isSelected ? 'btn-primary' : 'btn-outline'}`}
-                style={{ fontSize: 12, whiteSpace: 'nowrap' }}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  padding: '12px 14px',
+                  borderRadius: 8,
+                  gap: 6,
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  background: isSelected ? 'rgba(34, 197, 94, 0.12)' : 'rgba(255, 255, 255, 0.02)',
+                  border: isSelected ? '1px solid var(--accent-green)' : '1px solid rgba(255, 255, 255, 0.08)',
+                  color: 'inherit'
+                }}
               >
-                {fw.name}
+                <div style={{ fontWeight: 600, fontSize: 13, color: isSelected ? 'var(--text-main)' : 'var(--text-muted)' }}>
+                  {fw.name}
+                </div>
+                <div style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  {mappingPct !== null && mappingPct !== undefined ? (
+                    <>
+                      <span style={{ 
+                        fontWeight: 600, 
+                        color: mappingPct >= 80 ? 'var(--accent-green)' : (mappingPct >= 60 ? 'var(--accent-amber)' : 'var(--accent-red)') 
+                      }}>
+                        {mappingPct}% mapped
+                      </span>
+                      <span style={{ color: 'var(--text-dim)' }}>·</span>
+                      <span style={{ color: 'var(--text-dim)' }}>
+                        {unmappedCount} unmapped
+                      </span>
+                    </>
+                  ) : (
+                    <span style={{ color: 'var(--text-dim)' }}>Loading...</span>
+                  )}
+                </div>
               </button>
             );
           })}
         </div>
+      </div>
+
+      {/* Honest Coverage & Audit Metrics Strip for Selected Framework */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+        
+        {/* Metric 1: Telemetry Mapping Coverage */}
+        <div className="glass-panel" style={{ padding: 18, borderLeft: '4px solid var(--accent-green)' }}>
+          <div style={{ fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+            Telemetry Mapping Coverage
+          </div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--accent-green)', fontFamily: 'JetBrains Mono, monospace' }}>
+            {evalData?.mapping_coverage_pct ?? '--'}%
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+            {evalData?.mapped_requirements_count} of {evalData?.total_framework_requirements} clauses backed by technical sensors
+          </div>
+        </div>
+
+        {/* Metric 2: Active Controls Implementation Status */}
+        <div className="glass-panel" style={{ padding: 18, borderLeft: '4px solid var(--primary)' }}>
+          <div style={{ fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+            Control Readiness (Mapped)
+          </div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--primary)', fontFamily: 'JetBrains Mono, monospace' }}>
+            {evalData?.overall_coverage_pct ?? '--'}%
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+            {evalData?.compliant_controls} of {evalData?.total_controls_mapped} controls meet compliant thresholds
+          </div>
+        </div>
+
+        {/* Metric 3: Technical Gaps Flagged */}
+        <div className="glass-panel" style={{ padding: 18, borderLeft: '4px solid var(--accent-amber)' }}>
+          <div style={{ fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+            Audit Gaps Flagged
+          </div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--accent-amber)', fontFamily: 'JetBrains Mono, monospace' }}>
+            {evalData?.gaps_count ?? 0}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+            Controls requiring remediation or coverage expansion
+          </div>
+        </div>
+
+        {/* Metric 4: Unmapped Governance Scope */}
+        <div className="glass-panel" style={{ padding: 18, borderLeft: '4px solid var(--text-dim)' }}>
+          <div style={{ fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+            Out-of-Scope (Governance/HR)
+          </div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--text-main)', fontFamily: 'JetBrains Mono, monospace' }}>
+            {evalData?.unmapped_requirements_count ?? 0}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+            Clauses outside machine telemetry (charters, physical, HR)
+          </div>
+        </div>
+
       </div>
 
       {/* Special Indian Regulatory Modules: SEBI 6-Hour & DPDP */}
@@ -178,16 +312,23 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
 
       {/* Control Assessment & Evidence Table */}
       <div className="glass-panel" style={{ padding: 22 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
           <div>
             <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>
-              {evalData?.framework_name} — Control Registry & Audit Evidence
+              {evalData?.framework_name} — Mapped Technical Controls & Audit Evidence
             </h3>
-            <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
-              Overall Framework Coverage: <strong>{evalData?.overall_coverage_pct}%</strong> ({evalData?.compliant_controls}/{evalData?.total_controls_mapped} Controls Compliant)
+            <p style={{ margin: '4px 0 0 0', fontSize: 12, color: 'var(--text-dim)' }}>
+              Showing {evalData?.controls?.length || 0} active telemetry-audited controls mapped to {evalData?.framework_name}.
             </p>
           </div>
-          <span className="badge badge-simulated">{evalData?.gaps_count} Gaps Flagged</span>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <span className="badge badge-real" style={{ fontSize: 11 }}>
+              {evalData?.mapping_coverage_pct}% Framework Clause Coverage
+            </span>
+            <span className="badge badge-simulated" style={{ fontSize: 11 }}>
+              {evalData?.gaps_count} Gaps Flagged
+            </span>
+          </div>
         </div>
 
         <div style={{ overflowX: 'auto' }}>
@@ -248,9 +389,97 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
         </div>
 
         <div style={{ marginTop: 14, fontSize: 11, color: 'var(--text-dim)', borderTop: '1px solid var(--border-color)', paddingTop: 10 }}>
-          <strong>Citation & Legal Disclaimer:</strong> {evalData?.citation}. {evalData?.disclaimer}
+          <strong>Citation & Legal Authority:</strong> {evalData?.citation}. {evalData?.disclaimer}
         </div>
       </div>
+
+      {/* Unmapped Regulatory Clauses / Governance Scope Transparency */}
+      {evalData?.unmapped_requirements?.length > 0 && (
+        <div className="glass-panel" style={{ padding: 22, borderLeft: '4px solid var(--accent-amber)' }}>
+          <div 
+            style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              cursor: 'pointer',
+              userSelect: 'none'
+            }}
+            onClick={() => setShowUnmapped(!showUnmapped)}
+          >
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <ShieldAlert size={18} color="var(--accent-amber)" />
+                <h3 style={{ margin: 0, fontSize: 15, color: 'var(--text-main)' }}>
+                  Unmapped Regulatory Clauses & Out-of-Scope Governance ({evalData.unmapped_requirements.length} Requirements)
+                </h3>
+              </div>
+              <p style={{ margin: '4px 0 0 0', fontSize: 12, color: 'var(--text-dim)' }}>
+                CRISP exclusively reports automated compliance for controls measurable by technical telemetry. Clauses below require human policy review.
+              </p>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className="badge" style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'var(--accent-amber)', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
+                Honest Audit Scope
+              </span>
+              {showUnmapped ? <ChevronUp size={18} color="var(--text-dim)" /> : <ChevronDown size={18} color="var(--text-dim)" />}
+            </div>
+          </div>
+
+          {showUnmapped && (
+            <div style={{ marginTop: 18 }}>
+              <div style={{ 
+                padding: '12px 16px', 
+                background: 'rgba(255, 255, 255, 0.02)', 
+                borderRadius: 8, 
+                border: '1px solid rgba(255, 255, 255, 0.06)',
+                marginBottom: 14,
+                fontSize: 12,
+                color: 'var(--text-muted)',
+                lineHeight: 1.5
+              }}>
+                <strong style={{ color: 'var(--text-main)' }}>Methodology Note for SIH & Regulatory Audits:</strong> In accordance with regulatory standards (SEBI CSCRF, RBI Master Directions, ISO 27001), continuous automated systems cannot audit corporate board committee minutes, biometric data center turnstiles, or HR pre-employment background vetting. CRISP isolates these unmapped clauses to ensure zero false claims of 100% automated compliance.
+              </div>
+
+              <div style={{ overflowX: 'auto' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: '15%' }}>Clause Ref</th>
+                      <th style={{ width: '15%' }}>Domain</th>
+                      <th style={{ width: '30%' }}>Regulatory Requirement Title</th>
+                      <th style={{ width: '40%' }}>Exemption Rationale (Out of Telemetry Scope)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {evalData.unmapped_requirements.map((req, idx) => (
+                      <tr key={idx}>
+                        <td>
+                          <span className="mono" style={{ color: 'var(--accent-amber)', fontSize: 11, fontWeight: 600 }}>
+                            {req.clause || req.id}
+                          </span>
+                        </td>
+                        <td>
+                          <span className="badge" style={{ fontSize: 10, background: 'rgba(255, 255, 255, 0.05)' }}>
+                            {req.domain}
+                          </span>
+                        </td>
+                        <td>
+                          <strong style={{ fontSize: 12, color: 'var(--text-main)' }}>{req.title}</strong>
+                        </td>
+                        <td>
+                          <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                            {req.unmapped_reason}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
     </div>
   );

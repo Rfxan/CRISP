@@ -1,5 +1,5 @@
 import React from 'react';
-import { GitBranch, Server, AlertTriangle, ShieldCheck, Flame, ExternalLink, Network, AlertCircle } from 'lucide-react';
+import { GitBranch, Server, AlertTriangle, ShieldCheck, Flame, ExternalLink, Network, AlertCircle, Activity, Cpu } from 'lucide-react';
 import { formatINR, formatINRFull } from '../utils/formatters';
 import EmptyState from './EmptyState';
 
@@ -16,9 +16,78 @@ export default function TechnicalDrilldown({ summary, driversData, entitiesData,
   const drivers = (driversData && driversData.top_drivers) || (summary && summary.drivers) || [];
   const chokePoints = (driversData && driversData.choke_points) || (summary && summary.choke_points) || [];
   const services = (summary && summary.services) || [];
+  const emergingThreats = driversData?.emerging_threats || [];
+  const anomalyInfo = driversData?.anomaly_detection;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      
+      {/* Emerging Threat Signals (Unsupervised Anomaly Detection Layer) */}
+      <div className="glass-panel" style={{ padding: 22, borderLeft: '4px solid var(--accent-amber)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Activity size={20} color="var(--accent-amber)" />
+            <div>
+              <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>Emerging Threat Signals (IsolationForest Telemetry Layer)</h3>
+              <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
+                Unsupervised anomaly detection over per-agent telemetry (event volume, auth-failure rate, alert severity mix)
+              </p>
+            </div>
+          </div>
+          <span className="badge badge-amber" style={{ fontSize: 10 }}>
+            unsupervised anomaly (IsolationForest), not a confirmed incident
+          </span>
+        </div>
+
+        {/* Cold Start vs Active Anomalies vs Nominal */}
+        {anomalyInfo?.status === 'insufficient_baseline_data' ? (
+          <div style={{ padding: '12px 16px', background: 'rgba(255,255,255,0.02)', borderRadius: 8, fontSize: 12, color: 'var(--text-dim)' }}>
+            <strong>insufficient baseline data</strong>: Requires minimum 5 observation windows before scoring. Signal layer is strictly outside the deterministic FAIR loss core.
+          </div>
+        ) : emergingThreats.length > 0 ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+            {emergingThreats.map((threat, idx) => (
+              <div key={idx} className="glass-panel" style={{ padding: 14, background: 'rgba(201, 114, 114, 0.08)', border: '1px solid rgba(201, 114, 114, 0.3)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <strong style={{ fontSize: 13, color: 'var(--text-main)' }}>{threat.agent_name || threat.agent_id}</strong>
+                  <span className="badge badge-critical" style={{ fontSize: 11 }}>
+                    Anomaly Score: {(threat.anomaly_score * 100).toFixed(0)}%
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 8 }}>
+                  Observed Window: {threat.window_timestamp ? new Date(threat.window_timestamp).toLocaleTimeString() : 'Recent'} · Agent ID: <span className="mono">{threat.agent_id}</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, fontSize: 11, background: 'rgba(0,0,0,0.2)', padding: 8, borderRadius: 6 }}>
+                  <div>
+                    <span style={{ color: 'var(--text-dim)' }}>Event Vol</span>
+                    <div style={{ fontWeight: 600 }}>{threat.features?.event_volume || '—'}</div>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-dim)' }}>Auth Fail %</span>
+                    <div style={{ fontWeight: 600, color: 'var(--accent-amber)' }}>
+                      {threat.features?.auth_failure_rate != null ? `${(threat.features.auth_failure_rate * 100).toFixed(1)}%` : '—'}
+                    </div>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-dim)' }}>High Sev %</span>
+                    <div style={{ fontWeight: 600, color: 'var(--accent-red)' }}>
+                      {threat.features?.alert_severity_mix != null ? `${(threat.features.alert_severity_mix * 100).toFixed(1)}%` : '—'}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                  {threat.label || 'unsupervised anomaly (IsolationForest), not a confirmed incident'}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ padding: '12px 16px', background: 'rgba(126, 143, 129, 0.08)', borderRadius: 8, fontSize: 12, color: 'var(--accent-green)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ShieldCheck size={16} />
+            <span>All monitored SIEM agents are operating within normal baseline bounds. Baseline telemetry history active.</span>
+          </div>
+        )}
+      </div>
       
       {/* Excluded Assets Visibility Banner */}
       {summary?.excluded_assets_count > 0 && (

@@ -52,3 +52,7 @@ Thumbs.db
 
 # Scratch and temporary testing files
 scratch/
+
+# Runtime data & threat caches
+backend/data/
+backend/app/data/threat_cache/

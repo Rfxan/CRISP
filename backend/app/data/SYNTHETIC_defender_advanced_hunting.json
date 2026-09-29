@@ -1,0 +1,52 @@
+[
+  {
+    "Timestamp": "2026-09-29T10:15:32Z",
+    "DeviceId": "dev-wks-001",
+    "DeviceName": "AST-PAY-GW-01",
+    "AlertId": "dae-9412",
+    "Title": "Suspicious PowerShell Execution",
+    "Severity": "High",
+    "Category": "Execution",
+    "AttackTechniques": "[\"T1059.001\"]"
+  },
+  {
+    "Timestamp": "2026-09-29T10:30:11Z",
+    "DeviceId": "dev-srv-002",
+    "DeviceName": "AST-PAY-GW-01",
+    "AlertId": "dae-9413",
+    "Title": "Credential Dumping via LSASS",
+    "Severity": "Critical",
+    "Category": "CredentialAccess",
+    "AttackTechniques": "[\"T1003.001\", \"T1003\"]"
+  },
+  {
+    "Timestamp": "2026-09-29T11:05:44Z",
+    "DeviceId": "dev-wks-003",
+    "DeviceName": "AST-PAY-GW-01",
+    "AlertId": "dae-9414",
+    "Title": "Remote Desktop Service Discovery",
+    "Severity": "Medium",
+    "Category": "Discovery",
+    "AttackTechniques": "[\"T1018\"]"
+  },
+  {
+    "Timestamp": "2026-09-29T11:45:00Z",
+    "DeviceId": "dev-srv-004",
+    "DeviceName": "AST-CORE-DB-01",
+    "AlertId": "dae-9415",
+    "Title": "Anomalous Scheduled Task Creation",
+    "Severity": "Low",
+    "Category": "Persistence",
+    "AttackTechniques": "[\"T1053.005\"]"
+  },
+  {
+    "Timestamp": "2026-09-29T12:00:00Z",
+    "DeviceId": "dev-srv-005",
+    "DeviceName": "AST-CORE-DB-01",
+    "AlertId": "dae-9416",
+    "Title": "Suspicious Script Execution Detected",
+    "Severity": "Informational",
+    "Category": "Execution",
+    "AttackTechniques": "[\"T1059\"]"
+  }
+]

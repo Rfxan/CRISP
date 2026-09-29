@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Database, UploadCloud, RefreshCw, Shield, AlertTriangle, 
   CheckCircle2, FileText, Sliders, Globe, Server, Activity,
-  Sparkles, Plus, PlusCircle, Cpu
+  Sparkles, Plus, PlusCircle, Cpu, Crosshair
 } from 'lucide-react';
 import { formatINR } from '../utils/formatters';
 import { api } from '../services/api';
@@ -15,12 +15,45 @@ export default function DataIngestionHub({ onDataUpdated }) {
   const [activeSection, setActiveSection] = useState('assets');
   const [syncingIntel, setSyncingIntel] = useState(false);
   const [uploadingScan, setUploadingScan] = useState(false);
+  const [uploadingDefender, setUploadingDefender] = useState(false);
   const [uploadingAssets, setUploadingAssets] = useState(false);
   const [statusMsg, setStatusMsg] = useState(null);
   const [controlEdits, setControlEdits] = useState({});
   const [customVendors, setCustomVendors] = useState([]);
   const [uploadingVendorSlug, setUploadingVendorSlug] = useState(null);
   const [showAddAssetModal, setShowAddAssetModal] = useState(false);
+  const [anomalyData, setAnomalyData] = useState(null);
+  const [anomalyLoading, setAnomalyLoading] = useState(false);
+  const [injectingAnomaly, setInjectingAnomaly] = useState(false);
+
+  const fetchAnomalies = async () => {
+    try {
+      setAnomalyLoading(true);
+      const res = await api.getTelemetryAnomalies();
+      setAnomalyData(res);
+    } catch (err) {
+      console.error('Failed to fetch telemetry anomalies:', err);
+    } finally {
+      setAnomalyLoading(false);
+    }
+  };
+
+  const handleInjectAnomaly = async () => {
+    try {
+      setInjectingAnomaly(true);
+      const res = await api.injectTelemetryAnomaly();
+      setStatusMsg({
+        type: 'success',
+        text: `Synthetic Telemetry Spike Injected! Agent '${res.injected_window?.agent_name || res.injected_window?.agent_id}' scored ${(res.score_evaluation?.anomaly_score != null ? (res.score_evaluation.anomaly_score * 100).toFixed(0) : 'High')}% (${res.label}).`
+      });
+      await fetchAnomalies();
+      if (onDataUpdated) onDataUpdated();
+    } catch (err) {
+      setStatusMsg({ type: 'error', text: 'Failed to inject anomaly: ' + err.message });
+    } finally {
+      setInjectingAnomaly(false);
+    }
+  };
 
   const handleAssetAdded = async (res) => {
     setStatusMsg({
@@ -60,6 +93,7 @@ export default function DataIngestionHub({ onDataUpdated }) {
   useEffect(() => {
     fetchSnapshot();
     fetchVendors();
+    fetchAnomalies();
   }, []);
 
   const handleSyncIntel = async () => {
@@ -122,6 +156,21 @@ export default function DataIngestionHub({ onDataUpdated }) {
         setStatusMsg({ type: 'error', text: err.message });
       } finally {
         setUploadingScan(false);
+      }
+    } else if (type === 'defender') {
+      setUploadingDefender(true);
+      try {
+        const res = await api.ingestDefender(formData);
+        setStatusMsg({
+          type: 'success',
+          text: `Microsoft Defender EDR Ingested: ${res.detections_added || res.findings_added || 0} detections added. New Organization EAL: ${formatINR(res.new_eal)}`
+        });
+        await fetchSnapshot();
+        if (onDataUpdated) onDataUpdated();
+      } catch (err) {
+        setStatusMsg({ type: 'error', text: err.message });
+      } finally {
+        setUploadingDefender(false);
       }
     } else if (type === 'assets') {
       setUploadingAssets(true);
@@ -270,6 +319,32 @@ export default function DataIngestionHub({ onDataUpdated }) {
             </div>
             <div style={{ fontSize: 11, color: 'var(--accent-purple)' }}>Live Intel Enriched</div>
           </div>
+
+          <div className="glass-panel" style={{ padding: 12, background: 'rgba(255,255,255,0.02)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--text-dim)' }}>
+              <Crosshair size={14} color="#60a5fa" /> Defender EDR
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-main)', marginTop: 4 }}>
+              {findings.filter(f => (f.source && f.source.toLowerCase().includes('defender')) || (f.id && f.id.startsWith('MISCONF-EDR-'))).length}
+            </div>
+            <div style={{ fontSize: 11, color: '#60a5fa' }}>Advanced Hunting</div>
+          </div>
+
+          <div className="glass-panel" style={{ padding: 12, background: 'rgba(255,255,255,0.02)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--text-dim)' }}>
+              <Cpu size={14} color="var(--accent-amber)" /> ML IsolationForest
+            </div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-main)', marginTop: 4 }}>
+              {anomalyData?.is_insufficient ? (
+                <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>Insufficient Baseline</span>
+              ) : (
+                <span>{anomalyData?.anomalies_detected || 0} Anomal{anomalyData?.anomalies_detected === 1 ? 'y' : 'ies'}</span>
+              )}
+            </div>
+            <div style={{ fontSize: 10, color: (anomalyData?.anomalies_detected || 0) > 0 ? 'var(--accent-red)' : 'var(--accent-green)' }}>
+              {anomalyData?.is_insufficient ? '< 5 windows' : 'Emerging Threats Signal'}
+            </div>
+          </div>
         </div>
 
         {/* Status Message */}
@@ -402,6 +477,24 @@ export default function DataIngestionHub({ onDataUpdated }) {
         >
           <Sparkles size={15} color="var(--primary)" /> Vendor Onboarding Wizard {customVendors.length > 0 && `(${customVendors.length})`}
         </button>
+
+        <button
+          onClick={() => setActiveSection('anomalies')}
+          className="btn"
+          style={{
+            background: activeSection === 'anomalies' ? 'rgba(183, 140, 102, 0.15)' : 'rgba(255,255,255,0.03)',
+            border: activeSection === 'anomalies' ? '1px solid var(--primary)' : '1px solid var(--border-color)',
+            color: activeSection === 'anomalies' ? 'var(--primary)' : 'var(--text-muted)',
+            display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '8px 16px'
+          }}
+        >
+          <Cpu size={15} color="var(--accent-amber)" /> Emerging Threats (ML IsolationForest)
+          {(anomalyData?.anomalies_detected || 0) > 0 && (
+            <span className="badge badge-critical" style={{ fontSize: 10, padding: '1px 6px', marginLeft: 4 }}>
+              {anomalyData.anomalies_detected}
+            </span>
+          )}
+        </button>
       </div>
 
       {/* SECTION 1: Control Coverage Tuner */}
@@ -524,6 +617,30 @@ export default function DataIngestionHub({ onDataUpdated }) {
                 </label>
               </div>
 
+              {/* Option 2: Microsoft Defender for Endpoint (EDR) */}
+              <div className="glass-panel" style={{ padding: 16, background: 'rgba(96, 165, 250, 0.03)', border: '1px solid rgba(96, 165, 250, 0.3)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <strong style={{ fontSize: 13, color: 'var(--text-main)' }}>Microsoft Defender EDR</strong>
+                    <span className="badge" style={{ fontSize: 10, background: 'rgba(96, 165, 250, 0.2)', color: '#60a5fa' }}>Hunting Export</span>
+                  </div>
+                  <p style={{ margin: '0 0 12px 0', fontSize: 11, color: 'var(--text-dim)' }}>
+                    Advanced Hunting CSV or JSON export with automatic MITRE ATT&CK technique parsing.
+                  </p>
+                </div>
+                <label className="btn btn-secondary" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '8px 14px', fontSize: 12, borderColor: '#60a5fa', color: '#93c5fd' }}>
+                  <Crosshair size={14} />
+                  <span>{uploadingDefender ? 'Parsing EDR Telemetry...' : 'Upload Defender Hunting Export'}</span>
+                  <input
+                    type="file"
+                    accept=".csv,.json"
+                    onChange={(e) => handleFileUpload(e, 'defender')}
+                    disabled={uploadingDefender}
+                    style={{ display: 'none' }}
+                  />
+                </label>
+              </div>
+
               {/* Option 2+: Configured Custom Vendors */}
               {customVendors.map((v) => {
                 const isUploadingThis = uploadingVendorSlug === v.vendor_slug;
@@ -615,6 +732,25 @@ export default function DataIngestionHub({ onDataUpdated }) {
                         <td style={{ padding: '10px 12px', color: 'var(--accent-amber)', fontFamily: 'monospace' }}>
                           {f.cve_id ? (
                             f.cve_id
+                          ) : f.mitre_techniques && f.mitre_techniques.length > 0 ? (
+                            <div>
+                              <span style={{ color: 'var(--text-dim)', fontStyle: 'italic', fontSize: 11, display: 'block', marginBottom: 4 }}>No CVE (EDR Detection)</span>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                {f.mitre_techniques.map(t => (
+                                  <span key={t} style={{
+                                    fontSize: 10,
+                                    padding: '1px 5px',
+                                    borderRadius: 3,
+                                    background: 'rgba(96, 165, 250, 0.15)',
+                                    border: '1px solid rgba(96, 165, 250, 0.3)',
+                                    color: '#93c5fd',
+                                    fontFamily: 'monospace'
+                                  }}>
+                                    {t}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
                           ) : (
                             <span style={{ color: 'var(--text-dim)', fontStyle: 'italic', fontSize: 11 }}>No CVE (Plugin Finding)</span>
                           )}
@@ -776,6 +912,185 @@ export default function DataIngestionHub({ onDataUpdated }) {
               </table>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* SECTION 5: Unsupervised ML IsolationForest Telemetry Anomalies */}
+      {activeSection === 'anomalies' && (
+        <div className="glass-panel" style={{ padding: 22 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 14, marginBottom: 20 }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Cpu size={20} color="var(--accent-amber)" />
+                <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>
+                  Unsupervised Telemetry Anomaly Detection (IsolationForest)
+                </h3>
+              </div>
+              <p style={{ margin: '4px 0 0 0', fontSize: 12, color: 'var(--text-dim)', maxWidth: 700 }}>
+                Scikit-learn IsolationForest trained over per-agent SIEM telemetry features: <strong>Event Volume</strong>, <strong>Auth Failure Rate</strong>, and <strong>Alert Severity Mix</strong>.
+                Signals emerging threats before signatures or CVEs exist.
+              </p>
+              <div style={{ marginTop: 8 }}>
+                <span className="badge badge-amber" style={{ fontSize: 11 }}>
+                  unsupervised anomaly (IsolationForest), not a confirmed incident
+                </span>
+                <span className="badge" style={{ marginLeft: 8, background: 'rgba(255,255,255,0.04)', color: 'var(--text-dim)', fontSize: 11 }}>
+                  Signal Layer Only · Decoupled from Deterministic FAIR Loss Core
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                className="btn btn-outline"
+                onClick={fetchAnomalies}
+                disabled={anomalyLoading}
+                style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                <RefreshCw size={13} className={anomalyLoading ? 'spin' : ''} />
+                Refresh
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={handleInjectAnomaly}
+                disabled={injectingAnomaly}
+                style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, background: 'var(--accent-amber)', color: '#000' }}
+              >
+                <AlertTriangle size={13} />
+                {injectingAnomaly ? 'Injecting Spike...' : 'Simulate Telemetry Spike (Demo)'}
+              </button>
+            </div>
+          </div>
+
+          {/* Cold Start State */}
+          {anomalyData?.is_insufficient ? (
+            <div className="glass-panel" style={{ padding: 24, textAlign: 'center', background: 'rgba(255,255,255,0.02)', border: '1px dashed var(--border-color)' }}>
+              <Activity size={36} color="var(--text-dim)" style={{ marginBottom: 10 }} />
+              <h4 style={{ margin: 0, fontSize: 15, color: 'var(--text-main)' }}>insufficient baseline data</h4>
+              <p style={{ margin: '8px auto', fontSize: 12, color: 'var(--text-muted)', maxWidth: 500 }}>
+                Currently {anomalyData.history_windows_count || 0} observation windows recorded (minimum {anomalyData.min_required_windows || 5} required).
+                CRISP refuses to fabricate synthetic curves or guess anomaly scores during cold-start.
+              </p>
+              <button
+                className="btn btn-primary"
+                onClick={handleInjectAnomaly}
+                disabled={injectingAnomaly}
+                style={{ marginTop: 12, fontSize: 12, background: 'var(--accent-amber)', color: '#000' }}
+              >
+                Inject Synthetic Telemetry Spike to Trigger Scoring
+              </button>
+            </div>
+          ) : (
+            <div>
+              {/* Telemetry Windows Overview */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 20 }}>
+                <div className="glass-panel" style={{ padding: 14, background: 'rgba(255,255,255,0.02)' }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>Baseline Observation Windows</div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-main)', marginTop: 4 }}>
+                    {anomalyData?.history_windows_count || 0}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--accent-green)' }}>Rolling Telemetry Baseline</div>
+                </div>
+
+                <div className="glass-panel" style={{ padding: 14, background: 'rgba(255,255,255,0.02)' }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>Flagged Outlier Windows</div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: (anomalyData?.anomalies_detected || 0) > 0 ? 'var(--accent-red)' : 'var(--accent-green)', marginTop: 4 }}>
+                    {anomalyData?.anomalies_detected || 0}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Contamination parameter: 10%</div>
+                </div>
+
+                <div className="glass-panel" style={{ padding: 14, background: 'rgba(255,255,255,0.02)' }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>Model Architecture</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-main)', marginTop: 6 }}>
+                    Scikit-Learn IsolationForest
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--accent-purple)' }}>3D Feature Space (Volume, Auth, Severity)</div>
+                </div>
+              </div>
+
+              {/* Agents Telemetry Windows Table */}
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-dim)' }}>
+                      <th style={{ padding: '8px 12px' }}>Agent Name & ID</th>
+                      <th style={{ padding: '8px 12px' }}>Classification</th>
+                      <th style={{ padding: '8px 12px' }}>Anomaly Score</th>
+                      <th style={{ padding: '8px 12px' }}>Event Vol</th>
+                      <th style={{ padding: '8px 12px' }}>Auth Failure Rate</th>
+                      <th style={{ padding: '8px 12px' }}>High Severity Alerts</th>
+                      <th style={{ padding: '8px 12px' }}>Window Timestamp</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(anomalyData?.results || []).map((item, idx) => (
+                      <tr key={idx} style={{
+                        borderBottom: '1px solid rgba(255,255,255,0.03)',
+                        background: item.is_anomaly ? 'rgba(201, 114, 114, 0.08)' : 'transparent'
+                      }}>
+                        <td style={{ padding: '10px 12px' }}>
+                          <strong style={{ color: 'var(--text-main)' }}>{item.agent_name || item.agent_id}</strong>
+                          <div className="mono" style={{ fontSize: 10, color: 'var(--text-dim)' }}>ID: {item.agent_id}</div>
+                        </td>
+                        <td style={{ padding: '10px 12px' }}>
+                          {item.is_anomaly ? (
+                            <span className="badge badge-critical" style={{ fontSize: 10 }}>
+                              EMERGING THREAT (ANOMALY)
+                            </span>
+                          ) : (
+                            <span className="badge badge-emerald" style={{ fontSize: 10 }}>
+                              NORMAL BASELINE
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ padding: '10px 12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <strong className="mono" style={{
+                              color: item.is_anomaly ? 'var(--accent-red)' : 'var(--text-main)',
+                              fontSize: 13
+                            }}>
+                              {(item.anomaly_score * 100).toFixed(0)}%
+                            </strong>
+                            <div style={{
+                              width: 60, height: 6, background: 'rgba(255,255,255,0.1)', borderRadius: 3, overflow: 'hidden'
+                            }}>
+                              <div style={{
+                                width: `${Math.min(100, Math.max(0, item.anomaly_score * 100))}%`,
+                                height: '100%',
+                                background: item.is_anomaly ? 'var(--accent-red)' : 'var(--accent-green)'
+                              }} />
+                            </div>
+                          </div>
+                          <div style={{ fontSize: 9, color: 'var(--text-dim)', marginTop: 2 }}>
+                            decision: {item.raw_decision_score?.toFixed(3)}
+                          </div>
+                        </td>
+                        <td style={{ padding: '10px 12px', fontFamily: 'monospace' }}>
+                          {item.features?.event_volume != null ? item.features.event_volume.toLocaleString() : '—'}
+                        </td>
+                        <td style={{ padding: '10px 12px', fontFamily: 'monospace', color: item.features?.auth_failure_rate > 0.2 ? 'var(--accent-amber)' : 'inherit' }}>
+                          {item.features?.auth_failure_rate != null ? `${(item.features.auth_failure_rate * 100).toFixed(1)}%` : '—'}
+                          <span style={{ fontSize: 10, color: 'var(--text-dim)', marginLeft: 4 }}>
+                            ({item.features?.auth_failures || 0} fails)
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 12px', fontFamily: 'monospace', color: item.features?.alert_severity_mix > 0.2 ? 'var(--accent-red)' : 'inherit' }}>
+                          {item.features?.alert_severity_mix != null ? `${(item.features.alert_severity_mix * 100).toFixed(1)}%` : '—'}
+                          <span style={{ fontSize: 10, color: 'var(--text-dim)', marginLeft: 4 }}>
+                            ({item.features?.high_severity_alerts || 0} high)
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 12px', color: 'var(--text-dim)', fontSize: 11 }}>
+                          {item.window_timestamp ? new Date(item.window_timestamp).toLocaleTimeString() : 'Recent'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

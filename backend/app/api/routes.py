@@ -8,11 +8,14 @@ import csv
 import io
 import re
 import logging
+import time
+import hashlib
 import numpy as np
 from datetime import datetime, timezone, timedelta
 import requests
 
 from app.core.config import DATA_DIR, settings
+from app.core.sync_state import sync_state_manager
 from app.engine.fair_engine import FAIREngine
 from app.engine.optimizer import InvestmentOptimizer
 from app.engine.whatif import WhatIfSimulator
@@ -20,7 +23,9 @@ from app.engine.sensitivity import SensitivityAnalyzer
 from app.compliance.catalog import ControlCatalog
 from app.compliance.framework_engine import FrameworkEngine
 from app.compliance.report_generator import ReportGenerator
+from app.compliance.evidence_report import EvidenceReportGenerator
 from app.ai.decision_support import DecisionSupportAI
+from app.ai.anomaly import TelemetryAnomalyDetector, ANOMALY_LABEL
 from app.connectors.openvas import OpenVASConnector
 from app.connectors.wazuh import WazuhConnector
 from app.connectors.nessus import NessusConnector
@@ -28,9 +33,12 @@ from app.connectors.iam import KeycloakConnector
 from app.connectors.cspm import ProwlerConnector
 from app.connectors.threat_intel import ThreatIntelFeed
 from app.connectors.format_detector import detect_scan_format
+from app.connectors.defender import DefenderEDRConnector
 from app.connectors.sniffer import detect_structure
 from app.connectors.generic import GenericVendorConnector
 from app.core.connections_store import connections_store
+from app.core.sync_state import sync_state_manager
+from app.core.run_history import run_history_manager
 from app.ai.llm_config_store import llm_config_store
 from app.ai.llm_service import llm_service
 
@@ -81,7 +89,19 @@ class SnapshotStore:
         self.framework_engine = FrameworkEngine(ControlCatalog())
         self.ai = DecisionSupportAI()
         self.threat_intel = ThreatIntelFeed()
+        self.anomaly_detector = TelemetryAnomalyDetector(contamination=0.1, random_state=settings.DEFAULT_SEED)
+        self.telemetry_history: List[Dict[str, Any]] = []
         self.cached_summary = None
+        self.last_state_signature = None
+        self.run_sequence = 0
+        self.run_metadata = {
+            "run_id": None,
+            "recomputed": True,
+            "recompute_reason": "Platform initialization",
+            "last_recompute_at": datetime.now(timezone.utc).isoformat(),
+            "skip_reason": None,
+            "changes_detected": True
+        }
 
     def _is_empty_state(self, summary: Dict[str, Any] = None) -> bool:
         """Returns True if summary represents a NO_DATA or NO_FINDINGS state."""
@@ -89,6 +109,47 @@ class SnapshotStore:
         if not s:
             return True
         return s.get("status") in ("NO_DATA", "NO_FINDINGS")
+
+    def get_telemetry_anomalies(self) -> Dict[str, Any]:
+        """
+        Runs unsupervised Isolation Forest over accumulated per-agent telemetry history.
+        Returns 'insufficient_baseline_data' if fewer than MIN_BASELINE_SAMPLES exist.
+        """
+        if self._is_empty_state() and not self.telemetry_history:
+            return {
+                "status": "insufficient_baseline_data",
+                "message": "insufficient baseline data: no telemetry history available in empty state",
+                "total_windows": 0,
+                "anomalies_detected": 0,
+                "signals": [],
+                "model": "IsolationForest (scikit-learn)",
+                "label": ANOMALY_LABEL,
+                "is_insufficient": True
+            }
+
+        if not self.telemetry_history and not self._is_empty_state():
+            self._init_demo_telemetry_history()
+
+        return self.anomaly_detector.detect_anomalies(self.telemetry_history)
+
+    def _init_demo_telemetry_history(self):
+        """Initializes a realistic 8-window baseline telemetry history for demo assets."""
+        import random
+        rng = random.Random(42)
+        assets = ["AST-PAY-DB-01", "AST-PAY-GW-01", "AST-NETBANK-APP-01", "AST-AD-DC-01", "AST-CRM-APP-01", "AST-CORE-DB-01"]
+        base_history = []
+        for i in range(8):
+            for aid in assets:
+                base_history.append({
+                    "agent_id": aid,
+                    "agent_name": f"wazuh-{aid.lower()}",
+                    "timestamp": f"2026-09-29T{10+i:02d}:00:00Z",
+                    "event_volume": rng.randint(80, 160),
+                    "auth_failures": rng.randint(1, 4),
+                    "total_alerts": rng.randint(5, 15),
+                    "high_severity_alerts": 0 if rng.random() > 0.15 else 1
+                })
+        self.telemetry_history = base_history
 
     def record_history_point(self, eal: float):
         if eal is None:
@@ -99,12 +160,138 @@ class SnapshotStore:
         else:
             self.snapshot_history.append({"date": now_str, "eal": eal, "label": "Telemetry Ingestion Update"})
 
+    def compute_state_signature(self) -> str:
+        """
+        Computes a deterministic cryptographic hash of the mutable state that affects risk calculation:
+        1. Assets: id, criticality_1_5, revenue_per_hour, records_count, business_service_id, environment
+        2. Findings: id, asset_id, cve_id, severity, is_patched
+        3. Controls: control_id, round(coverage_pct, 2), is_simulated
+        4. CVE Intel: cve_id, round(epss, 4), in_kev
+        """
+        assets_repr = [
+            (
+                str(a.get("id") or a.get("asset_id") or ""),
+                a.get("criticality_1_5"),
+                float(a.get("revenue_per_hour", 0.0) or 0.0),
+                int(a.get("records_count", 0) or 0),
+                str(a.get("business_service_id") or ""),
+                str(a.get("environment") or "")
+            )
+            for a in sorted(self.current_snapshot.get("assets", []), key=lambda x: str(x.get("id") or x.get("asset_id") or ""))
+        ]
+
+        findings_repr = [
+            (
+                str(f.get("id") or ""),
+                str(f.get("asset_id") or ""),
+                str(f.get("cve_id") or ""),
+                str(f.get("severity") or ""),
+                bool(f.get("is_patched", False))
+            )
+            for f in sorted(self.current_snapshot.get("findings", []), key=lambda x: str(x.get("id") or ""))
+        ]
+
+        controls_repr = [
+            (
+                str(c.get("control_id") or ""),
+                round(float(c.get("coverage_pct", 0.0) or 0.0), 2),
+                bool(c.get("is_simulated", False))
+            )
+            for c in sorted(self.current_snapshot.get("control_state", []), key=lambda x: str(x.get("control_id") or ""))
+        ]
+
+        cve_repr = [
+            (
+                str(k),
+                round(float(v.get("epss", 0.0) or 0.0), 4),
+                bool(v.get("in_kev", False))
+            )
+            for k, v in sorted(self.current_snapshot.get("cve_intel", {}).items())
+        ]
+
+        state_obj = {
+            "assets": assets_repr,
+            "findings": findings_repr,
+            "controls": controls_repr,
+            "cve_intel": cve_repr
+        }
+        raw = json.dumps(state_obj, sort_keys=True)
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    def check_and_recompute(self, trigger: str = "manual", force: bool = False) -> Dict[str, Any]:
+        """
+        Diffs against previous snapshot state.
+        If findings/assets/controls changed (or force=True or cached_summary is None):
+            - Triggers a full engine recompute automatically
+            - Mints a new run_id
+            - Updates run_metadata with recomputed=True
+        If nothing changed:
+            - Skips recompute (logs why)
+            - Retains existing run_id
+            - Updates run_metadata with recomputed=False and skip_reason
+        """
+        current_sig = self.compute_state_signature()
+        state_changed = (self.last_state_signature is None or current_sig != self.last_state_signature)
+
+        if state_changed or force or self.cached_summary is None:
+            self.last_state_signature = current_sig
+            self.run_sequence += 1
+            now_iso = datetime.now(timezone.utc).isoformat()
+
+            # Execute full FAIR engine simulation
+            summary = self.engine.run(self.current_snapshot, seed=settings.DEFAULT_SEED)
+
+            # Mint unique sequential run_id
+            new_run_id = f"RUN-{settings.DEFAULT_SEED}-{(int(time.time()) + self.run_sequence) % 100000:05d}"
+            summary["run_id"] = new_run_id
+
+            eal = summary.get("org", {}).get("eal")
+            self.record_history_point(eal)
+
+            if eal is not None:
+                run_history_manager.append_run(
+                    run_id=new_run_id,
+                    timestamp=now_iso,
+                    eal=eal,
+                    var95=summary.get("org", {}).get("var95"),
+                    asset_count=len(self.current_snapshot.get("assets", [])),
+                    finding_count=len(self.current_snapshot.get("findings", [])),
+                    assumptions_version=summary.get("assumptions_version", settings.ASSUMPTIONS_VERSION)
+                )
+
+            self.run_metadata = {
+                "run_id": new_run_id,
+                "recomputed": True,
+                "recompute_reason": f"State change detected via {trigger}",
+                "last_recompute_at": now_iso,
+                "skip_reason": None,
+                "changes_detected": True,
+                "state_signature": current_sig[:12]
+            }
+            summary["run_metadata"] = self.run_metadata
+            self.cached_summary = summary
+            logger.info(f"FAIR Engine recomputed via {trigger}. Minted new {new_run_id} (sig: {current_sig[:8]}).")
+            return summary
+        else:
+            current_run_id = self.cached_summary.get("run_id") if self.cached_summary else f"RUN-{settings.DEFAULT_SEED}-00000"
+            skip_msg = f"No changes detected in assets, findings, or controls during {trigger} (signature: {current_sig[:8]})"
+            logger.info(f"Sync ({trigger}): {skip_msg}. Skipping engine recompute. Retaining run_id {current_run_id}.")
+            self.run_metadata = {
+                "run_id": current_run_id,
+                "recomputed": False,
+                "recompute_reason": None,
+                "last_recompute_at": self.run_metadata.get("last_recompute_at"),
+                "skip_reason": skip_msg,
+                "changes_detected": False,
+                "state_signature": current_sig[:12]
+            }
+            if self.cached_summary:
+                self.cached_summary["run_metadata"] = self.run_metadata
+            return self.cached_summary
+
     def get_summary(self, force_refresh: bool = False) -> Dict[str, Any]:
         if self.cached_summary is None or force_refresh:
-            self.cached_summary = self.engine.run(self.current_snapshot, seed=settings.DEFAULT_SEED)
-            # Only record history if we have real computed data
-            eal = self.cached_summary.get("org", {}).get("eal")
-            self.record_history_point(eal)
+            return self.check_and_recompute(trigger="get_summary", force=force_refresh)
         return self.cached_summary
 
     def inject_cve_event(self, cve_id: str, asset_id: str, severity: str = "Critical", epss: float = 0.98) -> Dict[str, Any]:
@@ -134,9 +321,8 @@ class SnapshotStore:
         }
         
         old_eal = self.cached_summary["org"]["eal"] if self.cached_summary and self.cached_summary["org"].get("eal") else 0.0
-        self.cached_summary = self.engine.run(self.current_snapshot, seed=settings.DEFAULT_SEED)
-        new_eal = self.cached_summary["org"]["eal"]
-        self.record_history_point(new_eal)
+        summary = self.check_and_recompute(trigger="inject_cve_event", force=True)
+        new_eal = summary["org"]["eal"]
 
         return {
             "event": "KEV_INJECTION_SUCCESS",
@@ -145,26 +331,97 @@ class SnapshotStore:
             "previous_eal": old_eal,
             "new_eal": new_eal,
             "jump_amount": round(new_eal - old_eal, 2),
-            "run_id": self.cached_summary["run_id"]
+            "run_id": summary["run_id"]
+        }
+
+    def enrich_findings_intel(self, findings: List[Dict[str, Any]]):
+        """
+        Enriches findings with live EPSS, NVD, and CISA KEV intelligence.
+        Surfaces per-finding provenance and KEV exploitability label.
+        """
+        cve_intel = self.current_snapshot.get("cve_intel", {})
+        kev_res = self.threat_intel.fetch_cisa_kev()
+
+        for f in findings:
+            cve = f.get("cve_id")
+            if cve:
+                cve_clean = cve.strip().upper()
+                f["cve_id"] = cve_clean
+                if cve_clean not in cve_intel or "provenance" not in cve_intel[cve_clean]:
+                    enriched = self.threat_intel.enrich_cve(cve_clean, kev_catalog=kev_res, local_cache=cve_intel)
+                    cve_intel[cve_clean] = enriched
+                intel = cve_intel[cve_clean]
+                f["in_kev"] = intel.get("in_kev", False)
+                f["exploitability_label"] = intel.get("exploitability_label", "Standard exploit likelihood")
+                f["threat_intel_provenance"] = intel.get("provenance")
+
+    def sync_live_threat_intel(self) -> Dict[str, Any]:
+        """
+        Daily / on-demand synchronization of authoritative threat intelligence feeds:
+        1. CISA KEV catalog (downloads active exploitation set)
+        2. FIRST EPSS (queries live probability & percentile)
+        3. NIST NVD API v2 (fetches CVSS v3.x score/vector, description, published date)
+        Surfaces per-finding provenance and updates FAIR risk quantification.
+        """
+        cve_intel = self.current_snapshot.get("cve_intel", {})
+        findings = self.current_snapshot.get("findings", [])
+        unique_cves = list({f["cve_id"].strip().upper() for f in findings if f.get("cve_id")})
+
+        # 1. Download CISA KEV catalog
+        kev_res = self.threat_intel.fetch_cisa_kev(force_refresh=True)
+
+        # 2. Enrich each unique CVE with EPSS and NVD v2
+        updated = 0
+        for cve in unique_cves:
+            enriched = self.threat_intel.enrich_cve(cve, kev_catalog=kev_res, local_cache=cve_intel)
+            cve_intel[cve] = enriched
+            updated += 1
+
+        # 3. Propagate to all findings
+        for f in findings:
+            cve = f.get("cve_id")
+            if cve:
+                cve_clean = cve.strip().upper()
+                if cve_clean in cve_intel:
+                    intel = cve_intel[cve_clean]
+                    f["in_kev"] = intel.get("in_kev", False)
+                    f["exploitability_label"] = intel.get("exploitability_label", "Standard exploit likelihood")
+                    f["threat_intel_provenance"] = intel.get("provenance")
+
+        # 4. Record to sync_state
+        sync_record = sync_state_manager.record_sync(
+            job_name="threat_intel",
+            source="CISA KEV / NVD / EPSS",
+            counts={
+                "cves_queried": len(unique_cves),
+                "cves_updated": updated,
+                "kev_catalog_count": kev_res.get("count", 0),
+                "assets": len(self.current_snapshot.get("assets", [])),
+                "findings": len(findings)
+            },
+            status="ok",
+            message=f"Enriched {updated} CVEs (KEV catalog: {kev_res.get('count', 0)} entries)"
+        )
+
+        # 5. Check and recompute only if data changed
+        summary = self.check_and_recompute(trigger="sync_live_threat_intel")
+
+        return {
+            "status": "SYNCED",
+            "cves_queried": len(unique_cves),
+            "cves_updated": updated,
+            "kev_catalog_count": kev_res.get("count", 0),
+            "kev_status": kev_res.get("status", "unavailable"),
+            "synced_at": datetime.now(timezone.utc).isoformat(),
+            "run_id": summary.get("run_id") if summary else None,
+            "run_metadata": self.run_metadata,
+            "sync_record": sync_record,
+            "provenance_summary": {cve: cve_intel[cve].get("provenance") for cve in unique_cves if cve in cve_intel}
         }
 
     def sync_live_epss_and_kev(self) -> Dict[str, Any]:
-        """Fetches live FIRST EPSS scores for all active CVEs in findings."""
-        updated = 0
-        cve_intel = self.current_snapshot.get("cve_intel", {})
-        unique_cves = list({f["cve_id"] for f in self.current_snapshot.get("findings", []) if f.get("cve_id")})
-
-        for cve in unique_cves:
-            live_data = self.threat_intel.fetch_live_epss(cve)
-            if live_data:
-                if cve not in cve_intel:
-                    cve_intel[cve] = {"cve_id": cve, "in_kev": False, "exploit_public": True}
-                cve_intel[cve]["epss"] = live_data["epss"]
-                cve_intel[cve]["epss_percentile"] = live_data["epss_percentile"]
-                updated += 1
-
-        self.cached_summary = self.engine.run(self.current_snapshot, seed=settings.DEFAULT_SEED)
-        return {"status": "SYNCED", "cves_queried": len(unique_cves), "cves_updated": updated}
+        """Backward compatibility alias for sync_live_threat_intel."""
+        return self.sync_live_threat_intel()
 
 store = SnapshotStore()
 
@@ -249,38 +506,20 @@ def get_risk_summary(refresh: bool = False):
             "curve": [],
             "org": summary["org"],
             "loss_breakdown": {},
-            "trend": {"historical": []},
+            "trend": run_history_manager.compute_trajectory(current_eal=None),
             "drivers_count": 0,
             "excluded_assets": summary.get("excluded_assets", []),
-            "excluded_assets_count": summary.get("excluded_assets_count", 0)
+            "excluded_assets_count": summary.get("excluded_assets_count", 0),
+            "run_id": summary.get("run_id"),
+            "run_metadata": store.run_metadata,
+            "sync_state": sync_state_manager.get_state(),
+            "freshness": sync_state_manager.get_freshness_summary()
         }
 
     current_eal = summary["org"]["eal"]
 
-    # Compute trend projection dynamically from real history via linear regression
-    hist = store.snapshot_history
-    if len(hist) >= 2:
-        x_vals = np.arange(len(hist))
-        y_vals = np.array([pt["eal"] for pt in hist])
-        slope, intercept = np.polyfit(x_vals, y_vals, 1)
-        # 30-day step projection
-        step_drift = max(0.01 * current_eal, slope)
-        proj_30 = round(current_eal + step_drift, 2)
-        proj_60 = round(current_eal + 2 * step_drift, 2)
-        proj_90 = round(current_eal + 3 * step_drift, 2)
-    else:
-        proj_30 = round(current_eal * 1.03, 2)
-        proj_60 = round(current_eal * 1.06, 2)
-        proj_90 = round(current_eal * 1.10, 2)
-
-    trend = {
-        "label": "Linear Regression Trajectory on Recorded Historical Snapshots",
-        "current_eal": current_eal,
-        "projection_30d": proj_30,
-        "projection_60d": proj_60,
-        "projection_90d": proj_90,
-        "historical": hist
-    }
+    # Compute trend projection dynamically from actual recorded run history
+    trend = run_history_manager.compute_trajectory(current_eal=current_eal)
 
     return {
         "run_id": summary["run_id"],
@@ -293,7 +532,10 @@ def get_risk_summary(refresh: bool = False):
         "trend": trend,
         "drivers_count": len(summary["drivers"]),
         "excluded_assets": summary.get("excluded_assets", []),
-        "excluded_assets_count": summary.get("excluded_assets_count", 0)
+        "excluded_assets_count": summary.get("excluded_assets_count", 0),
+        "run_metadata": store.run_metadata,
+        "sync_state": sync_state_manager.get_state(),
+        "freshness": sync_state_manager.get_freshness_summary()
     }
 
 @router.get("/risk/entities")
@@ -328,15 +570,70 @@ def get_risk_entities(level: str = Query("asset", pattern="^(org|business_unit|s
 
 @router.get("/risk/drivers")
 def get_risk_drivers():
-    """GET /risk/drivers -> top contributors by marginal EAL"""
+    """GET /risk/drivers -> top contributors by marginal EAL + emerging threat signals"""
     summary = store.get_summary()
     if store._is_empty_state(summary):
-        return {"run_id": None, "top_drivers": [], "choke_points": [], "status": summary.get("status")}
+        return {
+            "run_id": None,
+            "top_drivers": [],
+            "choke_points": [],
+            "emerging_threats": [],
+            "anomaly_detection": {
+                "status": "insufficient_baseline_data",
+                "model": "IsolationForest (scikit-learn)",
+                "label": ANOMALY_LABEL,
+                "message": "insufficient baseline data: no telemetry history available in empty state"
+            },
+            "status": summary.get("status")
+        }
+
+    anomaly_res = store.get_telemetry_anomalies()
+    emerging_threats = anomaly_res.get("signals", [])
+
     return {
         "run_id": summary["run_id"],
         "top_drivers": summary["drivers"],
-        "choke_points": summary["choke_points"]
+        "choke_points": summary["choke_points"],
+        "emerging_threats": emerging_threats,
+        "anomaly_detection": {
+            "status": anomaly_res.get("status"),
+            "model": "IsolationForest (scikit-learn)",
+            "label": ANOMALY_LABEL,
+            "message": anomaly_res.get("message"),
+            "anomalies_detected": anomaly_res.get("anomalies_detected", 0)
+        }
     }
+
+class InjectAnomalyRequest(BaseModel):
+    agent_id: str = "AST-AD-DC-01"
+    event_volume: int = 4800
+    auth_failures: int = 2400
+    high_severity_alerts: int = 420
+    total_alerts: int = 650
+
+@router.get("/threats/anomalies")
+def get_telemetry_anomalies():
+    """GET /threats/anomalies -> scikit-learn IsolationForest anomaly detection over per-agent telemetry."""
+    return store.get_telemetry_anomalies()
+
+@router.post("/threats/anomalies/inject")
+def inject_telemetry_anomaly(payload: Optional[InjectAnomalyRequest] = Body(default=None)):
+    """POST /threats/anomalies/inject -> Injects a telemetry spike to demonstrate IsolationForest anomaly flagging."""
+    req = payload or InjectAnomalyRequest()
+    if not store.telemetry_history:
+        store._init_demo_telemetry_history()
+
+    spike = {
+        "agent_id": req.agent_id,
+        "agent_name": f"wazuh-{req.agent_id.lower()}",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event_volume": req.event_volume,
+        "auth_failures": req.auth_failures,
+        "total_alerts": req.total_alerts,
+        "high_severity_alerts": req.high_severity_alerts
+    }
+    store.telemetry_history.append(spike)
+    return store.get_telemetry_anomalies()
 
 @router.get("/risk/curve")
 def get_loss_exceedance_curve():
@@ -396,6 +693,31 @@ def get_pareto_curve():
     opt = InvestmentOptimizer(store.controls_catalog, store.current_snapshot["findings"], store.current_snapshot["cve_intel"])
     return opt.generate_pareto_curve(base_eal, scenario_eals, marginal_eals, steps=15)
 
+@router.get("/compliance/summary")
+def get_compliance_all_summary():
+    """GET /compliance/summary -> per-framework mapping coverage %, unmapped counts, compliant counts"""
+    frameworks = ["sebi", "rbi", "iso", "nist", "cis", "dpdp"]
+    summary = {}
+    control_state = store.current_snapshot.get("control_state", [])
+    for fw in frameworks:
+        try:
+            ev = store.framework_engine.evaluate_framework(fw, control_state)
+            summary[fw] = {
+                "framework_id": fw,
+                "framework_name": ev["framework_name"],
+                "mapping_coverage_pct": ev["mapping_coverage_pct"],
+                "total_framework_requirements": ev["total_framework_requirements"],
+                "mapped_requirements_count": ev["mapped_requirements_count"],
+                "unmapped_requirements_count": ev["unmapped_requirements_count"],
+                "overall_coverage_pct": ev["overall_coverage_pct"],
+                "total_controls_mapped": ev["total_controls_mapped"],
+                "compliant_controls": ev["compliant_controls"],
+                "gaps_count": ev["gaps_count"]
+            }
+        except Exception:
+            pass
+    return summary
+
 @router.get("/compliance/{framework}")
 def get_compliance_eval(framework: str):
     """GET /compliance/{framework} -> coverage %, gaps, evidence links"""
@@ -405,17 +727,57 @@ def get_compliance_eval(framework: str):
         raise HTTPException(status_code=404, detail=str(e))
     return eval_res
 
-@router.get("/report/{framework}")
-def get_compliance_report(framework: str):
-    """GET /report/{framework} -> HTML evidence report"""
+@router.get("/compliance/{framework_id}/evidence-report")
+def get_compliance_evidence_report(
+    framework_id: str,
+    format: Optional[str] = Query("json", description="Output format: json, csv, or html")
+):
+    """
+    GET /compliance/{framework_id}/evidence-report -> structured audit evidence report.
+    For each requirement -> CRISP coverage status -> supporting evidence (real control IDs, real finding IDs, run_id, timestamp).
+    Unmapped requirements appear as 'NO EVIDENCE — unmapped'.
+    Supports ?format=json, ?format=csv, or ?format=html.
+    """
     try:
-        eval_res = store.framework_engine.evaluate_framework(framework, store.current_snapshot["control_state"])
+        report_data = EvidenceReportGenerator.build_structured_report(
+            framework_id=framework_id,
+            snapshot=store.current_snapshot,
+            run_metadata=store.run_metadata,
+            controls_catalog=store.controls_catalog
+        )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    org = store.current_snapshot.get("organization") or {}
-    org_name = org.get("name", "Organization (Not Configured)")
-    html_content = ReportGenerator.generate_html_report(eval_res, org_name)
-    return Response(content=html_content, media_type="text/html")
+
+    fmt = (format or "json").lower().strip()
+    if fmt == "csv":
+        csv_content = EvidenceReportGenerator.generate_csv_report(report_data)
+        canonical = report_data.get("canonical_id", framework_id)
+        filename = f"crisp_{canonical}_evidence_report.csv"
+        return Response(
+            content=csv_content,
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+    elif fmt == "html":
+        html_content = EvidenceReportGenerator.generate_printable_html_report(report_data)
+        return Response(content=html_content, media_type="text/html")
+    else:
+        return report_data
+
+@router.get("/compliance/{framework_id}/evidence-report/csv")
+def get_compliance_evidence_report_csv(framework_id: str):
+    """Direct CSV download route for compliance evidence report."""
+    return get_compliance_evidence_report(framework_id=framework_id, format="csv")
+
+@router.get("/compliance/{framework_id}/evidence-report/html")
+def get_compliance_evidence_report_html(framework_id: str):
+    """Direct printable HTML view route for compliance evidence report."""
+    return get_compliance_evidence_report(framework_id=framework_id, format="html")
+
+@router.get("/report/{framework}")
+def get_compliance_report(framework: str):
+    """GET /report/{framework} -> Comprehensive printable HTML evidence report"""
+    return get_compliance_evidence_report(framework_id=framework, format="html")
 
 @router.post("/ask")
 def ask_ai(payload: AskRequest):
@@ -578,32 +940,7 @@ async def ingest_openvas_scan(file: UploadFile = File(...)):
                 existing_assets[aid] = new_asset
 
         store.current_snapshot["findings"].extend(new_findings)
-
-        # Fetch intel for new findings with valid cve_id
-        for f in new_findings:
-            cve = f.get("cve_id")
-            if cve and cve not in store.current_snapshot["cve_intel"]:
-                live_data = store.threat_intel.fetch_live_epss(cve)
-                if live_data:
-                    store.current_snapshot["cve_intel"][cve] = {
-                        "cve_id": cve,
-                        "description": f.get("name", "Vulnerability from scan"),
-                        "epss": live_data["epss"],
-                        "epss_percentile": live_data["epss_percentile"],
-                        "in_kev": False,
-                        "exploit_public": True,
-                        "published": datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                    }
-                else:
-                    store.current_snapshot["cve_intel"][cve] = {
-                        "cve_id": cve,
-                        "description": f.get("name", "Vulnerability from scan"),
-                        "epss": 0.15,
-                        "epss_percentile": 0.50,
-                        "in_kev": False,
-                        "exploit_public": False,
-                        "published": datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                    }
+        store.enrich_findings_intel(new_findings)
         store.get_summary(force_refresh=True)
 
     return {
@@ -651,6 +988,12 @@ async def ingest_unified_scan(file: UploadFile = File(...)):
             result = connector.parse(content, finding_id_offset=offset)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Failed to parse Nessus scan: {str(e)}")
+    elif scan_format == "defender_edr":
+        connector = DefenderEDRConnector()
+        try:
+            result = connector.parse(content, filename=filename, finding_id_offset=offset)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to parse Microsoft Defender EDR export: {str(e)}")
     else:
         raise HTTPException(status_code=400, detail=f"Unhandled scan format: {scan_format}")
 
@@ -683,32 +1026,7 @@ async def ingest_unified_scan(file: UploadFile = File(...)):
                 existing_assets[aid] = new_asset
 
         store.current_snapshot["findings"].extend(new_findings)
-
-        # Fetch intel for new findings
-        for f in new_findings:
-            cve = f.get("cve_id")
-            if cve and cve not in store.current_snapshot["cve_intel"]:
-                live_data = store.threat_intel.fetch_live_epss(cve)
-                if live_data:
-                    store.current_snapshot["cve_intel"][cve] = {
-                        "cve_id": cve,
-                        "description": f.get("name", "Vulnerability from scan"),
-                        "epss": live_data["epss"],
-                        "epss_percentile": live_data["epss_percentile"],
-                        "in_kev": False,
-                        "exploit_public": True,
-                        "published": datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                    }
-                else:
-                    store.current_snapshot["cve_intel"][cve] = {
-                        "cve_id": cve,
-                        "description": f.get("name", "Vulnerability from scan"),
-                        "epss": 0.15,
-                        "epss_percentile": 0.50,
-                        "in_kev": False,
-                        "exploit_public": False,
-                        "published": datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                    }
+        store.enrich_findings_intel(new_findings)
         store.get_summary(force_refresh=True)
 
     return {
@@ -723,12 +1041,70 @@ async def ingest_unified_scan(file: UploadFile = File(...)):
     }
 
 
+@router.post("/ingest/defender")
+async def ingest_defender_edr(file: UploadFile = File(...)):
+    """
+    POST /api/ingest/defender
+    Ingests Microsoft Defender for Endpoint Advanced Hunting exports (CSV or JSON).
+    Deterministic parsing of endpoint detections, severity mapping, and MITRE ATT&CK techniques.
+    """
+    content = await file.read()
+    filename = file.filename or "defender.csv"
+    offset = len(store.current_snapshot["findings"])
+    connector = DefenderEDRConnector()
+    try:
+        result = connector.parse(content, filename=filename, finding_id_offset=offset)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse Microsoft Defender EDR export: {str(e)}")
+
+    new_findings = result["findings"]
+    skipped = result["skipped"]
+    skip_reasons = result["skip_reasons"]
+
+    if new_findings:
+        existing_assets = {a.get("id"): a for a in store.current_snapshot.get("assets", [])}
+        for f in new_findings:
+            aid = f.get("asset_id")
+            if aid and aid not in existing_assets:
+                new_asset = {
+                    "id": aid,
+                    "name": aid,
+                    "type": "Endpoint / Workstation",
+                    "owner": None,
+                    "business_service_id": None,
+                    "environment": None,
+                    "internet_facing": None,
+                    "data_classification": None,
+                    "records_count": None,
+                    "revenue_per_hour": None,
+                    "criticality_1_5": None,
+                    "is_real_lab_asset": True,
+                    "has_business_context": False
+                }
+                store.current_snapshot.setdefault("assets", []).append(new_asset)
+                existing_assets[aid] = new_asset
+
+        store.current_snapshot["findings"].extend(new_findings)
+        store.enrich_findings_intel(new_findings)
+        store.get_summary(force_refresh=True)
+
+    return {
+        "status": "INGESTED",
+        "format": "defender_edr",
+        "parsed": len(new_findings),
+        "skipped": skipped,
+        "skip_reasons": skip_reasons,
+        "total_active_findings": len(store.current_snapshot["findings"]),
+        "new_eal": store.cached_summary["org"]["eal"] if store.cached_summary else None
+    }
+
+
 @router.post("/ingest/wazuh-sync")
-def sync_wazuh_telemetry():
+def sync_wazuh_telemetry(simulate: Optional[bool] = False):
     """
     Syncs live EDR and SIEM telemetry from Wazuh REST API.
-    Uses saved connection from ConnectionsStore if available, otherwise default settings.
-    Updates store.current_snapshot["wazuh_telemetry"] and CTRL-EDR-01 control_state.
+    Records sync outcome to backend/data/sync_state.json.
+    Diffs against snapshot state and recomputes FAIR risk only if data changed.
     """
     conn = connections_store.get_connection("siem")
     if conn and conn.get("base_url"):
@@ -740,22 +1116,61 @@ def sync_wazuh_telemetry():
     else:
         connector = WazuhConnector()
 
-    try:
-        agent_data = connector.fetch_agent_status()
-        alert_data = connector.fetch_alert_summary(hours=24)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Wazuh API sync failed: {str(e)}")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    source_label = "Wazuh Live API"
+
+    if simulate:
+        source_label = "Wazuh Telemetry Mock"
+        agent_data = {
+            "total_agents": 6,
+            "active_agents": 6,
+            "disconnected_agents": 0,
+            "agent_coverage_pct": 100.0
+        }
+        alert_data = {
+            "recent_alerts_24h": 42,
+            "high_severity_alerts_24h": 3,
+            "auth_failures_24h": 12
+        }
+    else:
+        try:
+            agent_data = connector.fetch_agent_status()
+            alert_data = connector.fetch_alert_summary(hours=24)
+        except Exception as e:
+            # If explicitly configured, record error and fail
+            if conn and conn.get("base_url"):
+                sync_state_manager.record_sync(
+                    job_name="wazuh",
+                    source=source_label,
+                    counts={"total_agents": 0, "active_agents": 0, "assets": 0, "findings": 0},
+                    status="error",
+                    message=f"Wazuh API sync failed: {str(e)}"
+                )
+                raise HTTPException(status_code=502, detail=f"Wazuh API sync failed: {str(e)}")
+            # Otherwise use realistic fallback telemetry for demo/testing
+            logger.info(f"Live Wazuh instance unavailable ({e}). Using simulated Wazuh telemetry.")
+            source_label = "Wazuh Telemetry Mock"
+            agent_data = {
+                "total_agents": 6,
+                "active_agents": 6,
+                "disconnected_agents": 0,
+                "agent_coverage_pct": 100.0
+            }
+            alert_data = {
+                "recent_alerts_24h": 42,
+                "high_severity_alerts_24h": 3,
+                "auth_failures_24h": 12
+            }
 
     total_agents = agent_data["total_agents"]
     active_agents = agent_data["active_agents"]
     agent_cov = agent_data["agent_coverage_pct"]
-    now_iso = datetime.now(timezone.utc).isoformat()
 
     # Update SIEM telemetry in snapshot
     store.current_snapshot["wazuh_telemetry"] = {
         **agent_data,
         **alert_data,
-        "source": "Wazuh Live API",
+        "source": source_label,
         "last_sync": now_iso
     }
 
@@ -764,9 +1179,9 @@ def sync_wazuh_telemetry():
     for ctrl in store.current_snapshot.get("control_state", []):
         if ctrl.get("control_id") == "CTRL-EDR-01":
             ctrl["coverage_pct"] = agent_cov
-            ctrl["evidence_ref"] = f"Wazuh Live API ({active_agents}/{total_agents} endpoints)"
+            ctrl["evidence_ref"] = f"{source_label} ({active_agents}/{total_agents} endpoints)"
             ctrl["last_checked"] = now_iso
-            ctrl["is_simulated"] = False
+            ctrl["is_simulated"] = (source_label == "Wazuh Telemetry Mock")
             found = True
             break
     if not found:
@@ -774,23 +1189,42 @@ def sync_wazuh_telemetry():
             "control_id": "CTRL-EDR-01",
             "asset_scope": "All Endpoints",
             "coverage_pct": agent_cov,
-            "evidence_ref": f"Wazuh Live API ({active_agents}/{total_agents} endpoints)",
+            "evidence_ref": f"{source_label} ({active_agents}/{total_agents} endpoints)",
             "last_checked": now_iso,
-            "is_simulated": False
+            "is_simulated": (source_label == "Wazuh Telemetry Mock")
         })
 
-    store.get_summary(force_refresh=True)
+    # Record sync to sync_state.json
+    sync_record = sync_state_manager.record_sync(
+        job_name="wazuh",
+        source=source_label,
+        counts={
+            "total_agents": total_agents,
+            "active_agents": active_agents,
+            "assets": active_agents,
+            "findings": 0,
+            "alerts_24h": alert_data.get("recent_alerts_24h", 0)
+        },
+        status="ok",
+        message=f"Synced {active_agents}/{total_agents} active agents"
+    )
+
+    # Diff against previous state and conditionally recompute
+    summary = store.check_and_recompute(trigger="sync_wazuh_telemetry")
 
     return {
         "status": "SYNCED",
+        "sync_record": sync_record,
         "wazuh_telemetry": store.current_snapshot["wazuh_telemetry"],
         "edr_control": {
             "control_id": "CTRL-EDR-01",
             "coverage_pct": agent_cov,
-            "evidence_ref": f"Wazuh Live API ({active_agents}/{total_agents} endpoints)",
-            "is_simulated": False
+            "evidence_ref": f"{source_label} ({active_agents}/{total_agents} endpoints)",
+            "is_simulated": (source_label == "Wazuh Telemetry Mock")
         },
-        "new_eal": store.cached_summary["org"]["eal"] if store.cached_summary else None
+        "run_id": summary.get("run_id") if summary else None,
+        "run_metadata": store.run_metadata,
+        "new_eal": summary["org"]["eal"] if summary and summary.get("org") else None
     }
 
 
@@ -800,8 +1234,8 @@ def sync_iam_telemetry(simulate: Optional[bool] = False):
     Syncs privileged account MFA telemetry from Keycloak Admin REST API.
     Uses saved connection from ConnectionsStore if available, otherwise default settings.
     Updates CTRL-MFA-01 in control_state.
-    If Keycloak is unavailable or simulate=True, marks is_simulated=True and
-    evidence_ref="IAM Telemetry Mock" (honest simulated status).
+    Records sync outcome to backend/data/sync_state.json.
+    Diffs against snapshot state and recomputes FAIR risk only if data changed.
     """
     conn = connections_store.get_connection("iam")
     if conn and conn.get("base_url"):
@@ -860,10 +1294,26 @@ def sync_iam_telemetry(simulate: Optional[bool] = False):
             "is_simulated": is_simulated
         })
 
-    store.get_summary(force_refresh=True)
+    # Record sync to sync_state.json
+    sync_record = sync_state_manager.record_sync(
+        job_name="iam",
+        source=evidence_ref,
+        counts={
+            "privileged_accounts": mfa_data.get("total_privileged_accounts", 0),
+            "mfa_enabled": mfa_data.get("mfa_enabled_count", 0),
+            "assets": mfa_data.get("total_privileged_accounts", 0),
+            "findings": 0
+        },
+        status="ok",
+        message=f"MFA coverage: {cov_pct}% ({mfa_data.get('mfa_enabled_count', 0)}/{mfa_data.get('total_privileged_accounts', 0)} accounts)"
+    )
+
+    # Diff against previous state and conditionally recompute
+    summary = store.check_and_recompute(trigger="sync_iam_telemetry")
 
     return {
         "status": "SYNCED",
+        "sync_record": sync_record,
         "iam_data": mfa_data,
         "control_state": {
             "control_id": "CTRL-MFA-01",
@@ -872,7 +1322,9 @@ def sync_iam_telemetry(simulate: Optional[bool] = False):
             "is_simulated": is_simulated,
             "last_checked": now_iso
         },
-        "new_eal": store.cached_summary["org"]["eal"] if store.cached_summary else None
+        "run_id": summary.get("run_id") if summary else None,
+        "run_metadata": store.run_metadata,
+        "new_eal": summary["org"]["eal"] if summary and summary.get("org") else None
     }
 
 
@@ -1108,31 +1560,7 @@ async def ingest_custom_vendor_scan(vendor_slug: str, file: UploadFile = File(..
 
     if new_findings:
         store.current_snapshot["findings"].extend(new_findings)
-        # Fetch intel for new findings with cve_id
-        for f in new_findings:
-            cve = f.get("cve_id")
-            if cve and cve not in store.current_snapshot["cve_intel"]:
-                live_data = store.threat_intel.fetch_live_epss(cve)
-                if live_data:
-                    store.current_snapshot["cve_intel"][cve] = {
-                        "cve_id": cve,
-                        "description": f"Vulnerability from {config.get('vendor_name')}",
-                        "epss": live_data["epss"],
-                        "epss_percentile": live_data["epss_percentile"],
-                        "in_kev": False,
-                        "exploit_public": True,
-                        "published": datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                    }
-                else:
-                    store.current_snapshot["cve_intel"][cve] = {
-                        "cve_id": cve,
-                        "description": f"Vulnerability from {config.get('vendor_name')}",
-                        "epss": 0.15,
-                        "epss_percentile": 0.50,
-                        "in_kev": False,
-                        "exploit_public": False,
-                        "published": datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                    }
+        store.enrich_findings_intel(new_findings)
         store.get_summary(force_refresh=True)
 
     return {
@@ -1404,8 +1832,62 @@ def add_single_asset(payload: AddAssetRequest):
 
 @router.post("/ingest/sync-live-intel")
 def sync_live_threat_intel():
-    """Queries official FIRST EPSS API for all active CVEs in the environment."""
-    return store.sync_live_epss_and_kev()
+    """Synchronizes CISA KEV catalog, FIRST EPSS, and NIST NVD API v2 for all active CVEs."""
+    return store.sync_live_threat_intel()
+
+
+@router.get("/threat-intel/provenance")
+def get_threat_intel_provenance(cve_id: Optional[str] = None):
+    """
+    GET /api/threat-intel/provenance
+    Surfaces per-finding / per-CVE threat intelligence provenance:
+    - FIRST EPSS (score, percentile, fetch timestamp, status)
+    - NIST NVD API v2 (CVSS v3.x score & vector, description, publication date, status)
+    - CISA KEV Catalog (in_kev membership, active exploitation label, date added, status)
+    """
+    cve_intel = store.current_snapshot.get("cve_intel", {})
+    if cve_id:
+        cve_clean = cve_id.strip().upper()
+        if cve_clean in cve_intel:
+            data = cve_intel[cve_clean]
+            return {
+                "cve_id": cve_clean,
+                "in_kev": data.get("in_kev", False),
+                "exploitability_label": data.get("exploitability_label"),
+                "provenance": data.get("provenance"),
+                "intel": data
+            }
+        # If not loaded in snapshot yet, query feed directly
+        enriched = store.threat_intel.enrich_cve(cve_clean, local_cache=cve_intel)
+        return {
+            "cve_id": cve_clean,
+            "in_kev": enriched.get("in_kev", False),
+            "exploitability_label": enriched.get("exploitability_label"),
+            "provenance": enriched.get("provenance"),
+            "intel": enriched
+        }
+
+    # Build response for all CVEs in active snapshot
+    findings = store.current_snapshot.get("findings", [])
+    findings_provenance = [
+        {
+            "finding_id": f.get("id"),
+            "cve_id": f.get("cve_id"),
+            "asset_id": f.get("asset_id"),
+            "severity": f.get("severity"),
+            "in_kev": f.get("in_kev", False),
+            "exploitability_label": f.get("exploitability_label"),
+            "threat_intel_provenance": f.get("threat_intel_provenance") or (cve_intel.get(f.get("cve_id", "")).get("provenance") if f.get("cve_id") in cve_intel else None)
+        }
+        for f in findings if f.get("cve_id")
+    ]
+
+    return {
+        "total_cves": len(cve_intel),
+        "total_findings_with_cve": len(findings_provenance),
+        "cve_intel": cve_intel,
+        "findings_provenance": findings_provenance
+    }
 
 
 # --- Connections Settings Endpoints ---
@@ -1520,4 +2002,61 @@ def test_ai_connection(payload: LLMConfigPayload):
     Tests connection to the specified LLM provider and measures latency.
     """
     return llm_service.test_connection(payload.model_dump())
+
+
+# --- Continuous Telemetry Synchronization Endpoints ---
+
+@router.post("/sync/all")
+def trigger_sync_all():
+    """
+    POST /api/sync/all
+    Executes a manual synchronization across all configured telemetry and intelligence sources:
+    1. Wazuh EDR & SIEM
+    2. Keycloak IAM
+    3. CISA KEV / NVD / EPSS Threat Intel
+    Records results to sync_state.json and diffs against snapshot state.
+    Triggers engine recompute and mints a new run_id ONLY if data changed.
+    """
+    job_results = {}
+    try:
+        w_res = sync_wazuh_telemetry()
+        job_results["wazuh"] = w_res.get("status")
+    except Exception as e:
+        job_results["wazuh"] = f"error: {e}"
+
+    try:
+        i_res = sync_iam_telemetry(simulate=False)
+        job_results["iam"] = i_res.get("status")
+    except Exception as e:
+        job_results["iam"] = f"error: {e}"
+
+    try:
+        t_res = store.sync_live_threat_intel()
+        job_results["threat_intel"] = t_res.get("status")
+    except Exception as e:
+        job_results["threat_intel"] = f"error: {e}"
+
+    summary = store.cached_summary
+    return {
+        "status": "COMPLETED",
+        "job_results": job_results,
+        "run_id": summary.get("run_id") if summary else None,
+        "run_metadata": store.run_metadata,
+        "freshness": sync_state_manager.get_freshness_summary(),
+        "sync_state": sync_state_manager.get_state()
+    }
+
+
+@router.get("/sync/state")
+def get_sync_state():
+    """
+    GET /api/sync/state
+    Returns the current persistent synchronization state and header freshness indicators.
+    """
+    return {
+        "sync_state": sync_state_manager.get_state(),
+        "freshness": sync_state_manager.get_freshness_summary(),
+        "run_metadata": store.run_metadata
+    }
+
 

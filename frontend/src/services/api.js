@@ -57,6 +57,34 @@ export const api = {
     return res.json();
   },
 
+  async getComplianceSummary() {
+    const res = await fetch(`${API_BASE}/compliance/summary`);
+    if (!res.ok) throw new Error('Failed to fetch compliance summary');
+    return res.json();
+  },
+
+  async getEvidenceReport(framework = 'sebi', format = 'json') {
+    const res = await fetch(`${API_BASE}/compliance/${framework}/evidence-report?format=${format}`);
+    if (!res.ok) throw new Error('Failed to fetch compliance evidence report');
+    return format === 'json' ? res.json() : res.text();
+  },
+
+  async getTelemetryAnomalies() {
+    const res = await fetch(`${API_BASE}/threats/anomalies`);
+    if (!res.ok) throw new Error('Failed to fetch telemetry anomalies');
+    return res.json();
+  },
+
+  async injectTelemetryAnomaly(payload) {
+    const res = await fetch(`${API_BASE}/threats/anomalies/inject`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {})
+    });
+    if (!res.ok) throw new Error('Failed to inject telemetry anomaly');
+    return res.json();
+  },
+
   async askAI(question) {
     const res = await fetch(`${API_BASE}/ask`, {
       method: 'POST',
@@ -111,6 +139,45 @@ export const api = {
     return res.json();
   },
 
+  async syncAll() {
+    const res = await fetch(`${API_BASE}/sync/all`, {
+      method: 'POST'
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to sync telemetry and intelligence');
+    }
+    return res.json();
+  },
+
+  async getSyncState() {
+    const res = await fetch(`${API_BASE}/sync/state`);
+    if (!res.ok) throw new Error('Failed to fetch sync state');
+    return res.json();
+  },
+
+  async syncWazuh(simulate = false) {
+    const res = await fetch(`${API_BASE}/ingest/wazuh-sync?simulate=${simulate}`, {
+      method: 'POST'
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to sync Wazuh telemetry');
+    }
+    return res.json();
+  },
+
+  async syncIAM(simulate = false) {
+    const res = await fetch(`${API_BASE}/ingest/iam-sync?simulate=${simulate}`, {
+      method: 'POST'
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to sync IAM telemetry');
+    }
+    return res.json();
+  },
+
   async syncLiveIntel() {
     const res = await fetch(`${API_BASE}/ingest/sync-live-intel`, {
       method: 'POST'
@@ -127,6 +194,18 @@ export const api = {
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.detail || 'Failed to ingest OpenVAS scan file');
+    }
+    return res.json();
+  },
+
+  async ingestDefender(formData) {
+    const res = await fetch(`${API_BASE}/ingest/defender`, {
+      method: 'POST',
+      body: formData
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to ingest Microsoft Defender EDR export');
     }
     return res.json();
   },

@@ -1,5 +1,6 @@
 from typing import Dict, Any, List
 from app.compliance.catalog import ControlCatalog, FRAMEWORKS
+from app.compliance.framework_registry import FRAMEWORK_REQUIREMENTS
 
 # Alias map: common alternative names -> canonical keys in FRAMEWORKS
 FRAMEWORK_ALIASES = {
@@ -93,17 +94,32 @@ class FrameworkEngine:
         overall_coverage = round(total_coverage_sum / max(1, total_mapped), 1) if total_mapped > 0 else 0.0
         gaps.sort(key=lambda g: g["remediation_cost"])
 
+        # Check canonical requirements registry for authoritative coverage calculation
+        requirements = FRAMEWORK_REQUIREMENTS.get(canonical_id, [])
+        total_framework_reqs = len(requirements) if requirements else total_mapped
+        mapped_reqs = [r for r in requirements if r.get("mapped_control_id")]
+        unmapped_reqs = [r for r in requirements if not r.get("mapped_control_id")]
+        mapped_count = len(mapped_reqs) if requirements else total_mapped
+        unmapped_count = len(unmapped_reqs) if requirements else 0
+        mapping_coverage_pct = round((mapped_count / max(1, total_framework_reqs)) * 100.0, 1)
+
         # Special Regulatory Readiness Modules
         sebi_6h_readiness = self._check_sebi_6h_readiness(state_map)
         dpdp_readiness = self._check_dpdp_readiness(state_map)
 
         return {
             "framework_id": framework_id,
+            "canonical_id": canonical_id,
             "framework_name": fw_meta["name"],
             "description": fw_meta["description"],
             "citation": fw_meta["citation"],
             "disclaimer": "Indicative mapping for simulation and readiness assessment. Not an official regulatory certification.",
             "overall_coverage_pct": overall_coverage,
+            "mapping_coverage_pct": mapping_coverage_pct,
+            "total_framework_requirements": total_framework_reqs,
+            "mapped_requirements_count": mapped_count,
+            "unmapped_requirements_count": unmapped_count,
+            "unmapped_requirements": unmapped_reqs,
             "total_controls_mapped": total_mapped,
             "compliant_controls": covered_count,
             "gaps_count": len(gaps),

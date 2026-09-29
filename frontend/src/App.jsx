@@ -31,20 +31,21 @@ export default function App() {
 
   const loadData = async (forceRefresh = false) => {
     try {
-      const [sum, crv, tor, drv, dq] = await Promise.all([
-        api.getSummary(forceRefresh),
-        api.getCurve(),
-        api.getTornado(),
-        api.getDrivers(),
+      if (forceRefresh) setLoading(true);
+      const [sum, curve, tornado, drivers, dq] = await Promise.all([
+        api.getRiskSummary(),
+        api.getLossExceedance(),
+        api.getSensitivityTornado(),
+        api.getRiskDrivers(),
         api.getDataQuality()
       ]);
       setSummary(sum);
-      setCurveData(crv);
-      setTornadoData(tor);
-      setDriversData(drv);
+      setCurveData(curve);
+      setTornadoData(tornado);
+      setDriversData(drivers);
       setDataQuality(dq);
-    } catch (err) {
-      console.error('Data loading error:', err);
+    } catch (e) {
+      console.error("Failed to load initial data", e);
     } finally {
       setLoading(false);
     }
@@ -54,27 +55,31 @@ export default function App() {
     loadData();
   }, []);
 
-  const handleInjectEvent = async (cveId, assetId) => {
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  const handleInjectTelemetry = async () => {
     setInjecting(true);
     try {
-      const res = await api.injectEvent(cveId, assetId);
-      setToast({
-        type: 'alert',
-        title: 'CISA KEV Zero-Day Ingested!',
-        message: `Injected ${cveId} on ${assetId}. Exposure increased by ${formatINR(res.jump_amount)}! Recalculated under Run ID: ${res.run_id}`
-      });
-      await loadData(true);
+      const res = await api.injectTelemetryAnomaly();
+      showToast(
+        `🚨 ${res.message || 'Telemetry spike injected!'} High volume + auth failure anomaly created for agent ${res.telemetry?.agent_id || 'wazuh-agent-01'}.`,
+        'success'
+      );
+      await loadData();
     } catch (e) {
-      console.error('Injection error:', e);
+      console.error("Failed to inject telemetry", e);
+      showToast('Failed to simulate telemetry anomaly. Check console.', 'error');
     } finally {
       setInjecting(false);
-      setTimeout(() => setToast(null), 8000);
     }
   };
 
   const tabs = [
-    { id: 'executive', label: 'Executive Overview', shortLabel: 'Dashboard', icon: BarChart3 },
-    { id: 'drilldown', label: 'Technical Drill-Down', shortLabel: 'Drilldown', icon: Search },
+    { id: 'executive', label: 'Executive Dashboard', shortLabel: 'Overview', icon: BarChart3 },
+    { id: 'drilldown', label: 'Technical Drilldown & Choke Points', shortLabel: 'Drilldown', icon: Search },
     { id: 'optimizer', label: 'Investment Optimizer & Benchmark', shortLabel: 'Optimizer', icon: Target },
     { id: 'whatif', label: 'What-If Simulator', shortLabel: 'What-If', icon: Sparkles },
     { id: 'compliance', label: 'Compliance & India Regs', shortLabel: 'Compliance', icon: FileCheck },
@@ -96,153 +101,104 @@ export default function App() {
       <Navbar 
         runId={summary?.run_id}
         assumptionsVer={summary?.assumptions_version}
-        dataQuality={dataQuality}
-        onInjectEvent={handleInjectEvent}
-        injecting={injecting}
+        isSimulated={summary?.is_simulated}
+        summary={summary}
+        onRefreshData={() => loadData(true)}
+        onInjectTelemetry={handleInjectTelemetry}
+        injectingTelemetry={injecting}
       />
 
-      {/* Main Container */}
-      <main style={{ maxWidth: 1400, width: '100%', margin: '0 auto', padding: '24px 24px 60px 24px', flex: 1 }}>
+      {/* Main View Area */}
+      <main style={{ flex: 1, padding: '32px', overflowY: 'auto' }}>
         
         {/* Toast Alert */}
         {toast && (
           <div style={{
-            background: 'linear-gradient(90deg, rgba(239, 68, 68, 0.95) 0%, rgba(185, 28, 28, 0.95) 100%)',
+            position: 'fixed',
+            bottom: '24px',
+            right: '24px',
+            zIndex: 9999,
+            backgroundColor: toast.type === 'error' ? 'var(--accent-red)' : 'var(--accent-emerald)',
             color: '#fff',
-            padding: '14px 20px',
-            borderRadius: 10,
-            marginBottom: 20,
+            padding: '12px 20px',
+            borderRadius: '10px',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between',
-            boxShadow: '0 0 20px rgba(239, 68, 68, 0.5)',
-            animation: 'fadeIn 0.3s ease-in-out'
+            gap: '10px',
+            fontSize: '13px',
+            fontWeight: 600,
+            maxWidth: '480px',
+            animation: 'fadeIn 0.2s ease-out'
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <AlertTriangle size={22} color="#fff" />
-              <div>
-                <strong>{toast.title}</strong>
-                <p style={{ margin: 0, fontSize: 13 }}>{toast.message}</p>
-              </div>
-            </div>
-            <button 
-              onClick={() => setToast(null)}
-              style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: 18, cursor: 'pointer' }}
-            >
-              ✕
-            </button>
+            {toast.type === 'error' ? <AlertCircle size={18} /> : <ShieldCheck size={18} />}
+            <span>{toast.message}</span>
           </div>
         )}
 
-
-
-        {/* Excluded Assets Transparency Banner (PRD FAIR Engine Context Enforcement) */}
-        {summary?.excluded_assets_count > 0 && (
-          <div style={{
-            background: 'var(--bg-card)',
-            border: '1px solid rgba(217, 119, 6, 0.4)',
-            boxShadow: 'var(--clay-shadow-sm)',
-            borderRadius: 14,
-            padding: '14px 20px',
-            marginBottom: 20,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: 12
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{
-                width: 36,
-                height: 36,
-                borderRadius: 10,
-                background: 'rgba(217, 119, 6, 0.12)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0
-              }}>
-                <AlertCircle size={20} color="var(--accent-amber)" />
-              </div>
-              <div>
-                <strong style={{ color: 'var(--text-main)', fontSize: 13 }}>
-                  EAL excludes {summary.excluded_assets_count} asset{summary.excluded_assets_count > 1 ? 's' : ''} with no declared business context — add criticality/revenue data to include them.
-                </strong>
-                <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)' }}>
-                  Unassigned discovered hosts ({summary.excluded_assets.map(a => a.name || a.asset_id).join(', ')}) contribute ₹0 to quantitative risk to prevent artificial loss inflation.
-                </p>
-              </div>
-            </div>
-            <button 
-              className="btn btn-outline"
-              style={{ fontSize: 12, padding: '7px 14px' }}
-              onClick={() => setActiveTab('ingestion')}
-            >
-              Add Business Context →
-            </button>
-          </div>
-        )}
-
-        {/* Active Tab Screen */}
+        {/* Global Loading Spinner */}
         {loading ? (
-          <div className="glass-panel" style={{ padding: 60, textAlign: 'center' }}>
-            <div style={{ fontSize: 18, color: '#00f2fe', marginBottom: 8 }}>Initializing CRISP Quantitative Risk Engine...</div>
-            <p style={{ fontSize: 13, color: 'var(--text-dim)' }}>Vectorizing 10,000 trials & evaluating asset dependency graphs</p>
+          <div style={{ 
+            height: '60vh', 
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            gap: '16px',
+            color: 'var(--text-muted)'
+          }}>
+            <div className="spinner" style={{ 
+              width: '40px', 
+              height: '40px', 
+              border: '3px solid var(--border-color)', 
+              borderTopColor: 'var(--primary-color)',
+              borderRadius: '50%',
+              animation: 'spin 1s linear infinite'
+            }} />
+            <p style={{ fontSize: '14px', letterSpacing: '0.05em' }}>QUANTIFYING ENTERPRISE RISK EXPOSURE...</p>
           </div>
         ) : (
           <>
             {activeTab === 'executive' && (
-              <ExecutiveView summary={summary} curveData={curveData} tornadoData={tornadoData} onNavigateToIngestion={() => setActiveTab('ingestion')} />
+              <ExecutiveView 
+                summary={summary} 
+                curveData={curveData} 
+                tornadoData={tornadoData} 
+                onNavigateToIngestion={() => setActiveTab('ingestion')} 
+                onRefresh={() => loadData(true)} 
+              />
             )}
             {activeTab === 'drilldown' && (
               <TechnicalDrilldown summary={summary} driversData={driversData} onNavigateToIngestion={() => setActiveTab('ingestion')} />
             )}
             {activeTab === 'optimizer' && (
-              <OptimizerView baseEal={summary?.org?.eal} status={summary?.status} onNavigateToIngestion={() => setActiveTab('ingestion')} />
+              <OptimizerView />
             )}
             {activeTab === 'whatif' && (
-              <WhatIfSimulator baselineEal={summary?.org?.eal} baselineVar95={summary?.org?.var95} status={summary?.status} onNavigateToIngestion={() => setActiveTab('ingestion')} />
+              <WhatIfSimulator onSimulate={loadData} />
             )}
             {activeTab === 'compliance' && (
-              <ComplianceHub status={summary?.status} onNavigateToIngestion={() => setActiveTab('ingestion')} />
+              <ComplianceHub />
             )}
             {activeTab === 'ai' && (
-              <AIQueryCenter currentRunId={summary?.run_id} />
+              <AIQueryCenter />
             )}
             {activeTab === 'ingestion' && (
-              <DataIngestionHub onDataUpdated={() => loadData(true)} />
+              <DataIngestionHub onRefreshData={() => loadData(true)} />
             )}
             {activeTab === 'connections' && (
-              <ConnectionsSettings onConnectionChanged={() => loadData(true)} />
+              <ConnectionsSettings />
             )}
           </>
         )}
-
       </main>
 
-      {/* Footer with Compliance Transparency Note */}
-      <footer style={{
-        borderTop: '1px solid var(--border-color)',
-        padding: '16px 24px',
-        background: '#040710',
-        fontSize: 12,
-        color: 'var(--text-dim)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-        gap: 12
-      }}>
-        <div>
-          <strong>CRISP v1.0.0</strong> — Continuous Cyber Risk Quantification & Investment Optimization Platform
-        </div>
-        <div style={{ display: 'flex', gap: 16 }}>
-          <span>Organization: <strong>Apex FinCorp (Simulated NBFC)</strong></span>
-          <span>Lab Telemetry: <strong>Real OpenVAS & Wazuh</strong></span>
-          <span>Assumptions: <strong>v{summary?.assumptions_version || 4} (Traceable)</strong></span>
-        </div>
-      </footer>
-
+      {/* Global CSS for spinner animation */}
+      <style>{`
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
       </div>
     </div>
   );

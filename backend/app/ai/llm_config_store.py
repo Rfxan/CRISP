@@ -40,7 +40,6 @@ DEFAULT_BASE_URLS = {
 def _get_storage_path() -> Path:
     """Returns primary path in DATA_DIR or fallback outside protected Documents folder."""
     primary = DATA_DIR / "llm_config.json"
-    fallback = Path.home() / ".crisp" / "llm_config.json"
     
     # Check if primary directory is writable
     try:
@@ -51,8 +50,12 @@ def _get_storage_path() -> Path:
         test_file.unlink(missing_ok=True)
         return primary
     except (OSError, PermissionError):
-        fallback.parent.mkdir(parents=True, exist_ok=True)
-        return fallback
+        try:
+            fallback = Path.home() / ".crisp" / "llm_config.json"
+            fallback.parent.mkdir(parents=True, exist_ok=True)
+            return fallback
+        except Exception:
+            return primary
 
 
 class LLMConfigStore:
@@ -87,16 +90,20 @@ class LLMConfigStore:
             self.file_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.file_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
+            return
         except Exception as e:
-            # Fallback to home dir if primary fails
+            logger.warning(f"Could not write to primary {self.file_path}: {e}")
+
+        # Fallback to home dir or temp dir if primary fails
+        try:
             fallback = Path.home() / ".crisp" / "llm_config.json"
             if self.file_path != fallback:
                 self.file_path = fallback
                 self.file_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(self.file_path, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2)
-            else:
-                logger.error(f"Failed to write {self.file_path}: {e}")
+        except Exception as fallback_err:
+            logger.warning(f"Could not persist config to disk ({fallback_err}); keeping in-memory only")
 
     def get_config(self) -> Dict[str, Any]:
         """

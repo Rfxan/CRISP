@@ -1,13 +1,80 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, 
   BarChart, Bar, CartesianGrid, Legend 
 } from 'recharts';
-import { ShieldCheck, TrendingUp, AlertOctagon, HelpCircle, Layers, Award, AlertCircle } from 'lucide-react';
+import { 
+  ShieldCheck, TrendingUp, AlertOctagon, HelpCircle, Layers, Award, AlertCircle,
+  RefreshCw, Clock, Zap, Activity
+} from 'lucide-react';
 import { formatINR, formatINRFull } from '../utils/formatters';
+import { api } from '../services/api';
 import EmptyState from './EmptyState';
 
-export default function ExecutiveView({ summary, curveData, tornadoData, onNavigateToIngestion }) {
+function formatRelativeTime(isoString) {
+  if (!isoString) return 'Never';
+  const past = new Date(isoString).getTime();
+  if (isNaN(past)) return 'Never';
+  const now = Date.now();
+  const diffSec = Math.max(0, Math.floor((now - past) / 1000));
+
+  if (diffSec < 60) {
+    return `${diffSec}s ago`;
+  }
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) {
+    return `${diffMin} min ago`;
+  }
+  const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) {
+    return `${diffHours}h ${diffMin % 60}m ago`;
+  }
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d ago`;
+}
+
+export default function ExecutiveView({ summary, curveData, tornadoData, onNavigateToIngestion, onRefresh }) {
+  const [syncing, setSyncing] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState(null);
+  const [, setTick] = useState(0);
+
+  // Live timer tick so relative timestamps update smoothly on screen
+  useEffect(() => {
+    const timer = setInterval(() => setTick(t => t + 1), 10000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const handleSyncNow = async () => {
+    setSyncing(true);
+    setSyncFeedback(null);
+    try {
+      const res = await api.syncAll();
+      if (onRefresh) {
+        await onRefresh();
+      }
+      const meta = res.run_metadata || {};
+      if (meta.recomputed) {
+        setSyncFeedback({
+          type: 'success',
+          text: `Data changed · Minted ${res.run_id || 'New Run'}`
+        });
+      } else {
+        setSyncFeedback({
+          type: 'neutral',
+          text: `Unchanged · Retained ${res.run_id || summary?.run_id}`
+        });
+      }
+    } catch (e) {
+      setSyncFeedback({
+        type: 'error',
+        text: `Sync error: ${e.message || 'Failed'}`
+      });
+    } finally {
+      setSyncing(false);
+      setTimeout(() => setSyncFeedback(null), 8000);
+    }
+  };
+
   if (!summary || !summary.org) {
     return <div className="glass-panel" style={{ padding: 40, textAlign: 'center' }}>Loading CRISP Executive Analytics...</div>;
   }
@@ -41,8 +108,156 @@ export default function ExecutiveView({ summary, curveData, tornadoData, onNavig
     probability: pt[1] * 100
   })) : [];
 
+  // Telemetry freshness metadata
+  const freshness = summary.freshness || {};
+  const wazuh = freshness.wazuh || {};
+  const iam = freshness.iam || {};
+  const runMeta = summary.run_metadata || {};
+
+  // Formulate primary freshness string matching user requirements:
+  // e.g. "Wazuh synced 4 min ago · 6/6 agents · Run RUN-42-95725"
+  const wazuhRelative = formatRelativeTime(wazuh.last_sync_at);
+  const wazuhText = wazuh.last_sync_at 
+    ? `Wazuh synced ${wazuhRelative}` 
+    : 'Wazuh awaiting initial sync';
+  const agentsTotal = wazuh.agents_total || wazuh.agents_active || 6;
+  const agentsActive = wazuh.agents_active !== undefined ? wazuh.agents_active : 6;
+  const agentsText = `${agentsActive}/${agentsTotal} agents`;
+  const currentRunId = summary.run_id || runMeta.run_id || 'RUN-42-00000';
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      
+      {/* Continuous Telemetry Freshness Header Bar */}
+      <div 
+        id="freshness-indicator-bar"
+        style={{
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border-color)',
+          borderRadius: 14,
+          padding: '12px 20px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 14,
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)'
+        }}
+      >
+        {/* Left: Health Indicator, Timestamps, Agent Count, Run ID */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+          
+          {/* Status Dot with dynamic pulse */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span 
+              className="pulse-dot"
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: '50%',
+                backgroundColor: wazuh.status === 'ok' ? '#10b981' : (wazuh.status === 'error' ? 'var(--accent-red)' : 'var(--accent-amber)'),
+                boxShadow: wazuh.status === 'ok' ? '0 0 10px rgba(16, 185, 129, 0.6)' : 'none',
+                display: 'inline-block'
+              }}
+            />
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-main)', letterSpacing: '-0.01em' }}>
+              Continuous Telemetry
+            </span>
+          </div>
+
+          <div style={{ width: 1, height: 18, background: 'var(--border-color)' }} />
+
+          {/* Main prompt format: "Wazuh synced 4 min ago · 6/6 agents · Run RUN-42-95725" */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+            <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>
+              {wazuhText}
+            </span>
+            <span>·</span>
+            <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>
+              {agentsText}
+            </span>
+            <span>·</span>
+            <span className="badge badge-cyan" style={{ fontSize: 11, padding: '3px 8px', fontFamily: 'var(--font-mono)' }}>
+              Run {currentRunId}
+            </span>
+          </div>
+
+          {/* Recompute Status Badge */}
+          {runMeta.recomputed !== undefined && (
+            <span 
+              title={runMeta.recomputed ? runMeta.recompute_reason : runMeta.skip_reason}
+              style={{
+                fontSize: 11,
+                padding: '3px 9px',
+                borderRadius: 20,
+                fontWeight: 600,
+                background: runMeta.recomputed ? 'rgba(16, 185, 129, 0.1)' : 'rgba(180, 180, 175, 0.15)',
+                color: runMeta.recomputed ? '#059669' : 'var(--text-dim)',
+                border: `1px solid ${runMeta.recomputed ? 'rgba(16, 185, 129, 0.25)' : 'rgba(180, 180, 175, 0.3)'}`,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5
+              }}
+            >
+              {runMeta.recomputed ? (
+                <>
+                  <Zap size={11} color="#059669" /> Engine Recomputed
+                </>
+              ) : (
+                <>
+                  <Clock size={11} color="var(--text-dim)" /> Recompute Skipped (Unchanged)
+                </>
+              )}
+            </span>
+          )}
+
+          {/* Mini IAM indicator */}
+          {iam.last_sync_at && (
+            <span style={{ fontSize: 11, color: 'var(--text-dim)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <ShieldCheck size={12} color="var(--accent-green)" />
+              IAM: {iam.mfa_coverage_pct || 0}% MFA ({formatRelativeTime(iam.last_sync_at)})
+            </span>
+          )}
+        </div>
+
+        {/* Right: Feedback & Sync Now Button */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {syncFeedback && (
+            <span style={{
+              fontSize: 12,
+              padding: '4px 10px',
+              borderRadius: 8,
+              background: syncFeedback.type === 'success' 
+                ? 'rgba(16, 185, 129, 0.1)' 
+                : (syncFeedback.type === 'error' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(180, 180, 175, 0.15)'),
+              color: syncFeedback.type === 'success' 
+                ? '#059669' 
+                : (syncFeedback.type === 'error' ? 'var(--accent-red)' : 'var(--text-main)'),
+              fontWeight: 600
+            }}>
+              {syncFeedback.text}
+            </span>
+          )}
+
+          <button
+            id="btn-sync-now"
+            className="btn btn-primary"
+            style={{
+              fontSize: 12,
+              padding: '7px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 7,
+              cursor: syncing ? 'wait' : 'pointer'
+            }}
+            onClick={handleSyncNow}
+            disabled={syncing}
+          >
+            <RefreshCw size={13} className={syncing ? 'spin-anim' : ''} />
+            <span>{syncing ? 'Syncing...' : 'Sync now'}</span>
+          </button>
+        </div>
+      </div>
       
       {/* Excluded Assets Visibility Banner */}
       {summary.excluded_assets_count > 0 && (
@@ -251,50 +466,104 @@ export default function ExecutiveView({ summary, curveData, tornadoData, onNavig
             <div>
               <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>30 / 60 / 90-Day Risk Trajectory</h3>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
-                Projection if identified vulnerabilities remain unpatched
+                Projection fitted to actual historical engine runs
               </p>
             </div>
-            <span className="badge badge-cyan">Moving Average</span>
+            <span
+              className="badge"
+              style={{
+                background: summary.trend?.status === 'insufficient_history' ? 'rgba(255,255,255,0.05)' : 'rgba(96, 165, 250, 0.15)',
+                color: summary.trend?.status === 'insufficient_history' ? 'var(--text-dim)' : '#93c5fd',
+                border: summary.trend?.status === 'insufficient_history' ? '1px solid var(--border-color)' : '1px solid rgba(96, 165, 250, 0.3)',
+                cursor: 'help'
+              }}
+              title={summary.trend?.tooltip || (summary.trend?.points_count ? `trend from ${summary.trend.points_count} runs` : 'insufficient history')}
+            >
+              {summary.trend?.method === 'exponential_smoothing' ? 'Exp. Smoothing' : (summary.trend?.method === 'linear_trend' ? 'Linear Trend' : 'Insufficient History')}
+            </span>
           </div>
 
-          {/* Dynamically computed drift percentages */}
-          {(() => {
-            const p30 = summary.trend?.projection_30d || eal;
-            const p60 = summary.trend?.projection_60d || eal;
-            const p90 = summary.trend?.projection_90d || eal;
-            const d30 = eal > 0 ? (((p30 - eal) / eal) * 100).toFixed(1) : '0.0';
-            const d60 = eal > 0 ? (((p60 - eal) / eal) * 100).toFixed(1) : '0.0';
-            const d90 = eal > 0 ? (((p90 - eal) / eal) * 100).toFixed(1) : '0.0';
-
-            return (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, margin: '16px 0' }}>
-                <div className="glass-panel" style={{ padding: 14, textAlign: 'center', background: 'rgba(255,255,255,0.02)' }}>
-                  <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>+30 Days</div>
-                  <div className="display-title" style={{ fontSize: 20, color: 'var(--accent-amber)', marginTop: 4 }}>
-                    {formatINR(p30)}
-                  </div>
-                  <div style={{ fontSize: 10, color: 'var(--accent-red)' }}>+{d30}% Expected Drift</div>
-                </div>
-                <div className="glass-panel" style={{ padding: 14, textAlign: 'center', background: 'rgba(255,255,255,0.02)' }}>
-                  <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>+60 Days</div>
-                  <div className="display-title" style={{ fontSize: 20, color: '#f97316', marginTop: 4 }}>
-                    {formatINR(p60)}
-                  </div>
-                  <div style={{ fontSize: 10, color: 'var(--accent-red)' }}>+{d60}% Expected Drift</div>
-                </div>
-                <div className="glass-panel" style={{ padding: 14, textAlign: 'center', background: 'rgba(255,255,255,0.02)' }}>
-                  <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>+90 Days</div>
-                  <div className="display-title" style={{ fontSize: 20, color: 'var(--accent-red)', marginTop: 4 }}>
-                    {formatINR(p90)}
-                  </div>
-                  <div style={{ fontSize: 10, color: 'var(--accent-red)' }}>+{d90}% Expected Drift</div>
-                </div>
+          {summary.trend?.status === 'insufficient_history' || summary.trend?.projection_30d == null ? (
+            <div style={{
+              margin: '20px 0',
+              padding: '24px 20px',
+              borderRadius: 10,
+              background: 'rgba(255, 255, 255, 0.02)',
+              border: '1px dashed var(--border-color)',
+              textAlign: 'center'
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-main)', marginBottom: 6 }}>
+                Insufficient History ({summary.trend?.points_count || 0} run{(summary.trend?.points_count !== 1) ? 's' : ''} recorded)
               </div>
-            );
-          })()}
+              <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)', maxWidth: 440, marginLeft: 'auto', marginRight: 'auto', lineHeight: 1.5 }}>
+                At least 2 historical engine runs are required to compute a linear trend, and 3+ runs to fit exponential smoothing. CRISP never fabricates trajectory projections without historical evidence.
+              </p>
+            </div>
+          ) : (
+            (() => {
+              const p30 = summary.trend.projection_30d;
+              const p60 = summary.trend.projection_60d;
+              const p90 = summary.trend.projection_90d;
+              const d30 = eal > 0 ? (((p30 - eal) / eal) * 100).toFixed(1) : '0.0';
+              const d60 = eal > 0 ? (((p60 - eal) / eal) * 100).toFixed(1) : '0.0';
+              const d90 = eal > 0 ? (((p90 - eal) / eal) * 100).toFixed(1) : '0.0';
+              const cb = summary.trend.confidence_band;
+
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, margin: '16px 0' }}>
+                  <div className="glass-panel" style={{ padding: 14, textAlign: 'center', background: 'rgba(255,255,255,0.02)' }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>+30 Days</div>
+                    <div className="display-title" style={{ fontSize: 18, color: 'var(--accent-amber)', marginTop: 4 }}>
+                      {formatINR(p30)}
+                    </div>
+                    <div style={{ fontSize: 10, color: Number(d30) >= 0 ? 'var(--accent-red)' : 'var(--accent-green)', marginTop: 2 }}>
+                      {Number(d30) >= 0 ? `+${d30}%` : `${d30}%`} Drift
+                    </div>
+                    {cb?.['30d'] && (
+                      <div style={{ fontSize: 9, color: 'var(--text-dim)', marginTop: 4, fontFamily: 'monospace' }}>
+                        95% CI: {formatINR(cb['30d'][0])} – {formatINR(cb['30d'][1])}
+                      </div>
+                    )}
+                  </div>
+                  <div className="glass-panel" style={{ padding: 14, textAlign: 'center', background: 'rgba(255,255,255,0.02)' }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>+60 Days</div>
+                    <div className="display-title" style={{ fontSize: 18, color: '#f97316', marginTop: 4 }}>
+                      {formatINR(p60)}
+                    </div>
+                    <div style={{ fontSize: 10, color: Number(d60) >= 0 ? 'var(--accent-red)' : 'var(--accent-green)', marginTop: 2 }}>
+                      {Number(d60) >= 0 ? `+${d60}%` : `${d60}%`} Drift
+                    </div>
+                    {cb?.['60d'] && (
+                      <div style={{ fontSize: 9, color: 'var(--text-dim)', marginTop: 4, fontFamily: 'monospace' }}>
+                        95% CI: {formatINR(cb['60d'][0])} – {formatINR(cb['60d'][1])}
+                      </div>
+                    )}
+                  </div>
+                  <div className="glass-panel" style={{ padding: 14, textAlign: 'center', background: 'rgba(255,255,255,0.02)' }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>+90 Days</div>
+                    <div className="display-title" style={{ fontSize: 18, color: 'var(--accent-red)', marginTop: 4 }}>
+                      {formatINR(p90)}
+                    </div>
+                    <div style={{ fontSize: 10, color: Number(d90) >= 0 ? 'var(--accent-red)' : 'var(--accent-green)', marginTop: 2 }}>
+                      {Number(d90) >= 0 ? `+${d90}%` : `${d90}%`} Drift
+                    </div>
+                    {cb?.['90d'] && (
+                      <div style={{ fontSize: 9, color: 'var(--text-dim)', marginTop: 4, fontFamily: 'monospace' }}>
+                        95% CI: {formatINR(cb['90d'][0])} – {formatINR(cb['90d'][1])}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()
+          )}
 
           <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: 12, fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.4 }}>
-            <strong>Methodology Transparency (PRD Sec 10.9):</strong> Linear regression trajectory computed from recorded historical snapshots. Explicitly labeled as a simple projection, not deep learning.
+            <strong>Methodology Transparency (PRD Sec 10.9):</strong>{' '}
+            <span title={summary.trend?.tooltip} style={{ textDecoration: 'underline dotted', cursor: 'help' }}>
+              {summary.trend?.tooltip || 'Trajectory computed from historical runs'}
+            </span>
+            {summary.trend?.confidence_band?.label && ` · ${summary.trend.confidence_band.label}`}. Projections are fit to recorded historical runs and never fabricated.
           </div>
         </div>
 

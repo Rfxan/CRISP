@@ -29,9 +29,27 @@ def _normalize_category(category: str) -> str:
     return cat
 
 
+def _get_connections_storage_path() -> Path:
+    """Returns primary path in DATA_DIR or fallback outside protected Documents folder."""
+    primary = DATA_DIR / "connections.json"
+    try:
+        primary.parent.mkdir(parents=True, exist_ok=True)
+        test_file = primary.parent / ".perm_check_conn"
+        test_file.write_text("ok")
+        test_file.unlink(missing_ok=True)
+        return primary
+    except Exception:
+        try:
+            fallback = Path.home() / ".crisp" / "connections.json"
+            fallback.parent.mkdir(parents=True, exist_ok=True)
+            return fallback
+        except Exception:
+            return primary
+
+
 class ConnectionsStore:
     def __init__(self, storage_file: Optional[Path] = None):
-        self.file_path = storage_file or (DATA_DIR / "connections.json")
+        self.file_path = storage_file or _get_connections_storage_path()
         self._ensure_file()
 
     def _ensure_file(self):
@@ -58,9 +76,23 @@ class ConnectionsStore:
 
     def _write_file(self, data: Dict[str, Any]):
         """Persists connections dict to connections.json."""
-        self.file_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.file_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        try:
+            self.file_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.file_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            return
+        except Exception as e:
+            logger.warning(f"Could not write connections to primary {self.file_path}: {e}")
+
+        try:
+            fallback = Path.home() / ".crisp" / "connections.json"
+            if self.file_path != fallback:
+                self.file_path = fallback
+                self.file_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(self.file_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
+        except Exception as fallback_err:
+            logger.warning(f"Could not persist connections to disk ({fallback_err}); keeping in-memory only")
 
     def get_connection(self, category: str) -> Optional[Dict[str, Any]]:
         """
