@@ -9,6 +9,7 @@ import ComplianceHub from './components/ComplianceHub';
 import AIQueryCenter from './components/AIQueryCenter';
 import DataIngestionHub from './components/DataIngestionHub';
 import ConnectionsSettings from './components/ConnectionsSettings';
+import LandingPage from './components/LandingPage';
 import { api } from './services/api';
 import { 
   BarChart3, Search, Target, Sparkles, FileCheck, Bot, AlertTriangle, ShieldCheck, Database, Radio
@@ -79,6 +80,10 @@ export default function App() {
     { id: 'ingestion', label: 'Data Ingestion & Telemetry', shortLabel: 'Ingestion', icon: Database },
     { id: 'connections', label: 'Connections (SIEM/IAM)', shortLabel: 'Connectors', icon: Radio }
   ];
+
+  if (activeTab === 'home') {
+    return <LandingPage onSignIn={() => setActiveTab('executive')} />;
+  }
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'row', backgroundColor: 'var(--bg-main)' }}>

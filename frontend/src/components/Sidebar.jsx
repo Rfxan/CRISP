@@ -18,11 +18,14 @@ export default function Sidebar({ tabs, activeTab, setActiveTab }) {
       top: 0
     }}>
       {/* Logo imitating the user avatar */}
-      <div style={{
+      <div 
+        onClick={() => setActiveTab('home')}
+        style={{
         width: 64, height: 64, borderRadius: '50%', background: 'var(--bg-card)', 
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         marginBottom: 40,
-        boxShadow: '0 6px 16px rgba(0,0,0,0.2)'
+        boxShadow: '0 6px 16px rgba(0,0,0,0.2)',
+        cursor: 'pointer'
       }}>
         <ShieldAlert size={32} color="var(--text-main)" strokeWidth={2} />
       </div>
