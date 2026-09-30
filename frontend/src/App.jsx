@@ -13,7 +13,7 @@ import ConnectionsSettings from './components/ConnectionsSettings';
 import LandingPage from './components/LandingPage';
 import { api } from './services/api';
 import { 
-  BarChart3, Search, Target, Sparkles, FileCheck, Bot, AlertTriangle, AlertCircle, ShieldCheck, Database, Radio
+  BarChart3, Search, Target, Sparkles, FileCheck, Bot, AlertTriangle, AlertCircle, ShieldCheck, Database, Radio, RefreshCw
 } from 'lucide-react';
 import { formatINR } from './utils/formatters';
 
@@ -26,26 +26,71 @@ export default function App() {
   const [driversData, setDriversData] = useState(null);
   const [dataQuality, setDataQuality] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [injecting, setInjecting] = useState(false);
+  const [loadError, setLoadError] = useState(null);
+  const [failingEndpoints, setFailingEndpoints] = useState([]);
   const [toast, setToast] = useState(null);
 
   const loadData = async (forceRefresh = false) => {
+    if (forceRefresh) setLoading(true);
     try {
-      if (forceRefresh) setLoading(true);
-      const [sum, curve, tornado, drivers, dq] = await Promise.all([
-        api.getRiskSummary(),
-        api.getLossExceedance(),
-        api.getSensitivityTornado(),
-        api.getRiskDrivers(),
+      const results = await Promise.allSettled([
+        api.getSummary(forceRefresh),
+        api.getCurve(),
+        api.getTornado(),
+        api.getDrivers(),
         api.getDataQuality()
       ]);
-      setSummary(sum);
-      setCurveData(curve);
-      setTornadoData(tornado);
-      setDriversData(drivers);
-      setDataQuality(dq);
+
+      const [summaryRes, curveRes, tornadoRes, driversRes, dqRes] = results;
+      const failed = [];
+
+      if (summaryRes.status === 'fulfilled') {
+        setSummary(summaryRes.value);
+        setLoadError(null);
+      } else {
+        const errMsg = summaryRes.reason?.message || 'Failed to fetch risk summary';
+        console.error("Failed to load risk summary:", summaryRes.reason);
+        failed.push(`Risk Summary (/api/risk/summary: ${errMsg})`);
+        setLoadError(errMsg);
+      }
+
+      if (curveRes.status === 'fulfilled') {
+        setCurveData(curveRes.value);
+      } else {
+        const errMsg = curveRes.reason?.message || 'Failed to fetch loss exceedance curve';
+        console.error("Failed to load loss exceedance curve:", curveRes.reason);
+        failed.push(`Loss Exceedance (/api/risk/curve: ${errMsg})`);
+      }
+
+      if (tornadoRes.status === 'fulfilled') {
+        setTornadoData(tornadoRes.value);
+      } else {
+        const errMsg = tornadoRes.reason?.message || 'Failed to fetch tornado sensitivity';
+        console.error("Failed to load tornado sensitivity:", tornadoRes.reason);
+        failed.push(`Sensitivity Tornado (/api/sensitivity/tornado: ${errMsg})`);
+      }
+
+      if (driversRes.status === 'fulfilled') {
+        setDriversData(driversRes.value);
+      } else {
+        const errMsg = driversRes.reason?.message || 'Failed to fetch risk drivers';
+        console.error("Failed to load risk drivers:", driversRes.reason);
+        failed.push(`Risk Drivers (/api/risk/drivers: ${errMsg})`);
+      }
+
+      if (dqRes.status === 'fulfilled') {
+        setDataQuality(dqRes.value);
+      } else {
+        const errMsg = dqRes.reason?.message || 'Failed to fetch data quality metrics';
+        console.error("Failed to load data quality:", dqRes.reason);
+        failed.push(`Data Quality (/api/health/data-quality: ${errMsg})`);
+      }
+
+      setFailingEndpoints(failed);
     } catch (e) {
-      console.error("Failed to load initial data", e);
+      console.error("Unexpected error in loadData", e);
+      setLoadError(e.message || 'Unexpected failure loading dashboard');
+      setFailingEndpoints([`General: ${e.message || 'Failed'}`]);
     } finally {
       setLoading(false);
     }
@@ -60,32 +105,15 @@ export default function App() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  const handleInjectTelemetry = async () => {
-    setInjecting(true);
-    try {
-      const res = await api.injectTelemetryAnomaly();
-      showToast(
-        `🚨 ${res.message || 'Telemetry spike injected!'} High volume + auth failure anomaly created for agent ${res.telemetry?.agent_id || 'wazuh-agent-01'}.`,
-        'success'
-      );
-      await loadData();
-    } catch (e) {
-      console.error("Failed to inject telemetry", e);
-      showToast('Failed to simulate telemetry anomaly. Check console.', 'error');
-    } finally {
-      setInjecting(false);
-    }
-  };
-
   const tabs = [
     { id: 'executive', label: 'Executive Dashboard', shortLabel: 'Overview', icon: BarChart3 },
+    { id: 'ingestion', label: 'Data Ingestion & Telemetry', shortLabel: 'Ingestion', icon: Database },
+    { id: 'connections', label: 'Connections (SIEM/IAM)', shortLabel: 'Connectors', icon: Radio },
     { id: 'drilldown', label: 'Technical Drilldown & Choke Points', shortLabel: 'Drilldown', icon: Search },
     { id: 'optimizer', label: 'Investment Optimizer & Benchmark', shortLabel: 'Optimizer', icon: Target },
     { id: 'whatif', label: 'What-If Simulator', shortLabel: 'What-If', icon: Sparkles },
     { id: 'compliance', label: 'Compliance & India Regs', shortLabel: 'Compliance', icon: FileCheck },
-    { id: 'ai', label: 'AI Decision Support', shortLabel: 'AI Copilot', icon: Bot },
-    { id: 'ingestion', label: 'Data Ingestion & Telemetry', shortLabel: 'Ingestion', icon: Database },
-    { id: 'connections', label: 'Connections (SIEM/IAM)', shortLabel: 'Connectors', icon: Radio }
+    { id: 'ai', label: 'AI Decision Support', shortLabel: 'AI Copilot', icon: Bot }
   ];
 
   const DashboardLayout = () => (
@@ -101,11 +129,7 @@ export default function App() {
       <Navbar 
         runId={summary?.run_id}
         assumptionsVer={summary?.assumptions_version}
-        isSimulated={summary?.is_simulated}
-        summary={summary}
-        onRefreshData={() => loadData(true)}
-        onInjectTelemetry={handleInjectTelemetry}
-        injectingTelemetry={injecting}
+        dataQuality={dataQuality}
       />
 
       {/* Main View Area */}
@@ -133,6 +157,45 @@ export default function App() {
           }}>
             {toast.type === 'error' ? <AlertCircle size={18} /> : <ShieldCheck size={18} />}
             <span>{toast.message}</span>
+          </div>
+        )}
+
+        {/* API Endpoint Degradation / Failure Warning Banner */}
+        {failingEndpoints.length > 0 && (
+          <div 
+            id="endpoint-error-banner"
+            style={{
+              marginBottom: 20,
+              padding: '14px 18px',
+              borderRadius: 10,
+              backgroundColor: 'rgba(239, 68, 68, 0.12)',
+              border: '1px solid rgba(239, 68, 68, 0.35)',
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              gap: 14
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+              <AlertCircle size={18} color="var(--accent-red)" style={{ marginTop: 2, flexShrink: 0 }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent-red)' }}>
+                  API Sync Degraded — {failingEndpoints.length} endpoint{failingEndpoints.length > 1 ? 's' : ''} failed to load:
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.4 }}>
+                  {failingEndpoints.map((ep, idx) => (
+                    <div key={idx}>• {ep}</div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => loadData(true)}
+              className="btn btn-secondary"
+              style={{ padding: '6px 12px', fontSize: 11, display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}
+            >
+              <RefreshCw size={12} /> Retry All
+            </button>
           </div>
         )}
 
@@ -164,6 +227,9 @@ export default function App() {
                 summary={summary} 
                 curveData={curveData} 
                 tornadoData={tornadoData} 
+                driversData={driversData}
+                loadError={loadError}
+                onRetry={() => loadData(true)}
                 onNavigateToIngestion={() => setActiveTab('ingestion')} 
                 onRefresh={() => loadData(true)} 
               />

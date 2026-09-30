@@ -357,21 +357,29 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
                   </td>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div style={{ width: 60, height: 6, background: 'rgba(255,255,255,0.08)', borderRadius: 3, overflow: 'hidden' }}>
-                        <div style={{
-                          width: `${c.coverage_pct}%`,
-                          height: '100%',
-                          background: c.coverage_pct >= 75 ? 'var(--accent-green)' : (c.coverage_pct >= 50 ? 'var(--accent-amber)' : 'var(--accent-red)')
-                        }} />
-                      </div>
-                      <span className="mono" style={{ fontSize: 11 }}>{c.coverage_pct}%</span>
+                      {c.coverage_pct != null && c.evidence_ref !== 'Not Connected' ? (
+                        <>
+                          <div style={{ width: 60, height: 6, background: 'rgba(255,255,255,0.08)', borderRadius: 3, overflow: 'hidden' }}>
+                            <div style={{
+                              width: `${c.coverage_pct}%`,
+                              height: '100%',
+                              background: c.coverage_pct >= 75 ? 'var(--accent-green)' : (c.coverage_pct >= 50 ? 'var(--accent-amber)' : 'var(--accent-red)')
+                            }} />
+                          </div>
+                          <span className="mono" style={{ fontSize: 11 }}>{c.coverage_pct}%</span>
+                        </>
+                      ) : (
+                        <span style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 600 }}>Not Connected</span>
+                      )}
                     </div>
                   </td>
                   <td>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                       {c.evidence_ref}
                     </div>
-                    {c.is_simulated ? (
+                    {c.evidence_ref === 'Not Connected' || c.coverage_pct == null ? (
+                      <span className="badge" style={{ fontSize: 9, background: 'rgba(255,255,255,0.06)', color: 'var(--text-dim)' }}>NOT CONNECTED</span>
+                    ) : c.is_simulated || c.evidence_ref?.toLowerCase().includes('mock') ? (
                       <span className="badge badge-simulated" style={{ fontSize: 9 }}>SIMULATED</span>
                     ) : (
                       <span className="badge badge-real" style={{ fontSize: 9 }}>LIVE LAB</span>

@@ -84,28 +84,34 @@ class WazuhConnector(BaseConnector):
     def fetch_agent_status(self) -> Dict[str, Any]:
         """
         Calls GET {base_url}/agents to get real agent status.
-        Returns {total_agents, active_agents, agent_coverage_pct}.
+        Excludes the manager itself (agent 000) when enrolled endpoint agents exist.
+        Returns {total_agents, active_agents, agent_coverage_pct, agent_names}.
         Raises ConnectionError on failure — never returns fake numbers.
         """
         try:
             resp = requests.get(
                 f"{self.base_url}/agents",
                 headers=self._get_headers(),
-                params={"limit": 500, "select": "status"},
+                params={"limit": 500, "select": "status,id,name"},
                 verify=False,
                 timeout=10
             )
             resp.raise_for_status()
             data = resp.json().get("data", {})
             agents = data.get("affected_items", [])
-            total = data.get("total_affected_items", len(agents))
-
-            active_count = sum(1 for a in agents if a.get("status") == "active")
+            
+            # Filter out manager node (id == '000') so enrolled endpoint agents are measured
+            endpoint_agents = [a for a in agents if a.get("id") != "000"]
+            eval_agents = endpoint_agents if endpoint_agents else agents
+            total = len(eval_agents)
+            active_count = sum(1 for a in eval_agents if a.get("status") == "active")
+            agent_names = [a.get("name") for a in eval_agents]
 
             return {
                 "total_agents": total,
                 "active_agents": active_count,
-                "agent_coverage_pct": round((active_count / max(1, total)) * 100, 1)
+                "agent_coverage_pct": round((active_count / max(1, total)) * 100, 1),
+                "agent_names": agent_names
             }
         except requests.exceptions.ConnectionError as e:
             raise ConnectionError(f"Cannot connect to Wazuh API at {self.base_url}/agents: {e}")
@@ -116,17 +122,46 @@ class WazuhConnector(BaseConnector):
 
     def fetch_alert_summary(self, hours: int = 24) -> Dict[str, Any]:
         """
-        Calls GET {base_url}/alerts filtered to the time window.
+        Queries Wazuh alerts summary.
+        Supports both GET {base_url}/manager/stats (standard in Wazuh 4.x) and GET {base_url}/alerts.
         Returns {recent_alerts_24h, high_severity_alerts_24h, auth_failures_24h}.
         Raises ConnectionError on failure — never returns fake numbers.
         """
-        since = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
         # Known Wazuh rule IDs for authentication failures
         AUTH_FAILURE_RULE_IDS = {
             "5503", "5504", "5710", "5711", "5716", "5720", "5501",  # SSH
-            "60122", "60204",  # Windows auth
+            "60122", "60204", "60103",  # Windows auth
             "80710", "80711",  # PAM
         }
+
+        # 1. Primary: Query /manager/stats (supported on Wazuh 4.x manager)
+        try:
+            resp_stats = requests.get(
+                f"{self.base_url}/manager/stats",
+                headers=self._get_headers(),
+                verify=False,
+                timeout=10
+            )
+            if resp_stats.status_code == 200:
+                stats_items = resp_stats.json().get("data", {}).get("affected_items", [])
+                total_alerts = sum(it.get("totalAlerts", 0) for it in stats_items)
+                high_severity = sum(
+                    sum(a.get("times", 0) for a in it.get("alerts", []) if a.get("level", 0) >= 12)
+                    for it in stats_items
+                )
+                auth_failures = sum(
+                    sum(a.get("times", 0) for a in it.get("alerts", []) if str(a.get("sigid", "")) in AUTH_FAILURE_RULE_IDS)
+                    for it in stats_items
+                )
+                return {
+                    "recent_alerts_24h": total_alerts,
+                    "high_severity_alerts_24h": high_severity,
+                    "auth_failures_24h": auth_failures
+                }
+        except Exception as e:
+            logger.debug(f"Wazuh /manager/stats query skipped: {e}")
+
+        # 2. Secondary: Query /alerts if available
         try:
             resp = requests.get(
                 f"{self.base_url}/alerts",

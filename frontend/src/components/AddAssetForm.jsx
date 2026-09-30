@@ -1,11 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { X, Server, AlertCircle, CheckCircle2, Shield, Plus, Building2, Database, DollarSign, Globe } from 'lucide-react';
+import { X, Server, AlertCircle, Plus } from 'lucide-react';
 import { api } from '../services/api';
+
+const DEFAULT_SERVICES = [
+  { id: 'SVC-PAY', name: 'UPI & Payment Gateway Switch' },
+  { id: 'SVC-CORE', name: 'Core Banking System (CBS Engine)' },
+  { id: 'SVC-NETBANK', name: 'Retail NetBanking & Mobile API' },
+  { id: 'SVC-LOAN', name: 'Corporate & Retail Lending Engine' },
+  { id: 'SVC-CRM', name: 'Enterprise CRM & Customer Portal' },
+  { id: 'SVC-CORP', name: 'Treasury & Corporate Portals' }
+];
 
 export default function AddAssetForm({ isOpen, onClose, existingServices = [], onAssetAdded }) {
   const [assetId, setAssetId] = useState('');
   const [name, setName] = useState('');
-  const [selectedService, setSelectedService] = useState('');
+  const [selectedService, setSelectedService] = useState('SVC-PAY');
   const [customService, setCustomService] = useState('');
   const [isCustomService, setIsCustomService] = useState(false);
   const [criticality, setCriticality] = useState(3);
@@ -19,18 +28,25 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Initialize service selection when modal opens or existingServices change
+  const servicesList = (existingServices && existingServices.length > 0)
+    ? existingServices
+    : DEFAULT_SERVICES;
+
+  const getFirstServiceId = (list) => {
+    if (!list || list.length === 0) return 'SVC-PAY';
+    const first = list[0];
+    return typeof first === 'object' ? (first.id || first.service_id || 'SVC-PAY') : (first || 'SVC-PAY');
+  };
+
+  // Sync service selection when modal opens or available services change
   useEffect(() => {
     if (isOpen) {
       setError(null);
-      if (existingServices && existingServices.length > 0) {
-        const firstSvc = existingServices[0].service_id || existingServices[0].id || existingServices[0];
-        setSelectedService(firstSvc);
-        setIsCustomService(false);
-      } else {
-        setSelectedService('__NEW__');
-        setIsCustomService(true);
-      }
+      const list = (existingServices && existingServices.length > 0) ? existingServices : DEFAULT_SERVICES;
+      const fallbackId = getFirstServiceId(list);
+      setSelectedService(prev => (prev && prev !== '__NEW__') ? prev : fallbackId);
+      setIsCustomService(false);
+      setCustomService('');
     }
   }, [isOpen, existingServices]);
 
@@ -50,11 +66,14 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
   const resetForm = () => {
     setAssetId('');
     setName('');
+    const fallbackId = getFirstServiceId(servicesList);
+    setSelectedService(fallbackId);
     setCriticality(3);
     setRecordsCount(0);
     setRevenuePerHour(0);
     setInternetFacing(false);
     setCustomService('');
+    setIsCustomService(false);
     setError(null);
   };
 
@@ -87,11 +106,15 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
     }
 
     const finalService = isCustomService ? customService.trim() : selectedService;
+    if (isCustomService && !finalService) {
+      setError('Please enter a valid Custom Service ID.');
+      return;
+    }
 
     const payload = {
       id: trimmedId,
       name: name.trim() || `Host ${trimmedId}`,
-      business_service_id: finalService || 'General',
+      business_service_id: finalService || 'SVC-PAY',
       criticality_1_5: critNum,
       records_count: recNum,
       revenue_per_hour: revNum,
@@ -116,6 +139,10 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
     }
   };
 
+  const activeServiceValue = isCustomService
+    ? '__NEW__'
+    : (selectedService || getFirstServiceId(servicesList));
+
   return (
     <div style={{
       position: 'fixed',
@@ -131,61 +158,98 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
       zIndex: 1000,
       padding: 16
     }}>
+      <style>{`
+        .crisp-add-asset-modal h1,
+        .crisp-add-asset-modal h2,
+        .crisp-add-asset-modal h3,
+        .crisp-add-asset-modal h4 {
+          color: #F4F1EA !important;
+        }
+        .crisp-add-asset-modal label {
+          color: #C9C4B8 !important;
+        }
+        .crisp-add-asset-modal .modal-helper-text {
+          color: #A39E93 !important;
+        }
+        .crisp-add-asset-modal input.modal-dark-input,
+        .crisp-add-asset-modal select.modal-dark-select {
+          color: #F4F1EA !important;
+          background-color: #070c18 !important;
+        }
+        .crisp-add-asset-modal input.modal-dark-input::placeholder {
+          color: #A39E93 !important;
+          opacity: 1 !important;
+        }
+        .crisp-add-asset-modal select.modal-dark-select option {
+          background-color: #0c1322 !important;
+          color: #F4F1EA !important;
+        }
+        .crisp-add-asset-modal input.modal-dark-input:focus,
+        .crisp-add-asset-modal select.modal-dark-select:focus {
+          border-color: rgba(212, 181, 149, 0.85) !important;
+          outline: none !important;
+          box-shadow: 0 0 0 2px rgba(183, 140, 102, 0.3) !important;
+        }
+      `}</style>
       <div 
-        className="glass-panel"
+        className="crisp-add-asset-modal"
         style={{
           width: '100%',
-          maxWidth: 640,
-          maxHeight: '92vh',
+          maxWidth: 660,
+          maxHeight: '90vh',
           overflowY: 'auto',
           backgroundColor: '#0c1322',
-          border: '1px solid rgba(183, 140, 102, 0.25)',
+          border: '1px solid rgba(183, 140, 102, 0.35)',
           borderRadius: 16,
-          boxShadow: '0 20px 50px rgba(0, 0, 0, 0.7), 0 0 30px rgba(183, 140, 102, 0.1)',
-          padding: 24,
-          position: 'relative'
+          boxShadow: '0 25px 60px rgba(0, 0, 0, 0.85), 0 0 35px rgba(183, 140, 102, 0.12)',
+          padding: '26px 28px',
+          position: 'relative',
+          boxSizing: 'border-box'
         }}
       >
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 22 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             <div style={{
-              width: 42,
-              height: 42,
-              borderRadius: 10,
-              background: 'rgba(183, 140, 102, 0.12)',
-              border: '1px solid rgba(183, 140, 102, 0.3)',
+              width: 44,
+              height: 44,
+              borderRadius: 12,
+              background: 'rgba(183, 140, 102, 0.18)',
+              border: '1px solid rgba(183, 140, 102, 0.45)',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center'
+              justifyContent: 'center',
+              flexShrink: 0
             }}>
-              <Server size={22} color="var(--primary)" />
+              <Server size={22} color="#f4f1ea" />
             </div>
             <div>
-              <h3 style={{ margin: 0, fontSize: 18, color: 'var(--text-main)', fontWeight: 700 }}>
+              <h3 style={{ margin: 0, fontSize: 18, color: '#F4F1EA', fontWeight: 700, letterSpacing: '-0.01em' }}>
                 Add Network Asset Manually
               </h3>
-              <p style={{ margin: '3px 0 0 0', fontSize: 12, color: 'var(--text-dim)' }}>
+              <p className="modal-helper-text" style={{ margin: '4px 0 0 0', fontSize: 12, color: '#A39E93', lineHeight: 1.4 }}>
                 Register an inventory node with business context, financial exposure, and criticality.
               </p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
             disabled={loading}
             style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'var(--text-dim)',
+              background: 'rgba(255, 255, 255, 0.06)',
+              border: '1px solid rgba(255, 255, 255, 0.15)',
+              color: '#C9C4B8',
               cursor: 'pointer',
-              padding: 6,
-              borderRadius: 6,
+              padding: 7,
+              borderRadius: 8,
               display: 'flex',
-              alignItems: 'center'
+              alignItems: 'center',
+              transition: 'all 0.15s ease'
             }}
             title="Close"
           >
-            <X size={20} />
+            <X size={18} />
           </button>
         </div>
 
@@ -195,135 +259,141 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
             marginBottom: 18,
             padding: '10px 14px',
             borderRadius: 8,
-            background: 'rgba(201, 114, 114, 0.15)',
-            border: '1px solid var(--accent-red)',
+            background: 'rgba(239, 68, 68, 0.18)',
+            border: '1px solid #ef4444',
             color: '#fca5a5',
             fontSize: 12,
             display: 'flex',
             alignItems: 'center',
             gap: 10
           }}>
-            <AlertCircle size={16} color="var(--accent-red)" style={{ flexShrink: 0 }} />
+            <AlertCircle size={16} color="#ef4444" style={{ flexShrink: 0 }} />
             <span>{error}</span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
           {/* Row 1: Asset ID & Name */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-main)', marginBottom: 6 }}>
-                Asset ID / Hostname <span style={{ color: 'var(--accent-red)' }}>*</span>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div style={{ minWidth: 0 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#C9C4B8', marginBottom: 6 }}>
+                Asset ID / Hostname <span style={{ color: '#ef4444' }}>*</span>
               </label>
               <input
                 type="text"
+                className="modal-dark-input"
                 placeholder="e.g. srv-prod-db-01 or 192.168.1.50"
                 value={assetId}
                 onChange={(e) => setAssetId(e.target.value)}
                 style={{
                   width: '100%',
-                  padding: '9px 12px',
+                  padding: '10px 12px',
                   borderRadius: 8,
-                  background: '#090e1a',
-                  border: '1px solid var(--border-color)',
-                  color: 'var(--text-main)',
+                  backgroundColor: '#070c18',
+                  border: '1px solid rgba(255, 255, 255, 0.18)',
+                  color: '#F4F1EA',
                   fontFamily: 'monospace',
-                  fontSize: 13
+                  fontSize: 13,
+                  boxSizing: 'border-box'
                 }}
                 required
               />
-              <span style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4, display: 'block' }}>
+              <span className="modal-helper-text" style={{ fontSize: 11, color: '#A39E93', marginTop: 5, display: 'block', lineHeight: 1.3 }}>
                 Unique node identifier (matches vulnerability scan target)
               </span>
             </div>
 
-            <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-main)', marginBottom: 6 }}>
+            <div style={{ minWidth: 0 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#C9C4B8', marginBottom: 6 }}>
                 Asset Name / Role
               </label>
               <input
                 type="text"
+                className="modal-dark-input"
                 placeholder="e.g. Production PostgreSQL Cluster"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 style={{
                   width: '100%',
-                  padding: '9px 12px',
+                  padding: '10px 12px',
                   borderRadius: 8,
-                  background: '#090e1a',
-                  border: '1px solid var(--border-color)',
-                  color: 'var(--text-main)',
-                  fontSize: 13
+                  backgroundColor: '#070c18',
+                  border: '1px solid rgba(255, 255, 255, 0.18)',
+                  color: '#F4F1EA',
+                  fontSize: 13,
+                  boxSizing: 'border-box'
                 }}
               />
-              <span style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4, display: 'block' }}>
+              <span className="modal-helper-text" style={{ fontSize: 11, color: '#A39E93', marginTop: 5, display: 'block', lineHeight: 1.3 }}>
                 Human-friendly name for reporting
               </span>
             </div>
           </div>
 
           {/* Row 2: Business Service & Criticality */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-main)', marginBottom: 6 }}>
-                Business Service <span style={{ color: 'var(--accent-red)' }}>*</span>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div style={{ minWidth: 0 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#C9C4B8', marginBottom: 6 }}>
+                Business Service <span style={{ color: '#ef4444' }}>*</span>
               </label>
               <select
-                value={isCustomService ? '__NEW__' : selectedService}
+                className="modal-dark-select"
+                value={activeServiceValue}
                 onChange={handleServiceChange}
                 style={{
                   width: '100%',
-                  padding: '9px 12px',
+                  padding: '10px 12px',
                   borderRadius: 8,
-                  background: '#090e1a',
-                  border: '1px solid var(--border-color)',
-                  color: 'var(--text-main)',
-                  fontSize: 13
+                  backgroundColor: '#070c18',
+                  border: '1px solid rgba(255, 255, 255, 0.18)',
+                  color: '#F4F1EA',
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  boxSizing: 'border-box'
                 }}
               >
-                {existingServices && existingServices.map((svc, idx) => {
+                {servicesList.map((svc, idx) => {
                   const sId = typeof svc === 'object' ? (svc.service_id || svc.id) : svc;
                   const sName = typeof svc === 'object' ? (svc.name || sId) : svc;
                   return (
-                    <option key={idx} value={sId}>
+                    <option key={idx} value={sId} style={{ backgroundColor: '#0c1322', color: '#F4F1EA' }}>
                       {sName} ({sId})
                     </option>
                   );
                 })}
-                <option value="__NEW__">+ Add Custom Service...</option>
+                <option value="__NEW__" style={{ backgroundColor: '#0c1322', color: '#F4F1EA' }}>
+                  + Add Custom Service...
+                </option>
               </select>
 
               {isCustomService && (
                 <input
                   type="text"
+                  className="modal-dark-input"
                   placeholder="Enter new service ID (e.g. SVC-CHECKOUT)"
                   value={customService}
                   onChange={(e) => setCustomService(e.target.value)}
                   style={{
                     width: '100%',
-                    padding: '8px 12px',
+                    padding: '9px 12px',
                     borderRadius: 8,
-                    background: '#090e1a',
-                    border: '1px solid rgba(183, 140, 102, 0.4)',
-                    color: 'var(--text-main)',
+                    backgroundColor: '#070c18',
+                    border: '1px solid rgba(212, 181, 149, 0.6)',
+                    color: '#F4F1EA',
                     fontSize: 12,
-                    marginTop: 8
+                    marginTop: 8,
+                    boxSizing: 'border-box'
                   }}
                   autoFocus
                 />
               )}
             </div>
 
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-main)' }}>
-                  Criticality (1-5) <span style={{ color: 'var(--accent-red)' }}>*</span>
-                </label>
-                <span className={`badge ${criticality >= 4 ? 'badge-critical' : (criticality >= 3 ? 'badge-simulated' : 'badge-real')}`}>
-                  Level {criticality} / 5
-                </span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
+            <div style={{ minWidth: 0 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#C9C4B8', marginBottom: 6 }}>
+                Criticality (1-5) <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, height: 42, boxSizing: 'border-box' }}>
                 <input
                   type="range"
                   min="1"
@@ -331,126 +401,128 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
                   step="1"
                   value={criticality}
                   onChange={(e) => setCriticality(Number(e.target.value))}
-                  style={{ flex: 1, accentColor: criticality >= 4 ? 'var(--accent-red)' : 'var(--primary)', cursor: 'pointer' }}
-                />
-                <select
-                  value={criticality}
-                  onChange={(e) => setCriticality(Number(e.target.value))}
                   style={{
-                    width: 70,
-                    padding: '6px 8px',
-                    borderRadius: 6,
-                    background: '#090e1a',
-                    border: '1px solid var(--border-color)',
-                    color: 'var(--text-main)',
-                    fontSize: 12,
-                    textAlign: 'center'
+                    flex: 1,
+                    accentColor: criticality >= 4 ? '#ef4444' : (criticality >= 3 ? '#d97706' : '#22c55e'),
+                    cursor: 'pointer'
                   }}
-                >
-                  <option value={1}>1 - Low</option>
-                  <option value={2}>2 - Guard</option>
-                  <option value={3}>3 - Med</option>
-                  <option value={4}>4 - High</option>
-                  <option value={5}>5 - Crit</option>
-                </select>
+                />
+                <span style={{
+                  padding: '6px 14px',
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  letterSpacing: '0.04em',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                  backgroundColor: criticality >= 4 ? 'rgba(239, 68, 68, 0.22)' : (criticality >= 3 ? 'rgba(217, 119, 6, 0.22)' : 'rgba(34, 197, 94, 0.22)'),
+                  color: criticality >= 4 ? '#fca5a5' : (criticality >= 3 ? '#fcd34d' : '#86efac'),
+                  border: `1px solid ${criticality >= 4 ? 'rgba(239, 68, 68, 0.5)' : (criticality >= 3 ? 'rgba(217, 119, 6, 0.5)' : 'rgba(34, 197, 94, 0.5)')}`
+                }}>
+                  LEVEL {criticality} / 5
+                </span>
               </div>
-              <span style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4, display: 'block' }}>
+              <span className="modal-helper-text" style={{ fontSize: 11, color: '#A39E93', marginTop: 5, display: 'block', lineHeight: 1.3 }}>
                 1 = Non-critical internal tool, 5 = Core revenue-generating platform
               </span>
             </div>
           </div>
 
           {/* Row 3: PII Records & Revenue Exposure per Hour */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-main)', marginBottom: 6 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div style={{ minWidth: 0 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#C9C4B8', marginBottom: 6 }}>
                 PII / Sensitive Records Count
               </label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  type="number"
-                  min="0"
-                  step="100"
-                  value={recordsCount}
-                  onChange={(e) => setRecordsCount(Math.max(0, parseInt(e.target.value) || 0))}
-                  style={{
-                    width: '100%',
-                    padding: '9px 12px',
-                    borderRadius: 8,
-                    background: '#090e1a',
-                    border: '1px solid var(--border-color)',
-                    color: 'var(--text-main)',
-                    fontSize: 13
-                  }}
-                />
-              </div>
-              <span style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4, display: 'block' }}>
+              <input
+                type="number"
+                min="0"
+                step="100"
+                className="modal-dark-input"
+                value={recordsCount}
+                onChange={(e) => setRecordsCount(Math.max(0, parseInt(e.target.value) || 0))}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  backgroundColor: '#070c18',
+                  border: '1px solid rgba(255, 255, 255, 0.18)',
+                  color: '#F4F1EA',
+                  fontSize: 13,
+                  boxSizing: 'border-box'
+                }}
+              />
+              <span className="modal-helper-text" style={{ fontSize: 11, color: '#A39E93', marginTop: 5, display: 'block', lineHeight: 1.3 }}>
                 Customer records stored (used in DPDP / GDPR breach fines sampling)
               </span>
             </div>
 
-            <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-main)', marginBottom: 6 }}>
+            <div style={{ minWidth: 0 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#C9C4B8', marginBottom: 6 }}>
                 Revenue Exposure / Hour (₹)
               </label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  type="number"
-                  min="0"
-                  step="1000"
-                  value={revenuePerHour}
-                  onChange={(e) => setRevenuePerHour(Math.max(0, parseFloat(e.target.value) || 0))}
-                  style={{
-                    width: '100%',
-                    padding: '9px 12px',
-                    borderRadius: 8,
-                    background: '#090e1a',
-                    border: '1px solid var(--border-color)',
-                    color: 'var(--accent-green)',
-                    fontWeight: 600,
-                    fontSize: 13
-                  }}
-                />
-              </div>
-              <span style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4, display: 'block' }}>
+              <input
+                type="number"
+                min="0"
+                step="1000"
+                className="modal-dark-input"
+                value={revenuePerHour}
+                onChange={(e) => setRevenuePerHour(Math.max(0, parseFloat(e.target.value) || 0))}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  backgroundColor: '#070c18',
+                  border: '1px solid rgba(255, 255, 255, 0.18)',
+                  color: '#86efac',
+                  fontWeight: 600,
+                  fontSize: 13,
+                  boxSizing: 'border-box'
+                }}
+              />
+              <span className="modal-helper-text" style={{ fontSize: 11, color: '#A39E93', marginTop: 5, display: 'block', lineHeight: 1.3 }}>
                 Financial loss per hour of business outage
               </span>
             </div>
           </div>
 
-          {/* Row 4: Internet Facing Toggle & Asset Type */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          {/* Row 4: Internet Facing Toggle & Environment/Classification */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             <div style={{
-              background: 'rgba(255, 255, 255, 0.02)',
-              borderRadius: 8,
-              border: '1px solid var(--border-color)',
-              padding: '12px 14px',
+              backgroundColor: 'rgba(255, 255, 255, 0.02)',
+              borderRadius: 10,
+              border: '1px solid rgba(255, 255, 255, 0.12)',
+              padding: '14px 16px',
               display: 'flex',
               flexDirection: 'column',
-              justifyContent: 'space-between'
+              justifyContent: 'space-between',
+              boxSizing: 'border-box',
+              minWidth: 0
             }}>
               <div>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-main)', marginBottom: 4 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#C9C4B8', marginBottom: 4 }}>
                   Internet-Facing Node?
                 </label>
-                <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                <span className="modal-helper-text" style={{ fontSize: 11, color: '#A39E93', lineHeight: 1.3, display: 'block' }}>
                   Exposed to public web vs internal perimeter
                 </span>
               </div>
-              <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+              <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
                 <button
                   type="button"
                   onClick={() => setInternetFacing(false)}
                   style={{
                     flex: 1,
-                    padding: '6px 12px',
+                    padding: '8px 12px',
                     borderRadius: 6,
-                    border: !internetFacing ? '1px solid var(--accent-green)' : '1px solid var(--border-color)',
-                    background: !internetFacing ? 'rgba(126, 143, 129, 0.15)' : 'transparent',
-                    color: !internetFacing ? 'var(--accent-green)' : 'var(--text-dim)',
+                    border: !internetFacing ? '1px solid #16a34a' : '1px solid rgba(255, 255, 255, 0.15)',
+                    backgroundColor: !internetFacing ? '#22c55e' : 'transparent',
+                    color: !internetFacing ? '#052e16' : '#9E988E',
+                    boxShadow: !internetFacing ? '0 2px 10px rgba(34, 197, 94, 0.4)' : 'none',
                     fontSize: 12,
-                    fontWeight: 600,
-                    cursor: 'pointer'
+                    fontWeight: !internetFacing ? 700 : 500,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
                   }}
                 >
                   Internal (Private)
@@ -460,14 +532,16 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
                   onClick={() => setInternetFacing(true)}
                   style={{
                     flex: 1,
-                    padding: '6px 12px',
+                    padding: '8px 12px',
                     borderRadius: 6,
-                    border: internetFacing ? '1px solid var(--accent-red)' : '1px solid var(--border-color)',
-                    background: internetFacing ? 'rgba(201, 114, 114, 0.15)' : 'transparent',
-                    color: internetFacing ? '#f87171' : 'var(--text-dim)',
+                    border: internetFacing ? '1px solid #dc2626' : '1px solid rgba(255, 255, 255, 0.15)',
+                    backgroundColor: internetFacing ? '#ef4444' : 'transparent',
+                    color: internetFacing ? '#450a0a' : '#9E988E',
+                    boxShadow: internetFacing ? '0 2px 10px rgba(239, 68, 68, 0.4)' : 'none',
                     fontSize: 12,
-                    fontWeight: 600,
-                    cursor: 'pointer'
+                    fontWeight: internetFacing ? 700 : 500,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
                   }}
                 >
                   Yes (Public Web)
@@ -476,55 +550,63 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
             </div>
 
             <div style={{
-              background: 'rgba(255, 255, 255, 0.02)',
-              borderRadius: 8,
-              border: '1px solid var(--border-color)',
-              padding: '12px 14px',
+              backgroundColor: 'rgba(255, 255, 255, 0.02)',
+              borderRadius: 10,
+              border: '1px solid rgba(255, 255, 255, 0.12)',
+              padding: '14px 16px',
               display: 'flex',
               flexDirection: 'column',
-              justifyContent: 'space-between'
+              justifyContent: 'space-between',
+              boxSizing: 'border-box',
+              minWidth: 0
             }}>
               <div>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-main)', marginBottom: 4 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#C9C4B8', marginBottom: 4 }}>
                   Environment & Classification
                 </label>
-                <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                <span className="modal-helper-text" style={{ fontSize: 11, color: '#A39E93', lineHeight: 1.3, display: 'block' }}>
                   Lifecycle tier and governance level
                 </span>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
                 <select
+                  className="modal-dark-select"
                   value={environment}
                   onChange={(e) => setEnvironment(e.target.value)}
                   style={{
-                    padding: '6px 8px',
+                    padding: '8px 10px',
                     borderRadius: 6,
-                    background: '#090e1a',
-                    border: '1px solid var(--border-color)',
-                    color: 'var(--text-main)',
-                    fontSize: 11
+                    backgroundColor: '#070c18',
+                    border: '1px solid rgba(255, 255, 255, 0.18)',
+                    color: '#F4F1EA',
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    boxSizing: 'border-box'
                   }}
                 >
-                  <option value="Production">Production</option>
-                  <option value="Staging">Staging</option>
-                  <option value="Development">Development</option>
+                  <option value="Production" style={{ backgroundColor: '#0c1322', color: '#F4F1EA' }}>Production</option>
+                  <option value="Staging" style={{ backgroundColor: '#0c1322', color: '#F4F1EA' }}>Staging</option>
+                  <option value="Development" style={{ backgroundColor: '#0c1322', color: '#F4F1EA' }}>Development</option>
                 </select>
 
                 <select
+                  className="modal-dark-select"
                   value={classification}
                   onChange={(e) => setClassification(e.target.value)}
                   style={{
-                    padding: '6px 8px',
+                    padding: '8px 10px',
                     borderRadius: 6,
-                    background: '#090e1a',
-                    border: '1px solid var(--border-color)',
-                    color: 'var(--text-main)',
-                    fontSize: 11
+                    backgroundColor: '#070c18',
+                    border: '1px solid rgba(255, 255, 255, 0.18)',
+                    color: '#F4F1EA',
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    boxSizing: 'border-box'
                   }}
                 >
-                  <option value="Confidential">Confidential</option>
-                  <option value="Restricted">Restricted</option>
-                  <option value="Public">Public</option>
+                  <option value="Confidential" style={{ backgroundColor: '#0c1322', color: '#F4F1EA' }}>Confidential</option>
+                  <option value="Restricted" style={{ backgroundColor: '#0c1322', color: '#F4F1EA' }}>Restricted</option>
+                  <option value="Public" style={{ backgroundColor: '#0c1322', color: '#F4F1EA' }}>Public</option>
                 </select>
               </div>
             </div>
@@ -535,39 +617,52 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
             display: 'flex',
             justifyContent: 'flex-end',
             gap: 12,
-            marginTop: 10,
-            paddingTop: 16,
-            borderTop: '1px solid var(--border-color)'
+            marginTop: 8,
+            paddingTop: 18,
+            borderTop: '1px solid rgba(255, 255, 255, 0.12)'
           }}>
             <button
               type="button"
               onClick={onClose}
               disabled={loading}
-              className="btn btn-outline"
-              style={{ padding: '8px 18px', fontSize: 13 }}
+              style={{
+                padding: '9px 20px',
+                borderRadius: 8,
+                fontSize: 13,
+                fontWeight: 600,
+                backgroundColor: 'rgba(255, 255, 255, 0.06)',
+                border: '1px solid rgba(255, 255, 255, 0.18)',
+                color: '#C9C4B8',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="btn btn-primary"
               style={{
-                padding: '8px 22px',
+                padding: '9px 24px',
+                borderRadius: 8,
                 fontSize: 13,
+                fontWeight: 700,
                 display: 'flex',
                 alignItems: 'center',
                 gap: 8,
-                background: 'linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%)',
+                background: 'linear-gradient(135deg, #d4b595 0%, #b78c66 100%)',
                 color: '#031326',
-                fontWeight: 700
+                border: 'none',
+                cursor: loading ? 'not-allowed' : 'pointer',
+                boxShadow: '0 4px 16px rgba(183, 140, 102, 0.35)',
+                transition: 'all 0.15s ease'
               }}
             >
               {loading ? (
                 <span>Adding Asset & Recalculating...</span>
               ) : (
                 <>
-                  <Plus size={16} />
+                  <Plus size={16} strokeWidth={2.5} />
                   <span>Add Asset to Inventory</span>
                 </>
               )}

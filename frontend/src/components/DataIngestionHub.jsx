@@ -77,12 +77,8 @@ export default function DataIngestionHub({ onDataUpdated }) {
     try {
       const data = await api.getSnapshot();
       setSnapshot(data);
-      // Initialize edit state
-      const initial = {};
-      (data.control_state || []).forEach(cs => {
-        initial[cs.control_id] = cs.coverage_pct;
-      });
-      setControlEdits(initial);
+      // Reset pending edits on fresh snapshot
+      setControlEdits({});
     } catch (err) {
       console.error('Failed to fetch snapshot:', err);
     } finally {
@@ -120,12 +116,17 @@ export default function DataIngestionHub({ onDataUpdated }) {
 
   const handleSaveControl = async (ctrlId) => {
     const val = controlEdits[ctrlId];
-    if (val === undefined) return;
+    if (val === undefined || val === null) return;
     try {
       await api.updateControlCoverage(ctrlId, val);
       setStatusMsg({
         type: 'success',
         text: `Control ${ctrlId} coverage updated to ${val}%. FAIR Monte Carlo re-executed dynamically!`
+      });
+      setControlEdits(prev => {
+        const next = { ...prev };
+        delete next[ctrlId];
+        return next;
       });
       await fetchSnapshot();
       if (onDataUpdated) onDataUpdated();
@@ -224,6 +225,94 @@ export default function DataIngestionHub({ onDataUpdated }) {
     }
   };
 
+  const assets = snapshot?.assets || [];
+  const findings = snapshot?.findings || [];
+  const catalogList = snapshot?.controls_catalog || [];
+  const catalog = React.useMemo(() => {
+    if (Array.isArray(catalogList)) {
+      return Object.fromEntries(catalogList.map(c => [c.id, c]));
+    }
+    return catalogList || {};
+  }, [catalogList]);
+
+  // Standing principle: controls are part of the defensive risk model; telemetry is only evidence.
+  // Losing evidence source must never delete the control — it only changes evidence to Not Connected.
+  const controlStates = React.useMemo(() => {
+    const existing = snapshot?.control_state || [];
+    const existingMap = new Map(existing.map(cs => [cs.control_id, cs]));
+
+    const merged = [...existing];
+    
+    // Default scopes for key defensive controls
+    const defaultScopes = {
+      'CTRL-MFA-01': 'Privileged Accounts',
+      'CTRL-EDR-01': 'All Endpoints',
+      'CTRL-PATCH-01': 'Internet-Facing & Tier-1 Core Servers',
+      'CTRL-ENC-01': 'Primary Database Repositories',
+      'CTRL-WAF-01': 'DMZ Edge & Customer Ingress Ports',
+      'CTRL-SEG-01': 'Payment Switch & Core Banking VLANs',
+      'CTRL-BKP-01': 'Critical CBS & Payment Databases',
+      'CTRL-SIEM-01': 'Enterprise-wide telemetry sources',
+      'CTRL-PAM-01': 'Domain Controllers & Database Root logins',
+      'CTRL-DLP-01': 'Core Banking and Customer Support endpoints',
+      'CTRL-API-01': 'External Partner UPI & Banking APIs',
+      'CTRL-IR-01': 'Organization Wide'
+    };
+
+    if (Array.isArray(catalogList)) {
+      for (const catCtrl of catalogList) {
+        if (!existingMap.has(catCtrl.id)) {
+          merged.push({
+            control_id: catCtrl.id,
+            asset_scope: defaultScopes[catCtrl.id] || 'Enterprise Scope',
+            coverage_pct: null,
+            evidence_ref: 'Not Connected',
+            last_checked: null,
+            is_simulated: false
+          });
+        }
+      }
+    }
+
+    // Guarantee CTRL-MFA-01 and CTRL-EDR-01 are always present even if catalog is loading
+    if (!existingMap.has('CTRL-MFA-01') && !merged.some(c => c.control_id === 'CTRL-MFA-01')) {
+      merged.unshift({
+        control_id: 'CTRL-MFA-01',
+        asset_scope: 'Privileged Accounts',
+        coverage_pct: null,
+        evidence_ref: 'Not Connected',
+        last_checked: null,
+        is_simulated: false
+      });
+    }
+    if (!existingMap.has('CTRL-EDR-01') && !merged.some(c => c.control_id === 'CTRL-EDR-01')) {
+      merged.unshift({
+        control_id: 'CTRL-EDR-01',
+        asset_scope: 'All Endpoints',
+        coverage_pct: null,
+        evidence_ref: 'Not Connected',
+        last_checked: null,
+        is_simulated: false
+      });
+    }
+
+    return merged;
+  }, [snapshot?.control_state, catalogList]);
+
+  const cveIntel = snapshot?.cve_intel || {};
+  const wazuh = snapshot?.wazuh_telemetry || {};
+  const hasWazuhTelemetry = Boolean(
+    wazuh &&
+    Object.keys(wazuh).length > 0 &&
+    wazuh.status !== 'not_configured' &&
+    wazuh.source &&
+    wazuh.source !== 'none' &&
+    wazuh.source !== 'not_configured' &&
+    wazuh.source !== 'None (Not Configured)' &&
+    (wazuh.active_agents !== undefined || wazuh.total_endpoints !== undefined || wazuh.total_agents !== undefined)
+  );
+  const isMockWazuh = Boolean(wazuh?.source && wazuh.source.toLowerCase().includes('mock'));
+
   if (loading) {
     return (
       <div className="glass-panel" style={{ padding: 48, textAlign: 'center' }}>
@@ -232,13 +321,6 @@ export default function DataIngestionHub({ onDataUpdated }) {
       </div>
     );
   }
-
-  const assets = snapshot?.assets || [];
-  const findings = snapshot?.findings || [];
-  const controlStates = snapshot?.control_state || [];
-  const catalog = snapshot?.controls_catalog || {};
-  const cveIntel = snapshot?.cve_intel || {};
-  const wazuh = snapshot?.wazuh_telemetry || {};
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -301,13 +383,58 @@ export default function DataIngestionHub({ onDataUpdated }) {
           </div>
 
           <div className="glass-panel" style={{ padding: 12, background: 'rgba(255,255,255,0.02)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--text-dim)' }}>
-              <Activity size={14} color="var(--accent-amber)" /> Wazuh SIEM Telemetry
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, fontSize: 11, color: 'var(--text-dim)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Activity size={14} color="var(--accent-amber)" /> Wazuh SIEM Telemetry
+              </div>
+              {hasWazuhTelemetry ? (
+                <span style={{
+                  fontSize: 9,
+                  fontWeight: 700,
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                  whiteSpace: 'nowrap',
+                  letterSpacing: '0.02em',
+                  backgroundColor: isMockWazuh ? 'rgba(217, 119, 6, 0.15)' : 'rgba(34, 197, 94, 0.15)',
+                  color: isMockWazuh ? 'var(--accent-amber)' : 'var(--accent-green)',
+                  border: `1px solid ${isMockWazuh ? 'rgba(217, 119, 6, 0.3)' : 'rgba(34, 197, 94, 0.3)'}`
+                }}>
+                  {isMockWazuh ? 'SIMULATED' : 'Wazuh Live'}
+                </span>
+              ) : (
+                <span style={{
+                  fontSize: 9,
+                  fontWeight: 600,
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                  backgroundColor: 'rgba(255,255,255,0.05)',
+                  color: 'var(--text-dim)'
+                }}>
+                  Not Connected
+                </span>
+              )}
             </div>
             <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-main)', marginTop: 4 }}>
-              {wazuh.active_agents || 6} / {wazuh.total_endpoints || 6}
+              {hasWazuhTelemetry ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  {isMockWazuh && (
+                    <span className="badge badge-amber" style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px' }}>SIMULATED</span>
+                  )}
+                  <span>{`${wazuh.active_agents ?? 0} / ${wazuh.total_endpoints ?? wazuh.total_agents ?? 0}`}</span>
+                </span>
+              ) : (
+                <span style={{ fontSize: 16, color: 'var(--text-dim)', fontWeight: 600 }}>Not Connected</span>
+              )}
             </div>
-            <div style={{ fontSize: 11, color: 'var(--accent-green)' }}>Agent Daemon Active</div>
+            <div style={{
+              fontSize: 11,
+              color: hasWazuhTelemetry
+                ? (isMockWazuh ? 'var(--accent-amber)' : 'var(--accent-green)')
+                : 'var(--text-dim)',
+              fontWeight: hasWazuhTelemetry ? 600 : 500
+            }}>
+              {hasWazuhTelemetry ? (isMockWazuh ? 'Simulated Telemetry Feed' : 'Agent Daemon Active') : 'Not Connected'}
+            </div>
           </div>
 
           <div className="glass-panel" style={{ padding: 12, background: 'rgba(255,255,255,0.02)' }}>
@@ -510,8 +637,47 @@ export default function DataIngestionHub({ onDataUpdated }) {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16 }}>
             {controlStates.map(cs => {
               const meta = catalog[cs.control_id] || {};
-              const currentVal = controlEdits[cs.control_id] ?? cs.coverage_pct;
-              const hasChanged = currentVal !== cs.coverage_pct;
+              const capex = meta.implementation_cost || meta.capex || (cs.control_id === 'CTRL-MFA-01' ? 1500000 : (cs.control_id === 'CTRL-EDR-01' ? 2500000 : 0));
+              const opex = meta.annual_cost || (cs.control_id === 'CTRL-MFA-01' ? 450000 : (cs.control_id === 'CTRL-EDR-01' ? 1200000 : 0));
+
+              const isEdr = cs.control_id === 'CTRL-EDR-01';
+              const isMfa = cs.control_id === 'CTRL-MFA-01';
+
+              // Live telemetry checks
+              const isEdrLive = isEdr && Boolean(hasWazuhTelemetry && !isMockWazuh && (cs.evidence_ref?.includes('Wazuh Live') || cs.evidence_ref?.includes('Wazuh Live API')));
+              const isMfaLive = isMfa && Boolean(cs.evidence_ref?.includes('Keycloak Live'));
+              const isEdrSimulated = isEdr && Boolean(isMockWazuh || cs.is_simulated || cs.evidence_ref?.toLowerCase().includes('mock'));
+              const isMfaSimulated = isMfa && Boolean(cs.is_simulated || cs.evidence_ref?.toLowerCase().includes('mock'));
+
+              // -------------------------------------------------------------
+              // THREE DISTINCT STATES PER CONTROL (MEASURED, USER-SET, NO DATA)
+              // -------------------------------------------------------------
+
+              // State 2: USER-SET — shown ONLY after the user explicitly clicks "Set Assumption" and picks a value.
+              const isUserSet = Boolean(cs.is_user_assumed || cs.evidence_ref?.includes('User Assumption'));
+
+              // State 1: MEASURED — value comes from live / connected telemetry
+              const isMeasured = !isUserSet && Boolean(
+                cs.evidence_ref &&
+                cs.evidence_ref !== 'Not Connected' &&
+                !cs.evidence_ref.includes('User Assumption') &&
+                cs.coverage_pct != null &&
+                (
+                  (!isEdr && !isMfa) ||
+                  (isEdr && (hasWazuhTelemetry || cs.evidence_ref?.toLowerCase().includes('wazuh'))) ||
+                  (isMfa && (cs.evidence_ref?.toLowerCase().includes('keycloak') || cs.evidence_ref?.toLowerCase().includes('iam')))
+                )
+              );
+
+              // State 3: NO DATA — no telemetry and no user input.
+              const isNoData = !isUserSet && !isMeasured;
+
+              const isSimulated = isMeasured && Boolean(isEdrSimulated || isMfaSimulated || cs.is_simulated || cs.evidence_ref?.toLowerCase().includes('mock'));
+
+              const userHasEdited = controlEdits[cs.control_id] !== undefined && controlEdits[cs.control_id] !== null;
+              const baseCov = isNoData ? 0 : (cs.coverage_pct ?? 0);
+              const sliderVal = Number(userHasEdited ? controlEdits[cs.control_id] : baseCov);
+              const hasChanged = userHasEdited && (isNoData ? controlEdits[cs.control_id] > 0 : controlEdits[cs.control_id] !== baseCov);
 
               return (
                 <div
@@ -530,10 +696,82 @@ export default function DataIngestionHub({ onDataUpdated }) {
                       <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>{cs.asset_scope}</div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: currentVal >= 90 ? 'var(--accent-green)' : (currentVal >= 60 ? 'var(--accent-amber)' : 'var(--accent-red)') }}>
-                        {currentVal}%
-                      </div>
-                      <div style={{ fontSize: 10, color: 'var(--text-dim)' }}>Coverage</div>
+                      {isNoData ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+                          <span
+                            className="badge"
+                            style={{
+                              fontSize: 9,
+                              fontWeight: 600,
+                              padding: '2px 7px',
+                              color: 'var(--text-dim)',
+                              background: 'rgba(0,0,0,0.03)',
+                              border: '1px solid var(--border-color)',
+                              letterSpacing: '0.02em',
+                              textTransform: 'none'
+                            }}
+                          >
+                            NO DATA — conservative 0% default
+                          </span>
+                          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-dim)' }}>
+                            {userHasEdited ? `${sliderVal}% (unapplied)` : '0%'}
+                          </div>
+                          <div style={{ fontSize: 10, color: 'var(--text-dim)' }}>
+                            {userHasEdited ? 'pending assumption' : 'conservative default'}
+                          </div>
+                        </div>
+                      ) : isUserSet ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span
+                              className="badge badge-simulated"
+                              style={{
+                                fontSize: 9,
+                                fontWeight: 700,
+                                padding: '2px 7px',
+                                color: 'var(--accent-amber)',
+                                letterSpacing: '0.04em'
+                              }}
+                            >
+                              USER-SET
+                            </span>
+                            <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--accent-amber)' }}>
+                              {sliderVal}%
+                            </div>
+                          </div>
+                          <div style={{ fontSize: 10, color: 'var(--accent-amber)' }}>user-set, not measured</div>
+                        </div>
+                      ) : (
+                        /* MEASURED */
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span
+                              className="badge badge-real"
+                              style={{
+                                fontSize: 9,
+                                fontWeight: 700,
+                                padding: '2px 7px',
+                                color: isSimulated ? 'var(--accent-amber)' : 'var(--accent-green)',
+                                letterSpacing: '0.04em'
+                              }}
+                            >
+                              {isSimulated ? 'MEASURED (MOCK)' : 'MEASURED'}
+                            </span>
+                            <div
+                              style={{
+                                fontSize: 18,
+                                fontWeight: 700,
+                                color: sliderVal >= 90 ? 'var(--accent-green)' : (sliderVal >= 60 ? 'var(--accent-amber)' : 'var(--accent-red)')
+                              }}
+                            >
+                              {sliderVal}%
+                            </div>
+                          </div>
+                          <div style={{ fontSize: 10, color: isSimulated ? 'var(--accent-amber)' : 'var(--accent-green)' }}>
+                            {isSimulated ? 'Simulated Telemetry' : 'Live Telemetry'}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -541,10 +779,67 @@ export default function DataIngestionHub({ onDataUpdated }) {
                     {meta.description || 'Enterprise defensive control'}
                   </p>
 
-                  <div style={{ display: 'flex', gap: 16, fontSize: 11, color: 'var(--text-dim)', marginBottom: 12 }}>
-                    <span>CapEx: <strong>{formatINR(meta.implementation_cost || 0)}</strong></span>
-                    <span>OpEx: <strong>{formatINR(meta.annual_cost || 0)}/yr</strong></span>
-                    <span>Evidence: <strong style={{ color: 'var(--primary)' }}>{cs.evidence_ref}</strong></span>
+                  <div style={{ display: 'flex', gap: 16, fontSize: 11, color: 'var(--text-dim)', marginBottom: 12, flexWrap: 'wrap' }}>
+                    <span>CapEx: <strong>{formatINR(capex)}</strong></span>
+                    <span>OpEx: <strong>{formatINR(opex)}/yr</strong></span>
+                    <span>
+                      Evidence:{' '}
+                      {isNoData ? (
+                        <>
+                          <strong style={{ color: 'var(--text-dim)' }}>Not Connected</strong>
+                          <span
+                            className="badge"
+                            style={{
+                              fontSize: 9,
+                              marginLeft: 6,
+                              color: 'var(--text-dim)',
+                              background: 'rgba(0,0,0,0.03)',
+                              border: '1px solid var(--border-color)',
+                              padding: '1px 5px'
+                            }}
+                          >
+                            NO DATA
+                          </span>
+                        </>
+                      ) : isUserSet ? (
+                        <>
+                          <strong style={{ color: 'var(--accent-amber)' }}>User Assumption (unmeasured)</strong>
+                          <span
+                            className="badge badge-simulated"
+                            style={{
+                              fontSize: 9,
+                              marginLeft: 6,
+                              color: 'var(--accent-amber)',
+                              padding: '1px 5px'
+                            }}
+                          >
+                            USER-SET
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <strong style={{ color: isSimulated ? 'var(--accent-amber)' : 'var(--accent-green)' }}>
+                            {cs.evidence_ref}
+                          </strong>
+                          <span
+                            className="badge badge-real"
+                            style={{
+                              fontSize: 9,
+                              marginLeft: 6,
+                              color: isSimulated ? 'var(--accent-amber)' : 'var(--accent-green)',
+                              padding: '1px 5px'
+                            }}
+                          >
+                            MEASURED
+                          </span>
+                          {cs.last_checked && (
+                            <span style={{ fontSize: 10, color: 'var(--text-dim)', marginLeft: 8 }}>
+                              · Sync: {new Date(cs.last_checked).toLocaleTimeString()}
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </span>
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -553,9 +848,9 @@ export default function DataIngestionHub({ onDataUpdated }) {
                       min="0"
                       max="100"
                       step="5"
-                      value={currentVal}
+                      value={sliderVal}
                       onChange={(e) => handleControlSliderChange(cs.control_id, e.target.value)}
-                      style={{ flex: 1, accentcolor: 'var(--primary)', cursor: 'pointer' }}
+                      style={{ flex: 1, accentColor: 'var(--primary)', cursor: 'pointer' }}
                     />
                     <button
                       onClick={() => handleSaveControl(cs.control_id)}
@@ -568,9 +863,34 @@ export default function DataIngestionHub({ onDataUpdated }) {
                         cursor: hasChanged ? 'pointer' : 'default'
                       }}
                     >
-                      Update
+                      {isNoData ? 'Set Assumption' : 'Update'}
                     </button>
                   </div>
+                  {isNoData && !userHasEdited && (
+                    <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 6, fontStyle: 'italic' }}>
+                      * No telemetry connected. Risk engine conservatively models 0% coverage. Move slider and click "Set Assumption" to set a custom assumption.
+                    </div>
+                  )}
+                  {isNoData && userHasEdited && (
+                    <div style={{ fontSize: 10, color: 'var(--accent-amber)', marginTop: 6, fontStyle: 'italic' }}>
+                      * Selected assumption: {sliderVal}%. Click "Set Assumption" to apply to risk model.
+                    </div>
+                  )}
+                  {isUserSet && !userHasEdited && (
+                    <div style={{ fontSize: 10, color: 'var(--accent-amber)', marginTop: 6, fontStyle: 'italic' }}>
+                      * User-set assumption ({sliderVal}%). Risk engine uses this value because telemetry is not connected.
+                    </div>
+                  )}
+                  {isUserSet && userHasEdited && (
+                    <div style={{ fontSize: 10, color: 'var(--accent-amber)', marginTop: 6, fontStyle: 'italic' }}>
+                      * Adjusting assumption: {sliderVal}%. Click "Update" to recalibrate risk.
+                    </div>
+                  )}
+                  {isMeasured && userHasEdited && (
+                    <div style={{ fontSize: 10, color: 'var(--primary)', marginTop: 6, fontStyle: 'italic' }}>
+                      * Tuning what-if override: {sliderVal}%. Click "Update" to simulate override.
+                    </div>
+                  )}
                 </div>
               );
             })}

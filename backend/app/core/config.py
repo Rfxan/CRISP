@@ -1,8 +1,16 @@
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
+
+# Load .env from CRISP root directory
+_env_path = BASE_DIR.parent / ".env"
+if _env_path.exists():
+    load_dotenv(_env_path, override=True)
+else:
+    load_dotenv(override=True)
 
 class Settings:
     PROJECT_NAME: str = "CRISP - Continuous Risk & Investment Simulation Platform"

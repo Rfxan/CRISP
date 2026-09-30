@@ -27,12 +27,23 @@ class WhatIfSimulator:
             if act_type == "increase_control_coverage":
                 # target_id is control_id, value is new coverage_pct (e.g. 100.0)
                 new_cov = float(action.get("coverage_pct", 100.0))
+                found = False
                 for cs in cloned_snap.get("control_state", []):
                     if cs["control_id"] == target_id:
-                        old_cov = cs.get("coverage_pct", 0.0)
+                        old_cov = cs.get("coverage_pct", 0.0) or 0.0
                         cs["coverage_pct"] = new_cov
+                        cs["is_user_assumed"] = True
                         applied_actions.append(f"Upgraded {target_id} coverage from {old_cov}% to {new_cov}%")
+                        found = True
                         break
+                if not found:
+                    cloned_snap.setdefault("control_state", []).append({
+                        "control_id": target_id,
+                        "coverage_pct": new_cov,
+                        "is_user_assumed": True,
+                        "evidence_ref": "What-If Simulated Action"
+                    })
+                    applied_actions.append(f"Added {target_id} with coverage {new_cov}%")
             elif act_type == "patch_cve":
                 # Remove finding with this CVE or target_id
                 old_len = len(cloned_snap.get("findings", []))

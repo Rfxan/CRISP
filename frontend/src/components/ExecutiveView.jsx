@@ -33,7 +33,16 @@ function formatRelativeTime(isoString) {
   return `${diffDays}d ago`;
 }
 
-export default function ExecutiveView({ summary, curveData, tornadoData, onNavigateToIngestion, onRefresh }) {
+export default function ExecutiveView({ 
+  summary, 
+  curveData, 
+  tornadoData, 
+  driversData,
+  loadError,
+  onRetry,
+  onNavigateToIngestion, 
+  onRefresh 
+}) {
   const [syncing, setSyncing] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState(null);
   const [, setTick] = useState(0);
@@ -75,17 +84,45 @@ export default function ExecutiveView({ summary, curveData, tornadoData, onNavig
     }
   };
 
-  if (!summary || !summary.org) {
-    return <div className="glass-panel" style={{ padding: 40, textAlign: 'center' }}>Loading CRISP Executive Analytics...</div>;
+  // 1. Error state: fetch failed
+  if (loadError) {
+    return (
+      <div className="glass-panel" style={{ padding: 48, textAlign: 'center', maxWidth: 640, margin: '40px auto' }}>
+        <AlertCircle size={40} color="var(--accent-red)" style={{ margin: '0 auto 14px' }} />
+        <h3 style={{ margin: '0 0 8px 0', fontSize: 18, color: 'var(--text-main)', fontWeight: 700 }}>
+          Couldn't load analytics — {loadError}
+        </h3>
+        <p style={{ margin: '0 0 20px 0', fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.5 }}>
+          The risk summary endpoint failed to respond. Other tabs may still function with partial data.
+        </p>
+        <button
+          onClick={onRetry || onRefresh}
+          className="btn btn-primary"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 8, margin: '0 auto' }}
+        >
+          <RefreshCw size={14} /> Retry
+        </button>
+      </div>
+    );
   }
 
-  if (summary.status === 'NO_DATA' || summary.status === 'NO_FINDINGS') {
+  // 2. Empty state: backend has initialized with no data or findings
+  if (summary && (summary.status === 'NO_DATA' || summary.status === 'NO_FINDINGS')) {
     return (
       <EmptyState
         status={summary.status}
         message={summary.message}
         onNavigateToIngestion={onNavigateToIngestion}
       />
+    );
+  }
+
+  // 3. Loading state: still waiting for summary
+  if (!summary || !summary.org) {
+    return (
+      <div className="glass-panel" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+        Loading CRISP Executive Analytics...
+      </div>
     );
   }
 
@@ -114,16 +151,22 @@ export default function ExecutiveView({ summary, curveData, tornadoData, onNavig
   const iam = freshness.iam || {};
   const runMeta = summary.run_metadata || {};
 
-  // Formulate primary freshness string matching user requirements:
-  // e.g. "Wazuh synced 4 min ago · 6/6 agents · Run RUN-42-95725"
+  // Formulate primary freshness string matching telemetry status:
+  // e.g. "Wazuh synced 4 min ago · 6/6 agents · Run RUN-42-95725" or "Wazuh not connected · No agents connected"
+  const isWazuhConnected = Boolean(
+    wazuh &&
+    wazuh.status === 'ok' &&
+    wazuh.last_sync_at &&
+    (wazuh.agents_active !== undefined || wazuh.agents_total !== undefined)
+  );
   const wazuhRelative = formatRelativeTime(wazuh.last_sync_at);
-  const wazuhText = wazuh.last_sync_at 
+  const wazuhText = isWazuhConnected
     ? `Wazuh synced ${wazuhRelative}` 
-    : 'Wazuh awaiting initial sync';
-  const agentsTotal = wazuh.agents_total || wazuh.agents_active || 6;
-  const agentsActive = wazuh.agents_active !== undefined ? wazuh.agents_active : 6;
-  const agentsText = `${agentsActive}/${agentsTotal} agents`;
-  const currentRunId = summary.run_id || runMeta.run_id || 'RUN-42-00000';
+    : (wazuh.status === 'error' ? 'Wazuh sync error' : (wazuh.last_sync_at ? 'Wazuh not connected' : 'Wazuh awaiting initial sync'));
+  const agentsTotal = wazuh.agents_total ?? wazuh.agents_active ?? 0;
+  const agentsActive = wazuh.agents_active ?? 0;
+  const agentsText = isWazuhConnected ? `${agentsActive}/${agentsTotal} agents` : 'No agents connected';
+  const currentRunId = summary.run_id || runMeta.run_id || 'RUN-INIT';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>

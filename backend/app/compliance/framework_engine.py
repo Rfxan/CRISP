@@ -62,7 +62,8 @@ class FrameworkEngine:
 
             total_mapped += 1
             cs = state_map.get(c_id, {})
-            cov_pct = cs.get("coverage_pct", 0.0)
+            cov_raw = cs.get("coverage_pct")
+            cov_pct = cov_raw if cov_raw is not None else 0.0
             is_covered = cov_pct >= 70.0
             if is_covered:
                 covered_count += 1
@@ -72,7 +73,7 @@ class FrameworkEngine:
                 "control_id": c_id,
                 "name": ctrl["name"],
                 "framework_clause": fw_mapping,
-                "coverage_pct": cov_pct,
+                "coverage_pct": cov_raw,
                 "status": "Compliant" if cov_pct >= 75.0 else ("Partially Compliant" if cov_pct >= 50.0 else "Non-Compliant"),
                 "evidence_ref": cs.get("evidence_ref", "No telemetry evidence linked"),
                 "is_simulated": cs.get("is_simulated", False)
@@ -134,9 +135,9 @@ class FrameworkEngine:
         Assesses SEBI CSCRF 6-hour incident detection, triage, and reporting capability.
         Mandated by SEBI Circular dated 20 Aug 2024.
         """
-        siem_cov = state_map.get("CTRL-SIEM-01", {}).get("coverage_pct", 0.0)
-        edr_cov = state_map.get("CTRL-EDR-01", {}).get("coverage_pct", 0.0)
-        ir_cov = state_map.get("CTRL-IR-01", {}).get("coverage_pct", 0.0)
+        siem_cov = state_map.get("CTRL-SIEM-01", {}).get("coverage_pct") or 0.0
+        edr_cov = state_map.get("CTRL-EDR-01", {}).get("coverage_pct") or 0.0
+        ir_cov = state_map.get("CTRL-IR-01", {}).get("coverage_pct") or 0.0
 
         readiness_score = round((siem_cov * 0.4) + (edr_cov * 0.3) + (ir_cov * 0.3), 1)
         is_ready = readiness_score >= 80.0
@@ -158,10 +159,10 @@ class FrameworkEngine:
         Assesses Digital Personal Data Protection (DPDP) Act 2025 reasonable security safeguards.
         Statutory penalties up to ₹250 Cr for non-compliance.
         """
-        enc_cov = state_map.get("CTRL-ENC-01", {}).get("coverage_pct", 0.0)
-        dlp_cov = state_map.get("CTRL-DLP-01", {}).get("coverage_pct", 0.0)
-        mfa_cov = state_map.get("CTRL-MFA-01", {}).get("coverage_pct", 0.0)
-        pam_cov = state_map.get("CTRL-PAM-01", {}).get("coverage_pct", 0.0)
+        enc_cov = state_map.get("CTRL-ENC-01", {}).get("coverage_pct") or 0.0
+        dlp_cov = state_map.get("CTRL-DLP-01", {}).get("coverage_pct") or 0.0
+        mfa_cov = state_map.get("CTRL-MFA-01", {}).get("coverage_pct") or 0.0
+        pam_cov = state_map.get("CTRL-PAM-01", {}).get("coverage_pct") or 0.0
 
         safeguard_score = round((enc_cov + dlp_cov + mfa_cov + pam_cov) / 4.0, 1)
 

@@ -68,7 +68,34 @@ class SnapshotStore:
         with open(catalog_path, "r", encoding="utf-8") as f:
             self.controls_catalog = json.load(f)
 
-        # Empty snapshot — NO company data loaded on startup
+        default_scopes = {
+            "CTRL-MFA-01": "Privileged Accounts",
+            "CTRL-EDR-01": "All Endpoints",
+            "CTRL-PATCH-01": "Internet-Facing & Tier-1 Core Servers",
+            "CTRL-ENC-01": "Primary Database Repositories",
+            "CTRL-WAF-01": "DMZ Edge & Customer Ingress Ports",
+            "CTRL-SEG-01": "Payment Switch & Core Banking VLANs",
+            "CTRL-BKP-01": "Critical CBS & Payment Databases",
+            "CTRL-SIEM-01": "Enterprise-wide telemetry sources",
+            "CTRL-PAM-01": "Domain Controllers & Database Root logins",
+            "CTRL-DLP-01": "Core Banking and Customer Support endpoints",
+            "CTRL-API-01": "External Partner UPI & Banking APIs",
+            "CTRL-IR-01": "Organization Wide"
+        }
+        initial_controls = [
+            {
+                "control_id": ctrl["id"],
+                "asset_scope": default_scopes.get(ctrl["id"], "Privileged Accounts" if "MFA" in ctrl["id"] else ("All Endpoints" if "EDR" in ctrl["id"] else "Enterprise Scope")),
+                "coverage_pct": None,
+                "evidence_ref": "Not Connected",
+                "last_checked": None,
+                "is_simulated": False,
+                "is_user_assumed": False
+            }
+            for ctrl in self.controls_catalog
+        ]
+
+        # Empty snapshot — methodology controls present; company assets/findings start empty
         self.current_snapshot = {
             "snapshot_id": None,
             "organization": None,
@@ -78,7 +105,7 @@ class SnapshotStore:
             "findings": [],
             "cve_intel": {},
             "wazuh_telemetry": {},
-            "control_state": [],
+            "control_state": initial_controls,
             "scenarios": scenarios,
             "controls_catalog": self.controls_catalog
         }
@@ -817,26 +844,57 @@ def inject_demo_event(payload: InjectEventRequest):
 @router.get("/health/data-quality")
 def get_data_quality():
     """GET /health/data-quality -> freshness, coverage, simulated-vs-real ratio"""
-    assets = store.current_snapshot["assets"]
+    assets = store.current_snapshot.get("assets", [])
     real_assets = [a for a in assets if a.get("is_real_lab_asset", False)]
-    controls = store.current_snapshot["control_state"]
+    controls = store.current_snapshot.get("control_state", [])
     findings = store.current_snapshot.get("findings", [])
+    wazuh_telemetry = store.current_snapshot.get("wazuh_telemetry") or {}
+    wazuh_source = str(wazuh_telemetry.get("source", ""))
+    wazuh_status = str(wazuh_telemetry.get("status", ""))
+    is_live = bool(
+        wazuh_telemetry
+        and wazuh_status not in ("not_configured", "error")
+        and ("live" in wazuh_source.lower())
+        and (wazuh_telemetry.get("active_agents") or 0) > 0
+    )
+    is_simulated = bool(
+        wazuh_telemetry
+        and ("mock" in wazuh_source.lower() or wazuh_telemetry.get("is_simulated"))
+    )
+    wazuh_connected = is_live
+    wazuh_live_endpoints = wazuh_telemetry.get("active_agents", 0) if is_live else 0
+
+    active_controls = [c for c in controls if c.get("coverage_pct") is not None and c.get("evidence_ref") != "Not Connected"]
+
+    if not assets:
+        data_quality_score = 0.0
+    else:
+        # Asset real lab ratio (up to 0.3)
+        asset_ratio = len(real_assets) / len(assets)
+        # Controls coverage (up to 0.15)
+        control_ratio = (len(active_controls) / max(1, len(controls))) if controls else 0.0
+        # Telemetry signal boost (0.1 if live wazuh connected)
+        telemetry_boost = 0.1 if wazuh_connected else 0.0
+        # Base enterprise dataset readiness: 0.45
+        data_quality_score = round(min(1.0, 0.45 + (asset_ratio * 0.3) + (control_ratio * 0.15) + telemetry_boost), 2)
 
     return {
         "status": "HEALTHY",
-        "data_quality_score": round((len(real_assets) / max(1, len(assets)) * 0.4) + 0.55, 2),
+        "data_quality_score": data_quality_score,
         "assets_total": len(assets),
         "assets_real_lab": len(real_assets),
         "assets_simulated": len(assets) - len(real_assets),
         "findings_total": len(findings),
         "controls_telemetry_sources": {
-            "wazuh_live_endpoints": store.current_snapshot.get("wazuh_telemetry", {}).get("active_agents", 114),
+            "wazuh_live_endpoints": wazuh_live_endpoints,
+            "wazuh_connected": wazuh_connected,
+            "wazuh_simulated": is_simulated,
             "openvas_findings_loaded": len(findings),
-            "controls_configured": len(controls)
+            "controls_configured": len(active_controls)
         },
         "real_vs_simulated_ratio": {
-            "real_percentage": round((len(real_assets) / max(1, len(assets))) * 100, 1),
-            "simulated_percentage": round(100 - (len(real_assets) / max(1, len(assets))) * 100, 1)
+            "real_percentage": round((len(real_assets) / max(1, len(assets))) * 100, 1) if assets else 0.0,
+            "simulated_percentage": round(100 - (len(real_assets) / max(1, len(assets))) * 100, 1) if assets else 0.0
         },
         "feed_freshness": {
             "cisa_kev_sync": "Live Sync Supported",
@@ -877,19 +935,30 @@ def get_active_snapshot():
 def update_control_coverage(payload: UpdateControlRequest):
     """Updates the coverage % of any control dynamically and recomputes exposure."""
     found = False
+    now_iso = datetime.now(timezone.utc).isoformat()
     for cs in store.current_snapshot.get("control_state", []):
         if cs["control_id"] == payload.control_id:
             cs["coverage_pct"] = max(0.0, min(100.0, payload.coverage_pct))
+            # If evidence was Not Connected or already User Assumption, mark as explicit user assumption
+            if cs.get("evidence_ref") == "Not Connected" or not cs.get("evidence_ref") or "User Assumption" in str(cs.get("evidence_ref", "")):
+                cs["evidence_ref"] = "User Assumption (unmeasured)"
+                cs["is_user_assumed"] = True
+                cs["is_simulated"] = False
+            else:
+                cs["is_user_assumed"] = True
+            cs["last_checked"] = now_iso
             found = True
             break
     if not found:
-        store.current_snapshot["control_state"].append({
+        scope = "Privileged Accounts" if "MFA" in payload.control_id else ("All Endpoints" if "EDR" in payload.control_id else "Configured in UI")
+        store.current_snapshot.setdefault("control_state", []).append({
             "control_id": payload.control_id,
-            "asset_scope": "Configured in UI",
+            "asset_scope": scope,
             "coverage_pct": payload.coverage_pct,
-            "evidence_ref": "Dynamic UI Configuration",
-            "last_checked": datetime.now(timezone.utc).isoformat(),
-            "is_simulated": True
+            "evidence_ref": "User Assumption (unmeasured)",
+            "last_checked": now_iso,
+            "is_user_assumed": True,
+            "is_simulated": False
         })
     store.get_summary(force_refresh=True)
     return {"status": "UPDATED", "control_id": payload.control_id, "new_coverage": payload.coverage_pct}
@@ -1107,60 +1176,124 @@ def sync_wazuh_telemetry(simulate: Optional[bool] = False):
     Diffs against snapshot state and recomputes FAIR risk only if data changed.
     """
     conn = connections_store.get_connection("siem")
-    if conn and conn.get("base_url"):
-        connector = WazuhConnector(
-            base_url=conn["base_url"],
-            username=conn.get("username", ""),
-            password=conn.get("password", "")
-        )
-    else:
-        connector = WazuhConnector()
-
+    is_configured = bool(conn and conn.get("base_url") and conn.get("connected", True))
     now_iso = datetime.now(timezone.utc).isoformat()
-    source_label = "Wazuh Live API"
 
     if simulate:
         source_label = "Wazuh Telemetry Mock"
+        is_sim = True
         agent_data = {
             "total_agents": 6,
             "active_agents": 6,
             "disconnected_agents": 0,
-            "agent_coverage_pct": 100.0
+            "agent_coverage_pct": 100.0,
+            "agent_names": ["mock-agent-01", "mock-agent-02", "mock-agent-03", "mock-agent-04", "mock-agent-05", "mock-agent-06"]
         }
         alert_data = {
             "recent_alerts_24h": 42,
             "high_severity_alerts_24h": 3,
             "auth_failures_24h": 12
         }
+    elif not is_configured:
+        # When no SIEM connection is configured, do NOT silently inject mock counts.
+        # Record sync status "not_configured" with zero counts.
+        sync_record = sync_state_manager.record_sync(
+            job_name="wazuh",
+            source="none",
+            counts={
+                "total_agents": 0,
+                "active_agents": 0,
+                "assets": 0,
+                "findings": 0,
+                "alerts_24h": 0
+            },
+            status="not_configured",
+            message="No SIEM/Wazuh connection configured. Pass ?simulate=true to generate mock telemetry."
+        )
+        store.current_snapshot["wazuh_telemetry"] = {
+            "total_agents": None,
+            "active_agents": None,
+            "disconnected_agents": None,
+            "agent_coverage_pct": None,
+            "recent_alerts_24h": None,
+            "high_severity_alerts_24h": None,
+            "auth_failures_24h": None,
+            "source": "none",
+            "status": "not_configured",
+            "last_sync": None
+        }
+        found = False
+        for ctrl in store.current_snapshot.get("control_state", []):
+            if ctrl.get("control_id") == "CTRL-EDR-01":
+                ctrl["coverage_pct"] = None
+                ctrl["evidence_ref"] = "Not Connected"
+                ctrl["last_checked"] = None
+                ctrl["is_simulated"] = False
+                ctrl["is_user_assumed"] = False
+                found = True
+                break
+        if not found:
+            store.current_snapshot.setdefault("control_state", []).append({
+                "control_id": "CTRL-EDR-01",
+                "asset_scope": "All Endpoints",
+                "coverage_pct": None,
+                "evidence_ref": "Not Connected",
+                "last_checked": None,
+                "is_simulated": False,
+                "is_user_assumed": False
+            })
+        return {
+            "status": "NOT_CONFIGURED",
+            "sync_record": sync_record,
+            "wazuh_telemetry": store.current_snapshot["wazuh_telemetry"],
+            "edr_control": {
+                "control_id": "CTRL-EDR-01",
+                "coverage_pct": None,
+                "evidence_ref": "Not Connected",
+                "is_simulated": False
+            },
+            "run_id": None,
+            "run_metadata": store.run_metadata,
+            "new_eal": None
+        }
     else:
+        connector = WazuhConnector(
+            base_url=conn["base_url"],
+            username=conn.get("username", ""),
+            password=conn.get("password", "")
+        )
+        source_label = "Wazuh Live API"
+        is_sim = False
         try:
             agent_data = connector.fetch_agent_status()
             alert_data = connector.fetch_alert_summary(hours=24)
         except Exception as e:
-            # If explicitly configured, record error and fail
-            if conn and conn.get("base_url"):
-                sync_state_manager.record_sync(
-                    job_name="wazuh",
-                    source=source_label,
-                    counts={"total_agents": 0, "active_agents": 0, "assets": 0, "findings": 0},
-                    status="error",
-                    message=f"Wazuh API sync failed: {str(e)}"
-                )
-                raise HTTPException(status_code=502, detail=f"Wazuh API sync failed: {str(e)}")
-            # Otherwise use realistic fallback telemetry for demo/testing
-            logger.info(f"Live Wazuh instance unavailable ({e}). Using simulated Wazuh telemetry.")
-            source_label = "Wazuh Telemetry Mock"
-            agent_data = {
-                "total_agents": 6,
-                "active_agents": 6,
-                "disconnected_agents": 0,
-                "agent_coverage_pct": 100.0
+            sync_state_manager.record_sync(
+                job_name="wazuh",
+                source=source_label,
+                counts={"total_agents": 0, "active_agents": 0, "assets": 0, "findings": 0},
+                status="error",
+                message=f"Wazuh API sync failed: {str(e)}"
+            )
+            store.current_snapshot["wazuh_telemetry"] = {
+                "total_agents": None,
+                "active_agents": None,
+                "disconnected_agents": None,
+                "agent_coverage_pct": None,
+                "recent_alerts_24h": None,
+                "high_severity_alerts_24h": None,
+                "auth_failures_24h": None,
+                "source": "Not Connected",
+                "status": "error",
+                "last_sync": now_iso
             }
-            alert_data = {
-                "recent_alerts_24h": 42,
-                "high_severity_alerts_24h": 3,
-                "auth_failures_24h": 12
-            }
+            for ctrl in store.current_snapshot.get("control_state", []):
+                if ctrl.get("control_id") == "CTRL-EDR-01":
+                    ctrl["coverage_pct"] = None
+                    ctrl["evidence_ref"] = "Not Connected"
+                    ctrl["last_checked"] = now_iso
+                    ctrl["is_simulated"] = False
+            raise HTTPException(status_code=502, detail=f"Wazuh API sync failed: {str(e)}")
 
     total_agents = agent_data["total_agents"]
     active_agents = agent_data["active_agents"]
@@ -1171,17 +1304,25 @@ def sync_wazuh_telemetry(simulate: Optional[bool] = False):
         **agent_data,
         **alert_data,
         "source": source_label,
+        "status": "ok",
         "last_sync": now_iso
     }
 
     # Update CTRL-EDR-01 control state
+    evidence_text = (
+        f"{source_label} ({active_agents}/{total_agents} endpoints) · {now_iso}"
+        if not is_sim
+        else f"Wazuh Telemetry Mock ({active_agents}/{total_agents} endpoints) · {now_iso}"
+    )
+
     found = False
     for ctrl in store.current_snapshot.get("control_state", []):
         if ctrl.get("control_id") == "CTRL-EDR-01":
             ctrl["coverage_pct"] = agent_cov
-            ctrl["evidence_ref"] = f"{source_label} ({active_agents}/{total_agents} endpoints)"
+            ctrl["evidence_ref"] = evidence_text
             ctrl["last_checked"] = now_iso
-            ctrl["is_simulated"] = (source_label == "Wazuh Telemetry Mock")
+            ctrl["is_simulated"] = is_sim
+            ctrl["is_user_assumed"] = False
             found = True
             break
     if not found:
@@ -1189,9 +1330,10 @@ def sync_wazuh_telemetry(simulate: Optional[bool] = False):
             "control_id": "CTRL-EDR-01",
             "asset_scope": "All Endpoints",
             "coverage_pct": agent_cov,
-            "evidence_ref": f"{source_label} ({active_agents}/{total_agents} endpoints)",
+            "evidence_ref": evidence_text,
             "last_checked": now_iso,
-            "is_simulated": (source_label == "Wazuh Telemetry Mock")
+            "is_simulated": is_sim,
+            "is_user_assumed": False
         })
 
     # Record sync to sync_state.json
@@ -1219,8 +1361,8 @@ def sync_wazuh_telemetry(simulate: Optional[bool] = False):
         "edr_control": {
             "control_id": "CTRL-EDR-01",
             "coverage_pct": agent_cov,
-            "evidence_ref": f"{source_label} ({active_agents}/{total_agents} endpoints)",
-            "is_simulated": (source_label == "Wazuh Telemetry Mock")
+            "evidence_ref": evidence_text,
+            "is_simulated": is_sim
         },
         "run_id": summary.get("run_id") if summary else None,
         "run_metadata": store.run_metadata,
@@ -1238,39 +1380,86 @@ def sync_iam_telemetry(simulate: Optional[bool] = False):
     Diffs against snapshot state and recomputes FAIR risk only if data changed.
     """
     conn = connections_store.get_connection("iam")
-    if conn and conn.get("base_url"):
-        connector = KeycloakConnector(
-            base_url=conn["base_url"],
-            username=conn.get("username", ""),
-            password=conn.get("password", "")
-        )
-    else:
-        connector = KeycloakConnector()
-
+    is_configured = bool(conn and conn.get("base_url") and conn.get("connected", True))
     now_iso = datetime.now(timezone.utc).isoformat()
-    is_simulated = False
-    evidence_ref = "Keycloak Admin API"
 
     if simulate:
         is_simulated = True
-        evidence_ref = "IAM Telemetry Mock"
+        evidence_ref = f"IAM Telemetry Mock (10/12 accounts) · {now_iso}"
         mfa_data = {
             "total_privileged_accounts": 12,
             "mfa_enabled_count": 10,
             "mfa_coverage_pct": 83.3
         }
+    elif not is_configured:
+        sync_record = sync_state_manager.record_sync(
+            job_name="iam",
+            source="none",
+            counts={"privileged_accounts": 0, "mfa_enabled": 0, "assets": 0, "findings": 0},
+            status="not_configured",
+            message="No IAM/Keycloak connection configured. Pass ?simulate=true to generate mock telemetry."
+        )
+        found = False
+        for ctrl in store.current_snapshot.get("control_state", []):
+            if ctrl.get("control_id") == "CTRL-MFA-01":
+                ctrl["coverage_pct"] = None
+                ctrl["evidence_ref"] = "Not Connected"
+                ctrl["last_checked"] = None
+                ctrl["is_simulated"] = False
+                ctrl["is_user_assumed"] = False
+                found = True
+                break
+        if not found:
+            store.current_snapshot.setdefault("control_state", []).append({
+                "control_id": "CTRL-MFA-01",
+                "asset_scope": "Privileged Accounts",
+                "coverage_pct": None,
+                "evidence_ref": "Not Connected",
+                "last_checked": None,
+                "is_simulated": False,
+                "is_user_assumed": False
+            })
+        return {
+            "status": "NOT_CONFIGURED",
+            "sync_record": sync_record,
+            "iam_data": None,
+            "control_state": {
+                "control_id": "CTRL-MFA-01",
+                "coverage_pct": None,
+                "evidence_ref": "Not Connected",
+                "is_simulated": False
+            },
+            "run_id": None,
+            "run_metadata": store.run_metadata,
+            "new_eal": None
+        }
     else:
+        connector = KeycloakConnector(
+            base_url=conn["base_url"],
+            username=conn.get("username", ""),
+            password=conn.get("password", "")
+        )
         try:
             mfa_data = connector.fetch_mfa_coverage()
+            is_simulated = False
+            total_priv = mfa_data.get("total_privileged_accounts", 0)
+            mfa_cnt = mfa_data.get("mfa_enabled_count", 0)
+            evidence_ref = f"Keycloak Live ({mfa_cnt}/{total_priv} accounts) · {now_iso}"
         except Exception as e:
-            logger.warning(f"Live Keycloak instance unavailable ({e}). Marking IAM telemetry as simulated.")
-            is_simulated = True
-            evidence_ref = "IAM Telemetry Mock"
-            mfa_data = {
-                "total_privileged_accounts": 12,
-                "mfa_enabled_count": 10,
-                "mfa_coverage_pct": 83.3
-            }
+            sync_state_manager.record_sync(
+                job_name="iam",
+                source="error",
+                counts={"privileged_accounts": 0, "mfa_enabled": 0, "assets": 0, "findings": 0},
+                status="error",
+                message=f"Keycloak API sync failed: {str(e)}"
+            )
+            for ctrl in store.current_snapshot.get("control_state", []):
+                if ctrl.get("control_id") == "CTRL-MFA-01":
+                    ctrl["coverage_pct"] = None
+                    ctrl["evidence_ref"] = "Not Connected"
+                    ctrl["last_checked"] = now_iso
+                    ctrl["is_simulated"] = False
+            raise HTTPException(status_code=502, detail=f"Keycloak API sync failed: {str(e)}")
 
     cov_pct = mfa_data["mfa_coverage_pct"]
 
@@ -1282,6 +1471,7 @@ def sync_iam_telemetry(simulate: Optional[bool] = False):
             ctrl["evidence_ref"] = evidence_ref
             ctrl["last_checked"] = now_iso
             ctrl["is_simulated"] = is_simulated
+            ctrl["is_user_assumed"] = False
             found = True
             break
     if not found:
@@ -1291,7 +1481,8 @@ def sync_iam_telemetry(simulate: Optional[bool] = False):
             "coverage_pct": cov_pct,
             "evidence_ref": evidence_ref,
             "last_checked": now_iso,
-            "is_simulated": is_simulated
+            "is_simulated": is_simulated,
+            "is_user_assumed": False
         })
 
     # Record sync to sync_state.json

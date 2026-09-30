@@ -1,1 +1,11 @@
-{}
+{
+  "iam": {
+    "connected": false,
+    "base_url": "http://localhost:8000/api/ingest/iam-sync?simulate=true",
+    "username": "admin",
+    "encrypted_password": "gAAAAABqvGqPYtyxneVLmTweVB8OhZ-zuJYPyEMXRgw9EVfFfiB_R5GwgQlWhWzvR-kzyx_POvIgRQ0cDrjsJ8X5ljGGgnPBbg==",
+    "last_tested": "2026-09-30T01:57:49.663446+00:00",
+    "last_test_result": "FAILED",
+    "last_test_detail": "Keycloak authentication error: 422 Client Error: Unprocessable Entity for url: http://localhost:8000/api/ingest/iam-sync?simulate=true/realms/master/protocol/openid-connect/token"
+  }
+}

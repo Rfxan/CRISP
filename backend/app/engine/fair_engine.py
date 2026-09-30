@@ -110,8 +110,17 @@ class FAIREngine:
             asset_findings[a_id].append(f)
 
         # Build Control Effectiveness Map: scenario_id -> coverage factor
-        # control_reduction = prod_c (1 - e(c,s) * coverage(c))
-        control_map = {cs["control_id"]: cs.get("coverage_pct", 0.0) / 100.0 for cs in control_states}
+        # Conservative principle: treat unverified "Not Connected" coverage as 0.0 (assume guard absent)
+        # unless explicitly set as a user assumption.
+        control_map = {}
+        for cs in control_states:
+            c_id = cs.get("control_id")
+            cov = cs.get("coverage_pct")
+            ev = cs.get("evidence_ref")
+            if ev == "Not Connected" and not cs.get("is_user_assumed", False):
+                control_map[c_id] = 0.0
+            else:
+                control_map[c_id] = (cov or 0.0) / 100.0
 
         # Global systemic threat intensity factor G ~ LogNormal(0, 0.45)
         G = sample_lognormal(mean_log=0.0, sigma_log=0.45, size=num_trials, rng=rng)

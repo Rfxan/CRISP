@@ -17,6 +17,29 @@ class OpenVASConnector(BaseConnector):
     Parses OpenVAS XML/CSV/JSON reports into CRISP canonical findings model.
     Extracts real host identifiers from <host> tags and never fabricates business-context fields.
     """
+    CVE_PATTERN = re.compile(r"^CVE-\d{4}-\d{4,}$", re.IGNORECASE)
+
+    @classmethod
+    def _extract_cve(cls, raw_val: Optional[str]) -> Optional[str]:
+        """
+        Extracts the first valid CVE identifier from raw string (e.g. from CVEs/CVE/cve_id).
+        Splits on commas, strips whitespace, matches ^CVE-\d{4}-\d{4,}$,
+        and treats 'NOCVE', 'NONE', or empty values as None.
+        """
+        if not raw_val:
+            return None
+        raw_str = str(raw_val).strip()
+        if not raw_str or raw_str.upper() in ["NOCVE", "NONE", "N/A", "NA"]:
+            return None
+
+        for token in raw_str.split(","):
+            cleaned = token.strip()
+            if not cleaned or cleaned.upper() in ["NOCVE", "NONE", "N/A", "NA"]:
+                continue
+            if cls.CVE_PATTERN.match(cleaned):
+                return cleaned.upper()
+        return None
+
     def __init__(self, raw_report_path: str = None):
         self.raw_report_path = raw_report_path
 
@@ -95,18 +118,21 @@ class OpenVASConnector(BaseConnector):
         elif fname.endswith(".csv"):
             reader = csv.DictReader(io.StringIO(content.decode("utf-8", errors="ignore")))
             for row_idx, row in enumerate(reader):
-                asset = row.get("Host") or row.get("asset_id") or row.get("IP")
+                asset = row.get("Host") or row.get("Hostname") or row.get("asset_id") or row.get("IP")
                 if not asset or not asset.strip():
                     reason = f"CSV row {row_idx + 1}: missing Host / asset_id"
                     skip_reasons.append(reason)
                     skipped += 1
                     continue
 
-                cve = row.get("CVE") or row.get("cve_id")
-                if cve:
-                    cve = cve.strip()
-                    if cve.upper() in ["NOCVE", "NONE", ""]:
-                        cve = None
+                raw_cve = (
+                    row.get("CVEs")
+                    or row.get("CVE")
+                    or row.get("cve_id")
+                    or row.get("cves")
+                    or row.get("cve")
+                )
+                cve = self._extract_cve(raw_cve)
 
                 cvss_raw = row.get("CVSS") or row.get("cvss")
                 cvss_val = 0.0
@@ -131,11 +157,21 @@ class OpenVASConnector(BaseConnector):
                     else:
                         sev = "Low"
 
+                finding_name = (
+                    row.get("NVT Name")
+                    or row.get("Name")
+                    or row.get("name")
+                    or row.get("nvt_name")
+                    or "Vulnerability Finding"
+                )
+                if isinstance(finding_name, str):
+                    finding_name = finding_name.strip() or "Vulnerability Finding"
+
                 new_findings.append({
                     "id": f"FND-OV-{finding_id_offset + len(new_findings) + 1:03d}",
                     "asset_id": asset.strip(),
                     "cve_id": cve,
-                    "name": row.get("Name") or row.get("name") or "Vulnerability Finding",
+                    "name": finding_name,
                     "cvss": round(cvss_val, 1),
                     "severity": sev.capitalize(),
                     "port": port_val,
