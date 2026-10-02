@@ -189,6 +189,12 @@ class SnapshotStore:
             # explicitly loaded synthetic sample is not the enterprise dataset.
             finding_assets = {finding.get("asset_id") for finding in snapshot.get("findings", [])}
             snapshot["assets"] = [asset for asset in snapshot.get("assets", []) if asset["id"] in finding_assets]
+            for asset in snapshot["assets"]:
+                asset["is_real_lab_asset"] = False
+            for finding in snapshot.get("findings", []):
+                finding["is_simulated"] = True
+                finding["source"] = "Synthetic sample: " + str(finding.get("source", "scan"))
+            snapshot.pop("wazuh_telemetry", None)
             snapshot["demo_dataset"] = {"name": "Public judging sample", "synthetic": True,
                                         "selection": "Assets referenced by sample findings"}
         snapshot["controls_catalog"] = self.controls_catalog

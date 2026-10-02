@@ -98,4 +98,8 @@ def test_public_sample_dataset_can_load_and_stays_isolated(guest):
         assert loaded.json()['assets_count'] > 0
         assert loaded.json()['assets_count'] <= 12
         assert loaded.json()['new_eal'] > 0
+        snapshot = first.get('/api/data/snapshot').json()
+        assert not any(asset.get('is_real_lab_asset') for asset in snapshot['assets'])
+        assert all(finding.get('is_simulated') for finding in snapshot['findings'])
+        assert snapshot.get('wazuh_telemetry', {}) == {}
         assert second.get('/api/data/snapshot').json()['assets'] == []
