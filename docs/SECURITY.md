@@ -91,7 +91,9 @@ integration tests skipped without a test database. The frontend production
 build and both Vercel configuration schemas passed. npm audits (root and
 frontend) and the resolved Python runtime requirements audit reported zero
 known vulnerabilities. Static analysis reported no high-severity findings;
-the remaining lower-severity findings were reviewed as described below.
+the remaining lower-severity findings were reviewed as described below. A
+subsequent focused run covers all 13 security tests, including local API docs
+compatibility; production API docs remain disabled.
 
 Tests cover default-deny administration, read-only persistence, concurrent shared
 quotas, spoofed forwarding headers, global quotas, fail-closed protection,

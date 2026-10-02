@@ -116,10 +116,10 @@ class WebSecurityMiddleware:
                     b"referrer-policy": b"no-referrer",
                     b"permissions-policy": b"camera=(), microphone=(), geolocation=()",
                     b"cache-control": b"no-store",
-                    b"content-security-policy": b"default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
                 }
                 if production():
                     policy[b"strict-transport-security"] = b"max-age=31536000"
+                    policy[b"content-security-policy"] = b"default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
                 existing = {k.lower() for k, _ in headers}
                 headers += [(k, v) for k, v in policy.items() if k not in existing]
                 message = {**message, "headers": headers}

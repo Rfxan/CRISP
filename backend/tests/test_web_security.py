@@ -157,6 +157,18 @@ def test_xml_parser_rejects_declared_entities():
         ElementTree.fromstring(b'<!DOCTYPE root [<!ENTITY test "sample">]><root>&test;</root>')
 
 
+def test_local_documentation_can_load_its_scripts(monkeypatch):
+    monkeypatch.setenv('CRISP_ENV', 'development')
+    monkeypatch.setenv('CRISP_TESTING', '1')
+    app = FastAPI()
+    app.add_middleware(WebSecurityMiddleware)
+    with TestClient(app) as client:
+        response = client.get('/docs')
+        assert response.status_code == 200
+        assert 'content-security-policy' not in response.headers
+        assert response.headers['x-content-type-options'] == 'nosniff'
+
+
 def test_csv_export_neutralizes_formula_text():
     from app.compliance.evidence_report import EvidenceReportGenerator
     report = EvidenceReportGenerator.build_structured_report('sebi',{})
