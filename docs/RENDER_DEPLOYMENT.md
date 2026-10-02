@@ -2,7 +2,8 @@
 
 The root `render.yaml` configures one **free Docker web service**,
 `crisp-backend`, from the `main` branch of `https://github.com/Rfxan/CRISP`.
-It does not provision a database or a background worker.
+It also provisions a free PostgreSQL database, `crisp-postgres`, and connects it
+to the backend automatically. It does not provision a background worker.
 
 The service uses `Dockerfile.backend` with the repository root as its build
 context. Keep the Render Root Directory empty: the Dockerfile copies paths
@@ -12,21 +13,26 @@ start command runs `python -m app.serve`, which binds `0.0.0.0` on Render's
 
 ## Create the service
 
-1. In the Render Dashboard, choose **New > Blueprint** and connect this repository.
-2. Select `main` and the root `render.yaml`. Review the free `crisp-backend` web service.
-3. Enter the secrets requested by the Blueprint:
-   * `CRISP_DATABASE_URL`: a dedicated hosted PostgreSQL connection URL. Use the
-     provider's TLS settings for an external connection. A Render Postgres
-     database's internal connection URL can be used by services in its region.
-   * `CRISP_ENCRYPTION_KEY`: a persistent Fernet key. If this database already
-     contains encrypted CRISP credentials, use the same key that encrypted them.
+1. Open [Deploy to Render](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2FRfxan%2FCRISP),
+   or choose **New > Blueprint** in the Render Dashboard and connect this repository.
+2. Select `main` and the root `render.yaml`. Review the free `crisp-backend` web
+   service and free `crisp-postgres` database.
+3. Render supplies `CRISP_DATABASE_URL` from the database's internal connection
+   URL and generates a persistent 256-bit base64 encryption key for the new
+   backend. No manual secret entry is needed for this new, empty deployment.
+   The database's external IP allow list is empty, so database access is private.
 4. Create the Blueprint and wait for the service to become **Live**.
 5. Check the generated service URL at `/api/health`, then `/api/risk/summary`.
    The health endpoint is a liveness check; the risk endpoint also verifies
    access to the configured database. Save/ingestion requests must survive a
    service restart before using the deployment for business data.
 
-For a new empty database, generate a key once in your terminal:
+The generated key is kept when the Blueprint is synchronized again. Keep a
+secure backup of it from the backend's Render environment settings. If you later
+add a worker or another API deployment using the same database, give it the same
+key. If connecting a database with existing encrypted CRISP credentials, preserve
+the key that encrypted them; generating a new key would make those credentials
+unreadable. To generate a key manually for another deployment, run:
 
 ```sh
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
@@ -34,7 +40,8 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 Store the result in Render's secret environment settings and retain a secure
 backup. Do not paste actual secrets into source files, documentation, or Git.
-The Blueprint prompts for credentials instead of containing hardcoded values.
+The Blueprint uses database references and generated secrets instead of
+containing hardcoded credentials.
 Render deployments enforce hosted PostgreSQL and production credential handling
 even if `CRISP_ENV` was accidentally left at its development default. Local
 SQLite is deliberately rejected on Render to avoid ephemeral persistence.
@@ -59,7 +66,7 @@ is the intended connection path.
 ## Free hosting and automatic synchronization
 
 Render's free web services spin down after inactivity and do not offer a
-persistent disk. This Blueprint uses external PostgreSQL for durable state.
+persistent disk. This Blueprint uses a separate Render PostgreSQL database for state.
 The free plan is intended for evaluation; validate memory and compute capacity
 with realistic scans and optimizer workloads before production use.
 
@@ -67,7 +74,10 @@ Automatic 30-second ingestion requires a separately hosted
 `python -m app.worker` process with the same database URL and encryption key.
 Render background workers require a paid compute plan and are not added by
 this backend-only Blueprint. On-demand refresh and synchronization remain API
-actions. Free Render PostgreSQL databases also expire; do not treat an expiring
+actions. The free database expires after 30 days and is eventually deleted unless
+upgraded. Only one free PostgreSQL database can be active in a Render workspace.
+If your workspace already has one, reuse it explicitly or choose another workspace;
+do not silently upgrade a resource to a paid plan. Do not treat this expiring
 evaluation database as permanent production storage.
 
 The application has no user login, following the current workspace design.
@@ -85,7 +95,7 @@ Docker-only hostname cannot reach the laptop from the deployed backend.
 * PostgreSQL integration was tested during the preceding Vercel/PostgreSQL change.
 
 Docker image building and a live Render deployment have not been verified in
-this session. Render account access and hosted database settings are required to
+this session. Render account access is required to
 complete deployment. An automatic approval review blocked a command that also
 attempted to restart the isolated PostgreSQL test server; it supplied only
 "blocked by policy". Blueprint validation was completed independently.

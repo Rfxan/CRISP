@@ -1,4 +1,4 @@
-# Backend only. Supply existing PostgreSQL and encryption secrets in Render.
+# Free evaluation deployment. The database expires 30 days after creation.
 services:
   - type: web
     name: crisp-backend
@@ -18,6 +18,16 @@ services:
       - key: PYTHON_DOTENV_DISABLED
         value: "1"
       - key: CRISP_DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: crisp-postgres
+          property: connectionString
       - key: CRISP_ENCRYPTION_KEY
-        sync: false
+        generateValue: true
+
+databases:
+  - name: crisp-postgres
+    plan: free
+    postgresMajorVersion: "18"
+    databaseName: crisp
+    user: crisp
+    ipAllowList: []
