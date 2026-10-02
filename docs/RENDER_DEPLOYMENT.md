@@ -95,10 +95,10 @@ If your workspace already has one, reuse it explicitly or choose another workspa
 do not silently upgrade a resource to a paid plan. Do not treat this expiring
 evaluation database as permanent production storage.
 
-The deployed API is now a public read-only demo. Administration and paid AI
-calls are blocked server-side, even when called directly on the Render domain.
-See [security configuration](SECURITY.md). Local development retains editing;
-do not publish confidential data in the public demo. A private deployment needs
+The deployed API is a public interactive sandbox. Each browser receives an
+isolated 24-hour workspace without a login, including on the Render domain.
+See [security configuration](SECURITY.md). Use demonstration data for judging;
+a private deployment with confidential data needs
 an authenticated gateway and a separately designed authorized API policy.
 Connector URLs must be reachable from Render; a laptop `localhost` address or
 Docker-only hostname cannot reach the laptop from the deployed backend.

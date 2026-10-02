@@ -131,9 +131,11 @@ class LLMConfigStore:
         """
         stored = self._read_file()
 
-        provider = (stored.get("provider") or os.getenv("LLM_PROVIDER", "gemini")).lower()
-        model = stored.get("model") or os.getenv("LLM_MODEL") or DEFAULT_MODELS.get(provider, "gemini-1.5-flash")
-        base_url = stored.get("base_url") or os.getenv("LLM_BASE_URL") or DEFAULT_BASE_URLS.get(provider, "")
+        from app.core.guest_workspace import is_guest
+        guest = is_guest()
+        provider = (stored.get("provider") or ("gemini" if guest else os.getenv("LLM_PROVIDER", "gemini"))).lower()
+        model = stored.get("model") or (None if guest else os.getenv("LLM_MODEL")) or DEFAULT_MODELS.get(provider, "gemini-1.5-flash")
+        base_url = stored.get("base_url") or (None if guest else os.getenv("LLM_BASE_URL")) or DEFAULT_BASE_URLS.get(provider, "")
         temperature = float(stored.get("temperature", 0.2))
         enabled = stored.get("enabled", True)
 

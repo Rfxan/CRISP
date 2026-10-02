@@ -12,7 +12,7 @@ import AIQueryCenter from './components/AIQueryCenter';
 import DataIngestionHub from './components/DataIngestionHub';
 import ConnectionsSettings from './components/ConnectionsSettings';
 import LandingPage from './components/LandingPage';
-import { api } from './services/api';
+import { api, initializeWorkspace } from './services/api';
 import { AccessContext } from './AccessContext';
 import { 
   BarChart3, Search, Target, Sparkles, FileCheck, Bot, AlertTriangle, AlertCircle, ShieldCheck, Database, Radio, RefreshCw
@@ -22,6 +22,7 @@ import { formatINR } from './utils/formatters';
 export default function App() {
   const [activeTab, setActiveTab] = useState('executive');
   const [canEdit, setCanEdit] = useState(false);
+  const [guestWorkspace, setGuestWorkspace] = useState(false);
   const navigate = useNavigate();
   const [summary, setSummary] = useState(null);
   const [curveData, setCurveData] = useState(null);
@@ -100,13 +101,19 @@ export default function App() {
   };
 
   useEffect(() => {
-    fetch('/api/security/capabilities')
-      .then(response => response.ok ? response.json() : Promise.reject())
-      .then(capabilities => setCanEdit(capabilities.can_edit === true))
-      .catch(() => setCanEdit(false));
-    loadData();
+    // Establish the browser workspace before parallel dashboard requests so
+    // those requests all use the same session cookie on a first visit.
+    let active = true;
+    initializeWorkspace()
+      .then(capabilities => {
+        if (!active) return;
+        setCanEdit(capabilities.can_edit === true);
+        setGuestWorkspace(capabilities.guest_workspace === true);
+        loadData();
+      })
+      .catch(() => { if (active) { setCanEdit(false); loadData(); } });
     const timer = setInterval(() => { if (!document.hidden) loadData(); }, 60000);
-    return () => clearInterval(timer);
+    return () => { active = false; clearInterval(timer); };
   }, []);
 
   const showToast = (message, type = 'success') => {
@@ -146,6 +153,11 @@ export default function App() {
 
       {/* Main View Area */}
       <main style={{ flex: 1, padding: '32px', overflowY: 'auto' }}>
+        {guestWorkspace && (
+          <div className="glass-panel" style={{ padding: '12px 18px', marginBottom: 20, color: 'var(--text-muted)' }}>
+            Your workspace · Upload data, configure integrations, and test recommendations. Your changes stay separate from other visitors and expire after 24 hours.
+          </div>
+        )}
         {!canEdit && (
           <div className="glass-panel" style={{ padding: '12px 18px', marginBottom: 20, color: 'var(--text-muted)' }}>
             Public read-only demo · Explore analytics and scenarios. Saved changes and integrations are unavailable.
@@ -299,7 +311,7 @@ export default function App() {
   );
 
   return (
-    <AccessContext.Provider value={{ canEdit }}>
+    <AccessContext.Provider value={{ canEdit, guestWorkspace }}>
     <Routes>
       <Route path="/home" element={<LandingPage onSignIn={() => navigate('/dashboard')} />} />
       <Route path="/dashboard" element={DashboardLayout()} />

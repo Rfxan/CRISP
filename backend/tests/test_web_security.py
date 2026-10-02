@@ -17,6 +17,7 @@ from app.core.tenancy import connect, tenant_transaction, read_document, write_d
 
 @pytest.fixture
 def secured(monkeypatch, tmp_path):
+    monkeypatch.setenv('CRISP_ACCESS_MODE', 'public_demo')
     monkeypatch.setenv('CRISP_ENV', 'production')
     monkeypatch.setenv('CRISP_TESTING', '0')
     monkeypatch.setenv('CRISP_ENCRYPTION_KEY', Fernet.generate_key().decode())

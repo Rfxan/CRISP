@@ -62,6 +62,18 @@ export default function DataIngestionHub({ onDataUpdated }) {
   const [anomalyData, setAnomalyData] = useState(null);
   const [anomalyLoading, setAnomalyLoading] = useState(false);
   const [injectingAnomaly, setInjectingAnomaly] = useState(false);
+  const [loadingSample, setLoadingSample] = useState(false);
+  const handleLoadSample = async () => {
+    setLoadingSample(true);
+    try {
+      await api.loadSampleData();
+      await fetchSnapshot();
+      notifyUpdated();
+      setStatusMsg({ type: 'success', text: 'Synthetic sample data loaded into your workspace. These are demonstration inputs, not live telemetry.' });
+    } catch (error) {
+      setStatusMsg({ type: 'error', text: error.message });
+    } finally { setLoadingSample(false); }
+  };
 
   const fetchAnomalies = async () => {
     try {
@@ -463,6 +475,11 @@ export default function DataIngestionHub({ onDataUpdated }) {
           </div>
 
           <div style={{ display: 'flex', gap: 10 }}>
+            {assets.length === 0 && findings.length === 0 && (
+              <button className="btn btn-secondary" onClick={handleLoadSample} disabled={loadingSample}>
+                {loadingSample ? 'Loading...' : 'Load synthetic sample data'}
+              </button>
+            )}
             <button
               onClick={handleSyncIntel}
               disabled={syncingIntel}

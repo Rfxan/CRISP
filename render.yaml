@@ -13,6 +13,8 @@ services:
     envVars:
       - key: CRISP_ENV
         value: production
+      - key: CRISP_ACCESS_MODE
+        value: public_sandbox
       - key: PYTHONUNBUFFERED
         value: "1"
       - key: PYTHON_DOTENV_DISABLED

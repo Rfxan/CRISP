@@ -4,6 +4,7 @@ import logging
 import os
 import threading
 import time
+from app.core.guest_workspace import browser_workspace, cookie_value, cleanup_workspaces
 from urllib.parse import unquote, parse_qs
 
 import anyio
@@ -16,7 +17,15 @@ logger = logging.getLogger(__name__)
 def public_demo():
     # Production has no authenticated administration surface. Never expose local
     # editing simply because a deployment variable was omitted or misspelled.
-    return production() or os.getenv("CRISP_ACCESS_MODE") == "public_demo"
+    return production() or os.getenv("CRISP_ACCESS_MODE") in ("public_demo", "public_sandbox")
+
+
+def read_only_demo():
+    return public_demo() and os.getenv("CRISP_ACCESS_MODE") == "public_demo"
+
+
+def guest_mode():
+    return public_demo() and not read_only_demo()
 
 
 PUBLIC_GETS = frozenset({
@@ -59,14 +68,15 @@ class RateLimiter:
         limits = [("global", int(os.getenv("CRISP_RATE_GLOBAL", "600"))),
                   ("peer:" + peer_key, int(os.getenv("CRISP_RATE_PEER", "120")))]
         if expensive:
-            limits += [("compute:global", int(os.getenv("CRISP_RATE_COMPUTE_GLOBAL", "20"))),
-                       ("compute:" + peer_key, int(os.getenv("CRISP_RATE_COMPUTE_PEER", "6")))]
+            limits += [("compute:global", int(os.getenv("CRISP_RATE_COMPUTE_GLOBAL", "40"))),
+                       ("compute:" + peer_key, int(os.getenv("CRISP_RATE_COMPUTE_PEER", "20")))]
         if production():
             from app.core.tenancy import connect, begin_transaction
             db = connect()
             try:
                 begin_transaction(db, "__security_limits__")
                 db.execute("DELETE FROM security_rate_limits WHERE expires <= ?", (now,))
+                cleanup_workspaces(db, now)
                 allowed = True
                 for key, limit in limits:
                     db.execute('''INSERT INTO security_rate_limits(bucket,hits,expires) VALUES(?,1,?)
@@ -99,11 +109,14 @@ class WebSecurityMiddleware:
         self.app = app
         self.rate_limiter = RateLimiter()
         self.capacity = anyio.CapacityLimiter(8)
+        self.compute_capacity = anyio.CapacityLimiter(2)
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         started = False
+        workspace_token = None
+        compute_acquired = False
 
         async def secure_send(message):
             nonlocal started
@@ -122,6 +135,8 @@ class WebSecurityMiddleware:
                     policy[b"content-security-policy"] = b"default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
                 existing = {k.lower() for k, _ in headers}
                 headers += [(k, v) for k, v in policy.items() if k not in existing]
+                if workspace_token:
+                    headers.append((b"set-cookie", cookie_value(workspace_token, production())))
                 message = {**message, "headers": headers}
             await send(message)
 
@@ -138,13 +153,16 @@ class WebSecurityMiddleware:
         # Reject alternate encodings/control characters before policy checks.
         if unquote(path) != path or any(ord(c) < 32 for c in path) or "\\" in path:
             return await reject(400, "Invalid request path")
-        if public_demo() and method != "OPTIONS" and not public_route(method, path):
+        if read_only_demo() and method != "OPTIONS" and not public_route(method, path):
             return await reject(403, "This public demo is read-only; administration is unavailable")
+        if guest_mode() and path not in ("/", "/health", "/api/health") and not path.startswith("/api/"):
+            return await reject(403, "Use the API within your browser workspace")
         if method == "OPTIONS":
             return await self.app(scope, receive, secure_send)
         if path in ("/health", "/api/health"):
             return await self.app(scope, receive, secure_send)
         try:
+            expensive = False
             self.capacity.acquire_nowait()
         except anyio.WouldBlock:
             return await reject(503, "Server busy; retry shortly", 5)
@@ -155,6 +173,12 @@ class WebSecurityMiddleware:
                                         for value in parse_qs(query.decode("utf-8", errors="replace")).get("refresh", []))
                 expensive = refresh_requested or method not in ("GET", "HEAD") or path in (
                     "/api/pareto", "/api/sensitivity/tornado", "/api/sensitivity/convergence")
+                if expensive:
+                    try:
+                        self.compute_capacity.acquire_nowait()
+                        compute_acquired = True
+                    except anyio.WouldBlock:
+                        return await reject(503, "Calculations busy; retry shortly", 5)
                 try:
                     allowed, retry = await anyio.to_thread.run_sync(lambda: self.rate_limiter.check(peer, expensive))
                 except Exception:
@@ -163,6 +187,21 @@ class WebSecurityMiddleware:
                 if not allowed:
                     return await reject(429, "Too many requests; retry after the indicated delay", retry)
             headers = {k.lower(): v for k, v in scope.get("headers", [])}
+            if guest_mode():
+                # Cross-site requests cannot operate on an existing browser
+                # workspace. SameSite cookies complement this explicit check.
+                if method not in ("GET", "HEAD"):
+                    origin = headers.get(b"origin", b"").decode("latin1")
+                    fetch_site = headers.get(b"sec-fetch-site", b"").decode("latin1")
+                    allowed_origins = {v.strip().rstrip("/") for v in os.getenv(
+                        "CRISP_PUBLIC_ORIGINS", "https://crisp-alpha-lac.vercel.app").split(",") if v.strip()}
+                    render_origin = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
+                    if render_origin:
+                        allowed_origins.add(render_origin)
+                    if fetch_site == "cross-site" or (origin and origin not in allowed_origins):
+                        return await reject(403, "This request must come from the platform")
+                identity, workspace_token = browser_workspace(headers.get(b"cookie", b"").decode("latin1"))
+                scope.setdefault("state", {})["guest_identity"] = identity
             max_body = 10 * 1024 * 1024 if headers.get(b"content-type", b"").startswith(b"multipart/form-data") else 512 * 1024
             try:
                 declared = int(headers.get(b"content-length", b"0"))
@@ -204,4 +243,6 @@ class WebSecurityMiddleware:
                 raise
             await reject(500, "Unable to complete the request")
         finally:
+            if compute_acquired:
+                self.compute_capacity.release()
             self.capacity.release()

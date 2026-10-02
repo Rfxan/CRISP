@@ -16,9 +16,11 @@ class WazuhConnector(BaseConnector):
     Never returns hardcoded fallback numbers — raises clear errors on failure.
     """
     def __init__(self, base_url: Optional[str] = None, username: Optional[str] = None, password: Optional[str] = None):
+        from app.core.guest_workspace import is_guest
+        guest = is_guest()
         self.base_url = (base_url or settings.WAZUH_BASE_URL).rstrip("/")
-        self.username = username or settings.WAZUH_USERNAME
-        self.password = password or settings.WAZUH_PASSWORD
+        self.username = username or ("" if guest else settings.WAZUH_USERNAME)
+        self.password = password or ("" if guest else settings.WAZUH_PASSWORD)
         self._token: Optional[str] = None
 
     def _authenticate(self) -> str:

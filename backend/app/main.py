@@ -4,7 +4,7 @@ import os
 from fastapi.responses import JSONResponse
 from app.core.deployment import validate_deployment, production
 from app.core.middleware import TenantMiddleware
-from app.core.web_security import WebSecurityMiddleware, public_demo
+from app.core.web_security import WebSecurityMiddleware, public_demo, read_only_demo, guest_mode
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException
 from fastapi import FastAPI
@@ -119,8 +119,8 @@ app.include_router(api_router, prefix="/api")
 
 @app.get("/api/security/capabilities")
 def security_capabilities():
-    return {"public_demo": public_demo(), "can_edit": not public_demo(),
-            "can_use_ai": not public_demo()}
+    return {"public_demo": public_demo(), "can_edit": not read_only_demo(),
+            "can_use_ai": not read_only_demo(), "guest_workspace": guest_mode()}
 
 
 @app.get("/")

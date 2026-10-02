@@ -481,6 +481,8 @@ class SnapshotStore:
             - Retains existing run_id
             - Updates run_metadata with recomputed=False and skip_reason
         """
+        from app.core.guest_workspace import enforce_limits
+        enforce_limits(self.current_snapshot)
         self.dedupe_control_state()
         current_sig = self.compute_state_signature()
         state_changed = (self.last_state_signature is None or current_sig != self.last_state_signature)
@@ -591,6 +593,9 @@ class SnapshotStore:
         Enriches findings with live EPSS, NVD, and CISA KEV intelligence.
         Surfaces per-finding provenance and KEV exploitability label.
         """
+        from app.core.guest_workspace import enforce_limits
+        enforce_limits(self.current_snapshot)
+        enforce_limits({"findings": findings})
         cve_intel = self.current_snapshot.get("cve_intel", {})
         kev_res = self.threat_intel.fetch_cisa_kev()
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
+import { AccessContext } from '../AccessContext';
 import { 
   Radio, ShieldCheck, Key, RefreshCw, CheckCircle2, 
   AlertCircle, XCircle, Lock, Eye, EyeOff, Save, Trash2, 
@@ -7,6 +8,7 @@ import {
 } from 'lucide-react';
 
 export default function ConnectionsSettings({ onConnectionChanged }) {
+  const { guestWorkspace } = React.useContext(AccessContext);
   const [connections, setConnections] = useState({
     siem: { connected: false, base_url: '', username: '', last_tested: null, last_test_result: null, last_test_detail: 'Not configured' },
     iam: { connected: false, base_url: '', username: '', last_tested: null, last_test_result: null, last_test_detail: 'Not configured' }
@@ -618,7 +620,9 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
           </div>
           <p style={{ margin: '6px 0 0 0', fontSize: 13, color: 'var(--text-dim)', maxWidth: 800 }}>
             Configure your SIEM/EDR and IAM connections. Refresh Status checks saved endpoints and updates telemetry now.
-            Automatic telemetry updates run approximately every 30 seconds while the synchronization worker is running.
+            {guestWorkspace
+              ? 'Use Refresh Status to sync your workspace. Hosted connections require a reachable HTTPS endpoint approved by the site owner.'
+              : 'Automatic telemetry updates run approximately every 30 seconds while the synchronization worker is running.'}
           </p>
         </div>
 

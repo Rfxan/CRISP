@@ -54,6 +54,7 @@ def connect():
 
 def _initialize_sqlite(db):
     db.executescript('''
+        CREATE TABLE IF NOT EXISTS guest_sessions (tenant TEXT PRIMARY KEY, expires BIGINT NOT NULL);
         CREATE TABLE IF NOT EXISTS security_rate_limits (
             bucket TEXT PRIMARY KEY, hits INTEGER NOT NULL, expires BIGINT NOT NULL);
         CREATE TABLE IF NOT EXISTS tenant_documents (
@@ -129,6 +130,6 @@ def audit(action, status, before=None, after=None):
 def tenant_ids():
     db = connect()
     try:
-        return [r[0] for r in db.execute("SELECT DISTINCT tenant FROM tenant_documents")]
+        return [r[0] for r in db.execute("SELECT DISTINCT tenant FROM tenant_documents WHERE tenant NOT LIKE 'guest:%'")]
     finally:
         db.close()

@@ -1,8 +1,25 @@
 // Browser requests use the public gateway. Internal service bindings are only
 // available to runtime functions and must never be baked into this static app.
 const API_BASE = '/api';
+let workspaceInitialization;
+export function initializeWorkspace() {
+  // Establish one cookie before parallel data requests, including StrictMode.
+  if (!workspaceInitialization) {
+    workspaceInitialization = fetch(`${API_BASE}/security/capabilities`)
+      .then(response => {
+        if (!response.ok) throw new Error('Unable to initialize workspace');
+        return response.json();
+      }).catch(error => { workspaceInitialization = undefined; throw error; });
+  }
+  return workspaceInitialization;
+}
 
 export const api = {
+  async loadSampleData() {
+    const response = await fetch(`${API_BASE}/data/seed`, { method: 'POST' });
+    if (!response.ok) throw new Error('Unable to load sample data. Please try again.');
+    return response.json();
+  },
   async refreshConnections() {
     const res = await fetch(`${API_BASE}/connections/refresh`, { method: 'POST' });
     if (!res.ok) throw new Error('Unable to refresh connections. Please try again.');

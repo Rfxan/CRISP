@@ -31,7 +31,8 @@ class KeycloakConnector(BaseConnector):
         self.realm = realm or settings.KEYCLOAK_REALM
         self.username = username or ""
         self.password = password or ""
-        self.admin_token = admin_token or settings.KEYCLOAK_ADMIN_TOKEN
+        from app.core.guest_workspace import is_guest
+        self.admin_token = admin_token or ("" if is_guest() else settings.KEYCLOAK_ADMIN_TOKEN)
 
     def _authenticate(self) -> str:
         """Authenticates with Keycloak using username/password to retrieve admin token."""
