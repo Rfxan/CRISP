@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from app.core.postgres import connect_postgres, StateStoreUnavailable
+from app.core.deployment import requires_hosted_database
 
 principal_context = contextvars.ContextVar("principal", default=None)
 transaction_context = contextvars.ContextVar("transaction", default=None)
@@ -26,8 +27,8 @@ def connect():
         if not url.startswith(("postgresql://", "postgres://")):
             raise ValueError("CRISP_DATABASE_URL must be a PostgreSQL connection URL")
         return connect_postgres(url)
-    if os.getenv("VERCEL") == "1" and os.getenv("VERCEL_ENV") != "development":
-        raise RuntimeError("Vercel deployments require a hosted CRISP_DATABASE_URL; local SQLite is not durable")
+    if requires_hosted_database():
+        raise RuntimeError("Hosted deployments require CRISP_DATABASE_URL; local SQLite is not durable")
     path = database_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(path, timeout=60, isolation_level=None, check_same_thread=False)

@@ -1,0 +1,23 @@
+# Backend only. Supply existing PostgreSQL and encryption secrets in Render.
+services:
+  - type: web
+    name: crisp-backend
+    runtime: docker
+    plan: free
+    repo: https://github.com/Rfxan/CRISP
+    branch: main
+    dockerfilePath: ./Dockerfile.backend
+    dockerContext: .
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: CRISP_ENV
+        value: production
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: PYTHON_DOTENV_DISABLED
+        value: "1"
+      - key: CRISP_DATABASE_URL
+        sync: false
+      - key: CRISP_ENCRYPTION_KEY
+        sync: false

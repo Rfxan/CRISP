@@ -14,6 +14,8 @@
 
 For the single-project Vercel services setup, see [Vercel deployment](docs/VERCEL_DEPLOYMENT.md). Routing and hosted PostgreSQL support are configured; supply the database secrets and resolve worker scheduling before production deployment.
 
+For a separate Render backend, see [Render deployment](docs/RENDER_DEPLOYMENT.md). The root Blueprint configures a free Docker web service using hosted PostgreSQL.
+
 Read [Risk model and deployment contract](docs/RISK_MODEL_AND_DEPLOYMENT.md) for calculation assumptions, evidence rules, direct workspace access, persistent transactional storage, worker setup and remaining limits. Financial estimates are uncalibrated planning estimates; curated mappings are not regulatory certification. The API no longer starts background schedulers: run `python -m app.worker` separately.
 
 ## 1. Executive Summary

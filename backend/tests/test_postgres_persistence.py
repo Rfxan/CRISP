@@ -12,10 +12,15 @@ from app.core.deployment import production, validate_deployment
 from app.core.tenancy import tenant_transaction, read_document, write_document, audit
 
 
-@pytest.mark.parametrize('environment', ['production', 'preview'])
-def test_vercel_requires_hosted_database_and_persistent_key(monkeypatch, environment):
-    monkeypatch.setenv('VERCEL', '1')
-    monkeypatch.setenv('VERCEL_ENV', environment)
+@pytest.mark.parametrize('environment', ['production', 'preview', 'render'])
+def test_host_requires_hosted_database_and_persistent_key(monkeypatch, environment):
+    for name in ('VERCEL', 'VERCEL_ENV', 'RENDER'):
+        monkeypatch.delenv(name, raising=False)
+    if environment == 'render':
+        monkeypatch.setenv('RENDER', 'true')
+    else:
+        monkeypatch.setenv('VERCEL', '1')
+        monkeypatch.setenv('VERCEL_ENV', environment)
     monkeypatch.setenv('CRISP_ENV', 'development')
     monkeypatch.delenv('CRISP_DATABASE_URL', raising=False)
     monkeypatch.delenv('CRISP_ENCRYPTION_KEY', raising=False)
