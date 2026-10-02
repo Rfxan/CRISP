@@ -20,8 +20,8 @@ def is_guest():
 def enforce_limits(snapshot):
     if is_guest():
         from fastapi import HTTPException
-        if len(snapshot.get("assets", [])) > 100 or len(snapshot.get("findings", [])) > 500:
-            raise HTTPException(422, "Public workspaces support up to 100 assets and 500 findings")
+        if len(snapshot.get("assets", [])) > 200 or len(snapshot.get("findings", [])) > 500:
+            raise HTTPException(422, "Public workspaces support up to 200 assets and 500 findings")
 
 
 def browser_workspace(cookie_header):

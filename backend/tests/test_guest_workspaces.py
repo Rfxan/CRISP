@@ -61,8 +61,8 @@ def test_guest_cleanup_and_limits_preserve_owner(guest):
         write_document('snapshot', {'owner':True})
     with tenant_transaction({'tenant':'guest:expired','subject':'test'}):
         write_document('snapshot', {'sample':True})
-        with pytest.raises(Exception, match='100 assets'):
-            enforce_limits({'assets':[{}]*101})
+        with pytest.raises(Exception, match='200 assets'):
+            enforce_limits({'assets':[{}]*201})
     db = connect()
     db.execute('INSERT INTO guest_sessions(tenant,expires) VALUES(?,?)', ('guest:expired', 1))
     cleanup_workspaces(db, 2)
@@ -86,3 +86,15 @@ def test_guest_connectors_never_use_server_secrets(guest, monkeypatch):
         assert WazuhConnector().password == ''
         assert KeycloakConnector().admin_token == ''
         assert llm_config_store.get_config()['api_key'] == ''
+
+
+def test_public_sample_dataset_can_load_and_stays_isolated(guest):
+    from app.main import app
+    with TestClient(app, base_url='https://testserver') as first, TestClient(app, base_url='https://testserver') as second:
+        first.get('/api/security/capabilities')
+        second.get('/api/security/capabilities')
+        loaded = first.post('/api/data/seed')
+        assert loaded.status_code == 200, loaded.text
+        assert loaded.json()['assets_count'] > 0
+        assert loaded.json()['new_eal'] > 0
+        assert second.get('/api/data/snapshot').json()['assets'] == []
