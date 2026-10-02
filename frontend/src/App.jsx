@@ -13,6 +13,7 @@ import DataIngestionHub from './components/DataIngestionHub';
 import ConnectionsSettings from './components/ConnectionsSettings';
 import LandingPage from './components/LandingPage';
 import { api } from './services/api';
+import { AccessContext } from './AccessContext';
 import { 
   BarChart3, Search, Target, Sparkles, FileCheck, Bot, AlertTriangle, AlertCircle, ShieldCheck, Database, Radio, RefreshCw
 } from 'lucide-react';
@@ -20,6 +21,7 @@ import { formatINR } from './utils/formatters';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('executive');
+  const [canEdit, setCanEdit] = useState(false);
   const navigate = useNavigate();
   const [summary, setSummary] = useState(null);
   const [curveData, setCurveData] = useState(null);
@@ -98,6 +100,10 @@ export default function App() {
   };
 
   useEffect(() => {
+    fetch('/api/security/capabilities')
+      .then(response => response.ok ? response.json() : Promise.reject())
+      .then(capabilities => setCanEdit(capabilities.can_edit === true))
+      .catch(() => setCanEdit(false));
     loadData();
     const timer = setInterval(() => { if (!document.hidden) loadData(); }, 60000);
     return () => clearInterval(timer);
@@ -117,7 +123,9 @@ export default function App() {
     { id: 'whatif', label: 'What-If Simulator', shortLabel: 'What-If', icon: Sparkles },
     { id: 'compliance', label: 'Compliance & India Regs', shortLabel: 'Compliance', icon: FileCheck },
     { id: 'ai', label: 'AI Decision Support', shortLabel: 'AI Copilot', icon: Bot }
-  ];
+  ].filter(tab => canEdit || !['ingestion', 'connections', 'ai'].includes(tab.id));
+
+  const navigateToIngestion = canEdit ? () => setActiveTab('ingestion') : undefined;
 
   const DashboardLayout = () => (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'row', backgroundColor: 'var(--bg-main)' }}>
@@ -138,6 +146,11 @@ export default function App() {
 
       {/* Main View Area */}
       <main style={{ flex: 1, padding: '32px', overflowY: 'auto' }}>
+        {!canEdit && (
+          <div className="glass-panel" style={{ padding: '12px 18px', marginBottom: 20, color: 'var(--text-muted)' }}>
+            Public read-only demo · Explore analytics and scenarios. Saved changes and integrations are unavailable.
+          </div>
+        )}
         
         <RiskExplanation summary={summary} />
         {/* Toast Alert */}
@@ -235,18 +248,18 @@ export default function App() {
                 driversData={driversData}
                 loadError={loadError}
                 onRetry={() => loadData(true)}
-                onNavigateToIngestion={() => setActiveTab('ingestion')} 
+                onNavigateToIngestion={navigateToIngestion}
                 onRefresh={() => loadData(true)} 
               />
             )}
             {activeTab === 'drilldown' && (
-              <TechnicalDrilldown summary={summary} driversData={driversData} onNavigateToIngestion={() => setActiveTab('ingestion')} />
+              <TechnicalDrilldown summary={summary} driversData={driversData} onNavigateToIngestion={navigateToIngestion} />
             )}
             {activeTab === 'optimizer' && (
               <OptimizerView 
                 baseEal={summary?.org?.eal} 
                 status={summary?.status} 
-                onNavigateToIngestion={() => setActiveTab('ingestion')} 
+                onNavigateToIngestion={navigateToIngestion}
               />
             )}
             {activeTab === 'whatif' && (
@@ -255,20 +268,20 @@ export default function App() {
                 baselineVar95={summary?.org?.var95}
                 trials={summary?.trials} 
                 status={summary?.status} 
-                onNavigateToIngestion={() => setActiveTab('ingestion')} 
+                onNavigateToIngestion={navigateToIngestion}
                 onSimulate={loadData} 
               />
             )}
             {activeTab === 'compliance' && (
-              <ComplianceHub status={summary?.status} onNavigateToIngestion={() => setActiveTab('ingestion')} />
+              <ComplianceHub status={summary?.status} onNavigateToIngestion={navigateToIngestion} />
             )}
-            {activeTab === 'ai' && (
+            {canEdit && activeTab === 'ai' && (
               <AIQueryCenter />
             )}
-            {activeTab === 'ingestion' && (
+            {canEdit && activeTab === 'ingestion' && (
               <DataIngestionHub onDataUpdated={() => loadData(true)} />
             )}
-            {activeTab === 'connections' && (
+            {canEdit && activeTab === 'connections' && (
               <ConnectionsSettings onConnectionChanged={() => loadData()} />
             )}
           </>
@@ -286,10 +299,12 @@ export default function App() {
   );
 
   return (
+    <AccessContext.Provider value={{ canEdit }}>
     <Routes>
       <Route path="/home" element={<LandingPage onSignIn={() => navigate('/dashboard')} />} />
       <Route path="/dashboard" element={DashboardLayout()} />
       <Route path="*" element={<Navigate to="/home" replace />} />
     </Routes>
+    </AccessContext.Provider>
   );
 }

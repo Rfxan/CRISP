@@ -1,7 +1,7 @@
 import re
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
 import csv
 import io
 import json

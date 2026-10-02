@@ -6,11 +6,12 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.core.deployment import production
 from app.core.tenancy import connect, begin_transaction, StateStoreUnavailable, principal_context, transaction_context, read_document, write_document, audit
 from app.core.state_proxy import bound_store, import_state, export_state
+from app.core.web_security import public_demo
 
 
 class TenantMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
-        if request.url.path in ("/health", "/api/health") or request.method == "OPTIONS":
+        if request.url.path in ("/health", "/api/health", "/api/security/capabilities") or request.method == "OPTIONS":
             return await call_next(request)
         identity = {"tenant": "local", "subject": "local-workspace"}
         # Unit tests can explicitly use the original in-memory facade. Production cannot.
@@ -38,7 +39,11 @@ class TenantMiddleware(BaseHTTPMiddleware):
             # the connector returns 502. Other rejected mutations roll back atomically.
             connector_failure = response.status_code == 502 and request.url.path in (
                 "/api/ingest/wazuh-sync", "/api/ingest/iam-sync")
-            if response.status_code < 400 or connector_failure:
+            if public_demo():
+                # Counterfactuals and lazy analytics may populate transient state,
+                # but public requests must never persist it or append audit rows.
+                db.rollback()
+            elif response.status_code < 400 or connector_failure:
                 after = export_state(local)
                 write_document("snapshot", after)
                 audit(f"{request.method} {request.url.path}",response.status_code,before,after)

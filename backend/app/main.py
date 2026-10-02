@@ -4,6 +4,9 @@ import os
 from fastapi.responses import JSONResponse
 from app.core.deployment import validate_deployment, production
 from app.core.middleware import TenantMiddleware
+from app.core.web_security import WebSecurityMiddleware, public_demo
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -83,21 +86,41 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=os.getenv("CRISP_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(","),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type"],
 )
 
 app.add_middleware(TenantMiddleware)
+app.add_middleware(WebSecurityMiddleware)
 
 
 @app.exception_handler(ValueError)
 async def invalid_input(request, exc):
-    return JSONResponse(status_code=422, content={"detail": str(exc)})
+    return JSONResponse(status_code=422, content={"detail": "Invalid input" if production() else str(exc)})
+
+
+@app.exception_handler(RequestValidationError)
+async def invalid_request(request, exc):
+    # Pydantic errors include submitted values, potentially passwords/API keys.
+    errors = [{k: e[k] for k in ("loc", "msg", "type") if k in e} for e in exc.errors()]
+    return JSONResponse(status_code=422, content={"detail": errors})
+
+
+@app.exception_handler(HTTPException)
+async def http_error(request, exc):
+    detail = "External service unavailable" if exc.status_code >= 500 else exc.detail
+    return JSONResponse(status_code=exc.status_code, content={"detail": detail}, headers=exc.headers)
 
 
 # Mount API routes
 app.include_router(api_router, prefix="/api")
+
+
+@app.get("/api/security/capabilities")
+def security_capabilities():
+    return {"public_demo": public_demo(), "can_edit": not public_demo(),
+            "can_use_ai": not public_demo()}
 
 
 @app.get("/")

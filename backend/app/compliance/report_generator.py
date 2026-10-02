@@ -1,12 +1,23 @@
 from typing import Dict, Any
 from datetime import datetime, timezone
+from html import escape
 
 class ReportGenerator:
     @staticmethod
-    def generate_html_report(eval_data: Dict[str, Any], org_name: str = "Apex FinCorp Ltd.") -> str:
+    def generate_html_report(eval_data: Dict[str, Any], org_name: str = "Organization not configured") -> str:
         """
         Generates an audit-ready, beautifully styled HTML compliance evidence report.
         """
+        def escaped(value):
+            if isinstance(value, str):
+                return escape(value)
+            if isinstance(value, dict):
+                return {k: escaped(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [escaped(v) for v in value]
+            return value
+        eval_data = escaped(eval_data)
+        org_name = escape(org_name)
         fw_name = eval_data.get("framework_name", "Compliance Framework")
         cov_pct = eval_data.get("overall_coverage_pct", 0.0)
         compliant_n = eval_data.get("compliant_controls", 0)

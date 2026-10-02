@@ -1,4 +1,5 @@
 import React from 'react';
+import { useAccess } from '../AccessContext';
 import { Database, ArrowRight, ShieldAlert, Sparkles, Layers } from 'lucide-react';
 
 export default function EmptyState({ 
@@ -7,6 +8,7 @@ export default function EmptyState({
   message, 
   onNavigateToIngestion 
 }) {
+  const { canEdit } = useAccess();
   const isNoFindings = status === 'NO_FINDINGS';
 
   const defaultMsg = isNoFindings
@@ -50,11 +52,11 @@ export default function EmptyState({
           {title}
         </h2>
         <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.6, maxWidth: 540, margin: 0 }}>
-          {message || defaultMsg}
+          {!canEdit ? 'No published demo data is available yet. Only the site owner can prepare the demo dataset.' : message || defaultMsg}
         </p>
       </div>
 
-      {onNavigateToIngestion && (
+      {canEdit && onNavigateToIngestion && (
         <button
           onClick={onNavigateToIngestion}
           className="btn btn-primary"

@@ -6,6 +6,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 import logging
 import requests
+from app.core.outbound import integration_request, validate_outbound_url
 from app.connectors.base import BaseConnector
 from app.core.config import settings
 
@@ -36,7 +37,7 @@ class KeycloakConnector(BaseConnector):
         """Authenticates with Keycloak using username/password to retrieve admin token."""
         token_url = f"{self.base_url}/realms/{self.realm}/protocol/openid-connect/token"
         try:
-            resp = requests.post(
+            resp = integration_request("post",
                 token_url,
                 data={
                     "client_id": "admin-cli",
@@ -150,7 +151,7 @@ class KeycloakConnector(BaseConnector):
         """
         url = f"{self.base_url}/admin/realms/{self.realm}/users"
         try:
-            resp = requests.get(
+            resp = integration_request("get",
                 url,
                 headers=self._get_headers(),
                 params={"max": 1000, "briefRepresentation": "false"},

@@ -5,7 +5,7 @@ into CRISP's standard Finding shape.
 """
 from typing import Dict, Any, List
 from datetime import datetime, timezone
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
 import logging
 from app.connectors.base import BaseConnector
 

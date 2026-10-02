@@ -104,7 +104,7 @@ class EvidenceReportGenerator:
         # Table rows
         for req in report_data["requirements"]:
             finding_ids_str = "; ".join(req["supporting_finding_ids"]) if req["supporting_finding_ids"] else "None"
-            writer.writerow([
+            row = [
                 req["requirement_id"],
                 req["clause"] or "N/A",
                 req["title"],
@@ -118,7 +118,11 @@ class EvidenceReportGenerator:
                 req["last_assessment_run_id"],
                 req["assessment_timestamp"],
                 req["unmapped_reason"] or "N/A", req["requirement_source"], req["requirement_version"], req["applicability"], req["reviewer"], req["reviewer_decision"], req["reviewed_at"]
-            ])
+            ]
+            # Prevent spreadsheet formulas in imported evidence/reviewer text.
+            writer.writerow(["'" + value if isinstance(value, str) and
+                             value.lstrip().startswith(("=", "+", "-", "@")) else value
+                             for value in row])
 
         return output.getvalue()
 

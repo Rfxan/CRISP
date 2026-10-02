@@ -18,6 +18,10 @@ For a separate Render backend, see [Render deployment](docs/RENDER_DEPLOYMENT.md
 
 [Deploy backend and database to Render](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2FRfxan%2FCRISP)
 
+Hosted deployments are public read-only demos. Administration and paid AI calls
+are blocked by the API, with shared rate limits and request protections. Local
+development retains editing. See [security configuration and limits](docs/SECURITY.md).
+
 Read [Risk model and deployment contract](docs/RISK_MODEL_AND_DEPLOYMENT.md) for calculation assumptions, evidence rules, direct workspace access, persistent transactional storage, worker setup and remaining limits. Financial estimates are uncalibrated planning estimates; curated mappings are not regulatory certification. The API no longer starts background schedulers: run `python -m app.worker` separately.
 
 ## 1. Executive Summary

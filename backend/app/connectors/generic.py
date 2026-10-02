@@ -5,7 +5,8 @@ Reuses field navigation logic from sniffer.py.
 """
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
+from xml.etree.ElementTree import Element
 import csv
 import io
 import json
@@ -51,7 +52,7 @@ class GenericVendorConnector(BaseConnector):
     def normalize(self, raw_data: Any) -> List[Dict[str, Any]]:
         return raw_data if isinstance(raw_data, list) else []
 
-    def _extract_records_from_xml(self, content: bytes) -> List[ET.Element]:
+    def _extract_records_from_xml(self, content: bytes) -> List[Element]:
         """Finds all record elements matching the configured record path."""
         root = ET.fromstring(content)
         if not self.record_path:

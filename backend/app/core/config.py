@@ -29,8 +29,8 @@ class Settings:
 
     # Wazuh SIEM / EDR settings
     WAZUH_BASE_URL: str = os.getenv("WAZUH_BASE_URL", "https://localhost:55000")
-    WAZUH_USERNAME: str = os.getenv("WAZUH_USERNAME", "wazuh-wui")
-    WAZUH_PASSWORD: str = os.getenv("WAZUH_PASSWORD", "wazuh-wui")
+    WAZUH_USERNAME: str = os.getenv("WAZUH_USERNAME", "")
+    WAZUH_PASSWORD: str = os.getenv("WAZUH_PASSWORD", "")
 
     # Keycloak IAM settings
     KEYCLOAK_BASE_URL: str = os.getenv("KEYCLOAK_BASE_URL", "http://localhost:8080")

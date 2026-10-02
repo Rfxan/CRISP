@@ -8,6 +8,7 @@ import time
 import logging
 from typing import Dict, Any, Optional
 import httpx
+from app.core.outbound import validate_outbound_url
 from openai import OpenAI
 
 from app.ai.llm_config_store import llm_config_store, DEFAULT_MODELS, DEFAULT_BASE_URLS
@@ -36,7 +37,9 @@ class LLMService:
             api_key=api_key or "dummy_key",
             base_url=active_url,
             timeout=timeout,
-            max_retries=max_retries
+            max_retries=max_retries,
+            http_client=httpx.Client(timeout=timeout, follow_redirects=False, trust_env=False,
+                event_hooks={"request": [lambda request: validate_outbound_url(str(request.url), provider=True)]})
         )
 
     @staticmethod
@@ -79,7 +82,8 @@ class LLMService:
             if not any(k in model for k in ["-5", "-4-6", "-4-7", "-4-8"]):
                 body["temperature"] = temperature
 
-            with httpx.Client(timeout=timeout) as client:
+            with httpx.Client(timeout=timeout, follow_redirects=False, trust_env=False,
+                    event_hooks={"request": [lambda request: validate_outbound_url(str(request.url), provider=True)]}) as client:
                 res = client.post("https://api.anthropic.com/v1/messages", headers=headers, json=body)
                 if not res.is_success and res.status_code == 400 and "temperature" in res.text:
                     # Retry without temperature for models that deprecate temperature
@@ -107,15 +111,16 @@ class LLMService:
                 )
                 answer = response.choices[0].message.content or ""
             except Exception as direct_err:
-                logger.info(f"OpenAI-compat Gemini failed, trying native REST: {direct_err}")
-                rest_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+                logger.info("OpenAI-compat Gemini failed, trying native REST")
+                rest_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
                 rest_body = {
                     "systemInstruction": {"parts": [{"text": system_context}]},
                     "contents": [{"parts": [{"text": prompt}]}],
                     "generationConfig": {"temperature": temperature, "maxOutputTokens": 1200}
                 }
-                with httpx.Client(timeout=timeout) as http_c:
-                    r = http_c.post(rest_url, json=rest_body)
+                with httpx.Client(timeout=timeout, follow_redirects=False, trust_env=False,
+                        event_hooks={"request": [lambda request: validate_outbound_url(str(request.url), provider=True)]}) as http_c:
+                    r = http_c.post(rest_url, json=rest_body, headers={"x-goog-api-key": api_key})
                     if not r.is_success:
                         raise RuntimeError(f"Gemini API Error ({r.status_code}): {r.text}")
                     gem_data = r.json()
@@ -213,9 +218,7 @@ class LLMService:
             }
         except Exception as e:
             latency = int((time.time() - start) * 1000)
-            err_str = str(e)
-            if "ConnectError" in err_str or "Connection error" in err_str or "All connection attempts failed" in err_str:
-                err_str = f"Connection failed to endpoint. Is {provider.capitalize()} server online?"
+            err_str = "Provider connection failed; check the server configuration and credentials"
             return {
                 "connected": False,
                 "provider": provider,

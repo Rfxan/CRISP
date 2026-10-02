@@ -2,6 +2,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone, timedelta
 import logging
 import requests
+from app.core.outbound import integration_request, validate_outbound_url
 from app.connectors.base import BaseConnector
 from app.core.config import settings
 
@@ -23,10 +24,9 @@ class WazuhConnector(BaseConnector):
     def _authenticate(self) -> str:
         """Authenticates with Wazuh API and returns a JWT token."""
         try:
-            resp = requests.post(
+            resp = integration_request("post",
                 f"{self.base_url}/security/user/authenticate",
                 auth=(self.username, self.password),
-                verify=False,
                 timeout=10
             )
             resp.raise_for_status()
@@ -89,11 +89,10 @@ class WazuhConnector(BaseConnector):
         Raises ConnectionError on failure — never returns fake numbers.
         """
         try:
-            resp = requests.get(
+            resp = integration_request("get",
                 f"{self.base_url}/agents",
                 headers=self._get_headers(),
                 params={"limit": 500, "select": "status,id,name"},
-                verify=False,
                 timeout=10
             )
             resp.raise_for_status()
@@ -144,10 +143,9 @@ class WazuhConnector(BaseConnector):
 
         # 1. Primary: Query /manager/stats (supported on Wazuh 4.x manager)
         try:
-            resp_stats = requests.get(
+            resp_stats = integration_request("get",
                 f"{self.base_url}/manager/stats",
                 headers=self._get_headers(),
-                verify=False,
                 timeout=10
             )
             if resp_stats.status_code == 200:
@@ -171,11 +169,10 @@ class WazuhConnector(BaseConnector):
 
         # 2. Secondary: Query /alerts if available
         try:
-            resp = requests.get(
+            resp = integration_request("get",
                 f"{self.base_url}/alerts",
                 headers=self._get_headers(),
                 params={"limit": 10000, "older_than": f"{hours}h", "select": "rule.level,rule.id"},
-                verify=False,
                 timeout=15
             )
             resp.raise_for_status()

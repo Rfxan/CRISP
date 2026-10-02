@@ -16,7 +16,8 @@ from app.ai.decision_support import DecisionSupportAI
 @pytest.fixture
 def persisted(monkeypatch, tmp_path):
     monkeypatch.setenv('CRISP_DATABASE_PATH', str(tmp_path/'state.sqlite3'))
-    monkeypatch.setenv('CRISP_ENV','production')
+    # Editing is now restricted to local development; hosted instances are demos.
+    monkeypatch.setenv('CRISP_ENV','development')
     monkeypatch.setenv('CRISP_ENCRYPTION_KEY',Fernet.generate_key().decode())
     monkeypatch.setenv('CRISP_TESTING','0')
     # A leftover token setting must not reactivate the removed feature.

@@ -4,14 +4,15 @@ Inspects sample files (XML, CSV, JSON) and returns structural metadata
 and available fields without parsing into findings.
 """
 from typing import Dict, Any, List, Set, Optional, Tuple
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
+from xml.etree.ElementTree import Element
 import csv
 import io
 import json
 import re
 
 
-def _extract_xml_fields(elem: ET.Element, prefix: str = "") -> Set[str]:
+def _extract_xml_fields(elem: Element, prefix: str = "") -> Set[str]:
     """Recursively extract tag and attribute paths from an XML element."""
     fields = set()
     # Add attributes of current element
@@ -32,7 +33,7 @@ def _extract_xml_fields(elem: ET.Element, prefix: str = "") -> Set[str]:
     return fields
 
 
-def _collect_xml_paths(elem: ET.Element, current_path: str = "") -> List[Tuple[str, ET.Element]]:
+def _collect_xml_paths(elem: Element, current_path: str = "") -> List[Tuple[str, Element]]:
     """Collects all element paths in the XML document."""
     tag = elem.tag
     if "}" in tag:
@@ -73,7 +74,7 @@ def extract_field_value(record: Any, field_path: Optional[str]) -> Optional[Any]
     path_str = str(field_path).strip()
 
     # 1. XML Element record
-    if isinstance(record, ET.Element):
+    if isinstance(record, Element):
         # Attribute on root element itself: e.g. "@port" or "port"
         if path_str.startswith("@"):
             attr_name = path_str[1:]
@@ -156,7 +157,7 @@ def detect_structure(file_content: bytes, file_extension: str = "") -> Dict[str,
 
             # Count frequency of each path
             path_counts: Dict[str, int] = {}
-            nodes_by_path: Dict[str, List[ET.Element]] = {}
+            nodes_by_path: Dict[str, List[Element]] = {}
             for p, node in all_nodes:
                 # Do not treat root element itself as a repeated record
                 if p == root.tag.split("}")[-1]:

@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 from typing import Dict, Any, List, Optional
 import json
 import copy
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
 import csv
 import io
 import re
@@ -681,15 +681,15 @@ store = StoreProxy(SnapshotStore)
 
 # Request Models
 class SimulateRequest(BaseModel):
-    actions: List[Dict[str, Any]]
-    seed: int = Field(default=42, ge=0)
+    actions: List[Dict[str, Any]] = Field(max_length=100)
+    seed: int = Field(default=42, ge=0, le=4294967295)
 
 class OptimizeRequest(BaseModel):
-    budget: float = Field(default=10_000_000.0, ge=0, allow_inf_nan=False)  # ₹1 Crore default
+    budget: float = Field(default=10_000_000.0, ge=0, le=1e12, allow_inf_nan=False)  # ₹1 Crore default
     constraints: Optional[Dict[str, Any]] = None
 
 class AskRequest(BaseModel):
-    question: str
+    question: str = Field(min_length=1, max_length=4000)
 
 class InjectEventRequest(BaseModel):
     cve_id: str = "CVE-2026-9999"
@@ -712,9 +712,9 @@ class VendorSaveRequest(BaseModel):
     sample_file_used: Optional[str] = None
 
 class ConnectionPayload(BaseModel):
-    base_url: str
-    username: Optional[str] = ""
-    password: Optional[str] = ""
+    base_url: str = Field(min_length=1, max_length=2048)
+    username: Optional[str] = Field(default="", max_length=256)
+    password: Optional[str] = Field(default="", max_length=4096)
 
 class LLMConfigPayload(BaseModel):
     provider: str

@@ -122,8 +122,17 @@ def test_api_threat_anomalies_endpoint():
     assert isinstance(data["signals"], list)
 
 
-def test_api_threat_anomalies_inject_endpoint():
+def test_api_threat_anomalies_inject_endpoint(monkeypatch):
     """POST /api/threats/anomalies/inject injects a synthetic anomaly spike and returns score."""
+    from app.api.routes import store, connections_store
+    import copy
+    # This is an explicit demo exercise, independent of saved laptop connections.
+    monkeypatch.setattr(connections_store, 'get_connection', lambda category: None)
+    monkeypatch.setattr(store, 'has_real_siem_sync', False)
+    monkeypatch.setattr(store, 'current_snapshot', copy.deepcopy(store.current_snapshot))
+    store.current_snapshot.pop('wazuh_telemetry', None)
+    monkeypatch.setattr(store, 'telemetry_history', [])
+    store._init_demo_telemetry_history()
     client = TestClient(app)
     payload = {
         "agent_id": "agent-test-inject",
@@ -187,4 +196,3 @@ def test_fair_core_boundary_independence():
     assert res1["org"]["eal"] == res2["org"]["eal"]
     assert res1["org"]["var95"] == res2["org"]["var95"]
     assert res1["org"]["score"] == res2["org"]["score"]
-

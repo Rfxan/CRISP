@@ -10,7 +10,8 @@ def main():
         raise ValueError("PORT must be an integer between 1 and 65535") from None
     if not 1 <= port <= 65535:
         raise ValueError("PORT must be an integer between 1 and 65535")
-    uvicorn.run("app.main:app", host="0.0.0.0", port=port)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, server_header=False,
+                proxy_headers=False, limit_concurrency=32, timeout_keep_alive=5)
 
 
 if __name__ == "__main__":

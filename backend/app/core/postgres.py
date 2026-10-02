@@ -10,6 +10,8 @@ class StateStoreUnavailable(RuntimeError):
 _initialized = set()
 _schema_lock = threading.Lock()
 _schema_statements = (
+    '''CREATE TABLE IF NOT EXISTS security_rate_limits (
+        bucket TEXT PRIMARY KEY, hits INTEGER NOT NULL, expires BIGINT NOT NULL)''',
     '''CREATE TABLE IF NOT EXISTS tenant_documents (
         tenant TEXT NOT NULL, name TEXT NOT NULL, body TEXT NOT NULL,
         version INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(tenant,name))''',

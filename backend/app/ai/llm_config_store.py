@@ -15,6 +15,7 @@ from typing import Dict, Any, Optional
 
 from app.core.config import DATA_DIR
 from app.core.security import encrypt_credential, decrypt_credential
+from app.core.outbound import validate_outbound_url
 
 logger = logging.getLogger(__name__)
 
@@ -209,6 +210,8 @@ class LLMConfigStore:
         provider = (provider or "gemini").lower()
         model = model or DEFAULT_MODELS.get(provider, "gemini-1.5-flash")
         base_url = base_url if base_url is not None else DEFAULT_BASE_URLS.get(provider, "")
+        if base_url:
+            validate_outbound_url(base_url, provider=True)
 
         current = self._read_file()
         update_data = {

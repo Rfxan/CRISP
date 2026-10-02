@@ -7,7 +7,7 @@ not just file extensions, to accurately identify scanner & EDR formats:
   - Tenable Nessus Vulnerability Scanner (XML with <NessusClientData_v2> root)
 """
 
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
 import csv
 import io
 import json

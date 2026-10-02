@@ -209,6 +209,8 @@ class ConnectionsStore:
             return {"success": False, "detail": "Base URL cannot be empty."}
 
         base_url = base_url.strip().rstrip("/")
+        from app.core.outbound import validate_outbound_url
+        validate_outbound_url(base_url)
 
         if cat == "siem":
             try:
@@ -255,6 +257,8 @@ class ConnectionsStore:
         if cat not in ["siem", "iam"]:
             raise ValueError(f"Invalid connection category '{category}'. Must be 'siem' or 'iam'.")
 
+        from app.core.outbound import validate_outbound_url
+        validate_outbound_url(base_url)
         data = self._read_file()
         existing = data.get(cat, {})
 

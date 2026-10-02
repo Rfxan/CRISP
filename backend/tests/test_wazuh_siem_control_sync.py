@@ -180,7 +180,8 @@ def test_wazuh_sync_failure_resets_both_controls_to_not_connected():
 
             res = client.post("/api/ingest/wazuh-sync")
             assert res.status_code == 502
-            assert "Connection timeout" in res.json()["detail"]
+            assert res.json()["detail"] == "External service unavailable"
+            assert "Connection timeout" not in res.text
 
             ctrl_edr = next((c for c in store.current_snapshot["control_state"] if c["control_id"] == "CTRL-EDR-01"), None)
             ctrl_siem = next((c for c in store.current_snapshot["control_state"] if c["control_id"] == "CTRL-SIEM-01"), None)

@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +16,8 @@ from app.core.deployment import requires_hosted_database
 
 principal_context = contextvars.ContextVar("principal", default=None)
 transaction_context = contextvars.ContextVar("transaction", default=None)
+_sqlite_schema_lock = threading.Lock()
+_initialized_sqlite = set()
 
 
 def database_path():
@@ -33,9 +36,26 @@ def connect():
     path.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(path, timeout=60, isolation_level=None, check_same_thread=False)
     db.execute("PRAGMA busy_timeout=60000")
-    db.execute("PRAGMA journal_mode=WAL")
     db.execute("PRAGMA foreign_keys=ON")
+    # Setting journal mode while another connection initializes can fail even
+    # with busy_timeout. Serialize first initialization within each process.
+    key = str(path.resolve())
+    with _sqlite_schema_lock:
+        if key not in _initialized_sqlite:
+            try:
+                db.execute("PRAGMA journal_mode=WAL")
+                _initialize_sqlite(db)
+                _initialized_sqlite.add(key)
+            except Exception:
+                db.close()
+                raise
+    return db
+
+
+def _initialize_sqlite(db):
     db.executescript('''
+        CREATE TABLE IF NOT EXISTS security_rate_limits (
+            bucket TEXT PRIMARY KEY, hits INTEGER NOT NULL, expires BIGINT NOT NULL);
         CREATE TABLE IF NOT EXISTS tenant_documents (
             tenant TEXT NOT NULL, name TEXT NOT NULL, body TEXT NOT NULL,
             version INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(tenant,name));
@@ -48,7 +68,6 @@ def connect():
         CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit_events
             BEGIN SELECT RAISE(ABORT, 'Audit events are append only'); END;
     ''')
-    return db
 
 
 def begin_transaction(db, tenant):

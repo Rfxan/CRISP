@@ -10,6 +10,7 @@ import {
 import { formatINR, formatINRFull } from '../utils/formatters';
 import { api } from '../services/api';
 import EmptyState from './EmptyState';
+import { useAccess } from '../AccessContext';
 
 function formatRelativeTime(isoString) {
   if (!isoString) return 'Never';
@@ -43,6 +44,7 @@ export default function ExecutiveView({
   onNavigateToIngestion, 
   onRefresh 
 }) {
+  const { canEdit } = useAccess();
   const [syncing, setSyncing] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState(null);
   const [, setTick] = useState(0);
@@ -294,10 +296,10 @@ export default function ExecutiveView({
               cursor: syncing ? 'wait' : 'pointer'
             }}
             onClick={handleSyncNow}
-            disabled={syncing}
+            disabled={syncing || !canEdit}
           >
             <RefreshCw size={13} className={syncing ? 'spin-anim' : ''} />
-            <span>{syncing ? 'Syncing...' : 'Sync now'}</span>
+            <span>{!canEdit ? 'Read-only demo' : syncing ? 'Syncing...' : 'Sync now'}</span>
           </button>
         </div>
       </div>

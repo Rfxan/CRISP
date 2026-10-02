@@ -104,7 +104,9 @@ def test_postgres_concurrent_processes_and_worker_deduplication(postgres):
     assert sorted(outcomes) == [False, True]
 
 
-def test_postgres_api_persists_across_clients(postgres):
+def test_postgres_api_persists_across_clients(postgres, monkeypatch):
+    # Administration is local-only; production HTTP is a public read-only demo.
+    monkeypatch.setenv('CRISP_ENV', 'development')
     from fastapi.testclient import TestClient
     from app.main import app
     with TestClient(app) as client:

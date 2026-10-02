@@ -10,9 +10,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY backend/ /app/
+RUN useradd --create-home --uid 10001 crisp
+COPY --chown=crisp:crisp backend/ /app/
 
 ENV PYTHONPATH=/app
+USER crisp
 EXPOSE 8000
 
 CMD ["python", "-m", "app.serve"]

@@ -6,8 +6,10 @@ import { formatINR } from '../utils/formatters';
 import { api } from '../services/api';
 import GovernanceEvidence from './GovernanceEvidence';
 import EmptyState from './EmptyState';
+import { useAccess } from '../AccessContext';
 
 export default function ComplianceHub({ status, onNavigateToIngestion }) {
+  const { canEdit } = useAccess();
   const [selectedFramework, setSelectedFramework] = useState('sebi');
   const [evalData, setEvalData] = useState(null);
   const [frameworkSummaries, setFrameworkSummaries] = useState({});
@@ -100,7 +102,7 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
         <p>Observed control coverage: {evalData?.observed_control_coverage_pct == null ? 'Unknown' : `${evalData.observed_control_coverage_pct}%`} · Evidence completeness: {evalData?.evidence_completeness_pct ?? 'Unknown'}% · Assessed compliant controls: {evalData?.assessed_compliance_pct ?? 'Unknown'}%</p>
         <p>Mapping coverage describes this curated subset. It does not establish compliance with an entire framework.</p>
       </div>
-      <GovernanceEvidence controls={evalData?.controls} onSaved={() => { loadCompliance(selectedFramework); loadSummaries(); }} />
+      {canEdit && <GovernanceEvidence controls={evalData?.controls} onSaved={() => { loadCompliance(selectedFramework); loadSummaries(); }} />}
       {/* Framework Selector Tabs with Honest Mapping Badges */}
       <div className="glass-panel" style={{ padding: 20, borderTop: '3px solid var(--accent-green)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
