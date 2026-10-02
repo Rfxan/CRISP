@@ -42,6 +42,8 @@ DEFAULT_BASE_URLS = {
 def _get_storage_path() -> Path:
     """Returns primary path in DATA_DIR or fallback outside protected Documents folder."""
     primary = DATA_DIR / "llm_config.json"
+    if production():
+        return primary  # No startup writes into the read-only function bundle.
     
     # Check if primary directory is writable
     try:
@@ -67,7 +69,7 @@ class LLMConfigStore:
 
     def _ensure_file(self):
         """Ensures the llm_config.json file exists and is valid JSON."""
-        if active():
+        if active() or production():
             return
         if not self.file_path.exists():
             self._write_file({})

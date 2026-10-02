@@ -1,4 +1,5 @@
 from app.core.tenancy import active, read_document, write_document
+from app.core.deployment import production
 """
 CRISP Telemetry Synchronization State Manager.
 Persists the timestamp, source, counts (assets/findings/agents), and status (ok/error)
@@ -28,6 +29,8 @@ def _resolve_sync_state_path() -> Path:
     then ~/.crisp/sync_state.json, then system tempdir.
     """
     backend_root = Path(__file__).resolve().parents[2]
+    if production():
+        return backend_root / "data" / "sync_state.json"
     candidates = [
         backend_root / "data" / "sync_state.json",
         Path(__file__).resolve().parent.parent / "data" / "sync_state.json",
@@ -68,6 +71,9 @@ class SyncStateManager:
         """Loads sync_state.json from disk if present."""
         if active():
             self._state = read_document("sync_state", {})
+            return
+        if production():
+            self._state = {}
             return
         if self.file_path.exists():
             try:

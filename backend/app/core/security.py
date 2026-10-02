@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 from cryptography.fernet import Fernet
+from app.core.deployment import production
 
 # Automatically load .env if present in backend or root directory
 env_path = Path(__file__).resolve().parent.parent.parent / ".env"
@@ -42,7 +43,7 @@ def _get_fernet() -> Fernet:
     """
     global _ephemeral_fernet
     key = os.getenv("CRISP_ENCRYPTION_KEY")
-    if os.getenv("CRISP_ENV", "development").lower() == "production":
+    if production():
         if not key:
             raise RuntimeError("Production requires a persistent CRISP_ENCRYPTION_KEY")
         return Fernet(key.strip().encode("utf-8"))

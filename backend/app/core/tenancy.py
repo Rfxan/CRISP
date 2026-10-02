@@ -1,7 +1,6 @@
-"""Tenant-bound SQLite transactions for a single-host, multi-process deployment.
+"""Tenant-bound document transactions: hosted PostgreSQL or local SQLite.
 
-All API state changes and background syncs use the same write transaction. SQLite
-serializes writers across processes; use a server database for multi-host scaling.
+Every API change and worker sync acquires the same workspace transaction lock.
 """
 import contextvars
 import hashlib
@@ -11,6 +10,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from app.core.postgres import connect_postgres, StateStoreUnavailable
 
 principal_context = contextvars.ContextVar("principal", default=None)
 transaction_context = contextvars.ContextVar("transaction", default=None)
@@ -21,6 +21,13 @@ def database_path():
 
 
 def connect():
+    url = os.getenv("CRISP_DATABASE_URL", "").strip()
+    if url:
+        if not url.startswith(("postgresql://", "postgres://")):
+            raise ValueError("CRISP_DATABASE_URL must be a PostgreSQL connection URL")
+        return connect_postgres(url)
+    if os.getenv("VERCEL") == "1" and os.getenv("VERCEL_ENV") != "development":
+        raise RuntimeError("Vercel deployments require a hosted CRISP_DATABASE_URL; local SQLite is not durable")
     path = database_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(path, timeout=60, isolation_level=None, check_same_thread=False)
@@ -43,13 +50,20 @@ def connect():
     return db
 
 
+def begin_transaction(db, tenant):
+    if hasattr(db, "begin"):
+        db.begin(tenant)
+    else:
+        db.execute("BEGIN IMMEDIATE")
+
+
 @contextmanager
 def tenant_transaction(principal):
     db = connect()
     ptoken = principal_context.set(principal)
     ttoken = transaction_context.set(db)
     try:
-        db.execute("BEGIN IMMEDIATE")
+        begin_transaction(db, principal["tenant"])
         yield db
         db.commit()
     except BaseException:
@@ -79,7 +93,7 @@ def write_document(name, value):
     if db is None:
         raise RuntimeError("Tenant document access requires a transaction")
     db.execute('''INSERT INTO tenant_documents(tenant,name,body) VALUES(?,?,?)
-        ON CONFLICT(tenant,name) DO UPDATE SET body=excluded.body, version=version+1''',
+        ON CONFLICT(tenant,name) DO UPDATE SET body=excluded.body, version=tenant_documents.version+1''',
         (principal_context.get()["tenant"], name, json.dumps(value, allow_nan=False)))
 
 

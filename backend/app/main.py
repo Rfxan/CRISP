@@ -113,6 +113,7 @@ def root():
 
 
 @app.get("/health")
+@app.get("/api/health")
 def health_check():
     return {"status": "ok", "platform": settings.PROJECT_NAME, "version": settings.VERSION}
 

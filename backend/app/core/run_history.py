@@ -1,4 +1,5 @@
 from app.core.tenancy import active, read_document, write_document
+from app.core.deployment import production
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
@@ -13,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 def _resolve_run_history_path() -> Path:
     backend_root = Path(__file__).resolve().parent.parent.parent
+    if production():
+        return backend_root / "data" / "run_history.jsonl"
     candidates = [
         backend_root / "data" / "run_history.jsonl",
         Path.home() / ".crisp" / "run_history.jsonl",
@@ -48,7 +51,8 @@ class RunHistoryManager:
         self.default_data_path = backend_root / "data" / "run_history.jsonl"
         self._is_custom = history_file is not None
         self.history_file = Path(history_file) if history_file else _resolve_run_history_path()
-        self.history_file.parent.mkdir(parents=True, exist_ok=True)
+        if not production() or self._is_custom:
+            self.history_file.parent.mkdir(parents=True, exist_ok=True)
 
     def append_run(
         self,

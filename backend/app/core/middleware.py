@@ -4,24 +4,26 @@ import anyio
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from app.core.deployment import production
-from app.core.tenancy import connect, principal_context, transaction_context, read_document, write_document, audit
+from app.core.tenancy import connect, begin_transaction, StateStoreUnavailable, principal_context, transaction_context, read_document, write_document, audit
 from app.core.state_proxy import bound_store, import_state, export_state
 
 
 class TenantMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
-        if request.url.path == "/health" or request.method == "OPTIONS":
+        if request.url.path in ("/health", "/api/health") or request.method == "OPTIONS":
             return await call_next(request)
         identity = {"tenant": "local", "subject": "local-workspace"}
         # Unit tests can explicitly use the original in-memory facade. Production cannot.
         if os.getenv("CRISP_TESTING") == "1" and not production():
             return await call_next(request)
-        db = await anyio.to_thread.run_sync(connect)
+        db = None
         try:
-            await anyio.to_thread.run_sync(lambda: db.execute("BEGIN IMMEDIATE"))
-        except sqlite3.OperationalError:
-            db.close()
-            return JSONResponse({"detail":"State store busy; retry the request"},503)
+            db = await anyio.to_thread.run_sync(connect)
+            await anyio.to_thread.run_sync(lambda: begin_transaction(db, identity["tenant"]))
+        except (sqlite3.OperationalError, StateStoreUnavailable):
+            if db is not None:
+                db.close()
+            return JSONResponse({"detail":"State store busy or unavailable; retry the request"},503)
         pt = principal_context.set(identity)
         tt = transaction_context.set(db)
         from app.api.routes import SnapshotStore
@@ -43,7 +45,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
                 db.commit()
             else:
                 db.rollback()
-                db.execute("BEGIN IMMEDIATE")
+                await anyio.to_thread.run_sync(lambda: begin_transaction(db, identity["tenant"]))
                 audit(f"{request.method} {request.url.path}", response.status_code)
                 db.commit()
             return response

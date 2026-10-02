@@ -1,19 +1,7 @@
 import { createServer } from 'vite';
-import react from '@vitejs/plugin-react';
 
-const server = await createServer({
-  configFile: false,
-  plugins: [react()],
-  server: {
-    port: 5173,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:8000',
-        changeOrigin: true
-      }
-    }
-  }
-});
+// Use the same configuration for npm run dev and Vercel's service dev command.
+const server = await createServer();
 
 await server.listen();
 server.printUrls();

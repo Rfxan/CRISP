@@ -34,6 +34,8 @@ def _normalize_category(category: str) -> str:
 def _get_connections_storage_path() -> Path:
     """Returns primary path in DATA_DIR or fallback outside protected Documents folder."""
     primary = DATA_DIR / "connections.json"
+    if production():
+        return primary  # Deployed state lives in the transactional database.
     try:
         primary.parent.mkdir(parents=True, exist_ok=True)
         test_file = primary.parent / ".perm_check_conn"
@@ -56,7 +58,7 @@ class ConnectionsStore:
 
     def _ensure_file(self):
         """Ensures the connections.json file exists and is valid JSON."""
-        if active():
+        if active() or production():
             return
         if not self.file_path.exists():
             self._write_file({})

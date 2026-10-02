@@ -1,3 +1,5 @@
+// Browser requests use the public gateway. Internal service bindings are only
+// available to runtime functions and must never be baked into this static app.
 const API_BASE = '/api';
 
 export const api = {
