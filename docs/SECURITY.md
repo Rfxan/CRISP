@@ -9,7 +9,9 @@ next rate-limited request arrives. Mutation audit records remain append-only.
 Origin checks reject cross-site writes. Tenant selection headers are ignored.
 
 Each workspace starts empty. The Ingestion screen offers an explicit synthetic
-sample dataset button for evaluation. Workspaces allow up to 200 assets and 500
+sample dataset button for evaluation. The public sample includes the assets
+referenced by its synthetic findings for faster judging on free hosting.
+Workspaces allow up to 200 assets and 500
 findings; public guest workspaces do not run background sync jobs. Integration
 sync is on demand and uses only that browser's saved credentials. Server API
 keys and connector passwords are not available to guests. AI uses structured

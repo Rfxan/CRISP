@@ -183,6 +183,14 @@ class SnapshotStore:
         seed_path = DATA_DIR / "seed_snapshot.json"
         with open(seed_path, "r", encoding="utf-8") as f:
             snapshot = json.load(f)
+        from app.core.guest_workspace import is_guest
+        if is_guest():
+            # Keep the public judging example responsive on free hosting. This
+            # explicitly loaded synthetic sample is not the enterprise dataset.
+            finding_assets = {finding.get("asset_id") for finding in snapshot.get("findings", [])}
+            snapshot["assets"] = [asset for asset in snapshot.get("assets", []) if asset["id"] in finding_assets]
+            snapshot["demo_dataset"] = {"name": "Public judging sample", "synthetic": True,
+                                        "selection": "Assets referenced by sample findings"}
         snapshot["controls_catalog"] = self.controls_catalog
         snapshot["demo_mode"] = True
         self.current_snapshot = snapshot

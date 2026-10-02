@@ -96,5 +96,6 @@ def test_public_sample_dataset_can_load_and_stays_isolated(guest):
         loaded = first.post('/api/data/seed')
         assert loaded.status_code == 200, loaded.text
         assert loaded.json()['assets_count'] > 0
+        assert loaded.json()['assets_count'] <= 12
         assert loaded.json()['new_eal'] > 0
         assert second.get('/api/data/snapshot').json()['assets'] == []
