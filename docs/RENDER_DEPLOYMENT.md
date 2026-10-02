@@ -52,11 +52,26 @@ requirements, see [the PostgreSQL setup](VERCEL_DEPLOYMENT.md#hosted-postgresql-
 
 ## Frontend connection
 
-The checked-in Vercel configuration still deploys its own backend service. It
-does not automatically send traffic to Render. Once the real Render URL exists,
-replace the Vercel backend service routes with an external `/api` rewrite to
-that URL, preserving the `/api` prefix. Remove the Vercel backend service only
-as part of that change. No guessed Render hostname is committed.
+The current backend is the directly GitHub-linked free web service
+`crisp-backend-github`. It deploys pushes to `Rfxan/CRISP` on `main` and reuses
+the existing `crisp-postgres` database and encryption key. The previous
+`crisp-backend` web service was deleted. Auto Sync is disabled on its old
+Blueprint so a later sync does not recreate the deleted service. The root
+Blueprint remains a template for fresh deployments; do not manually sync the
+old Blueprint unless you intend to provision its resources again.
+
+The Vercel configuration proxies `/api` and `/api/*` to the GitHub-linked backend
+at `https://crisp-backend-github.onrender.com`, preserving the `/api` prefix.
+The root `vercel.json` supports a repository-root Vercel project with one frontend
+service. `frontend/vercel.json` supports an existing Vite project whose Root
+Directory is `frontend`. Both configurations use the same backend URL.
+
+Push the configuration to GitHub and redeploy the Vercel frontend. Open
+`https://YOUR-FRONTEND.vercel.app/api/health` and then `/api/risk/summary`:
+both should return backend JSON rather than the frontend HTML page. No
+`VITE_API_URL` or service binding is needed; the browser uses relative `/api`
+requests and Vercel forwards them to Render. If the Render service is recreated
+again with a different URL, update both routing files before redeploying.
 
 If the browser calls Render directly instead of using a same-origin proxy,
 configure `CRISP_CORS_ORIGINS` with the exact frontend origins, separated by
@@ -94,11 +109,10 @@ Docker-only hostname cannot reach the laptop from the deployed backend.
   production guards, and `/api/health` returned 200.
 * PostgreSQL integration was tested during the preceding Vercel/PostgreSQL change.
 
-Docker image building and a live Render deployment have not been verified in
-this session. Render account access is required to
-complete deployment. An automatic approval review blocked a command that also
-attempted to restart the isolated PostgreSQL test server; it supplied only
-"blocked by policy". Blueprint validation was completed independently.
+* The GitHub-linked Docker deployment became Live on Render; `/api/health`
+  and `/api/risk/summary` returned 200 JSON using the retained PostgreSQL database.
+* The frontend production build passed and both Vercel routing configurations
+  passed validation against Vercel's published configuration schema.
 
 References: [Blueprint specification](https://render.com/docs/blueprint-spec),
 [Docker deployment](https://render.com/docs/docker),

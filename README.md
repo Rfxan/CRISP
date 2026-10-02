@@ -12,7 +12,7 @@
 
 ## Current model and deployment
 
-For the single-project Vercel services setup, see [Vercel deployment](docs/VERCEL_DEPLOYMENT.md). Routing and hosted PostgreSQL support are configured; supply the database secrets and resolve worker scheduling before production deployment.
+For the Vercel frontend connected to the Render backend, see [Vercel deployment](docs/VERCEL_DEPLOYMENT.md). Both repository-root and `frontend`-root Vercel projects proxy `/api` requests to Render.
 
 For a separate Render backend, see [Render deployment](docs/RENDER_DEPLOYMENT.md). The root Blueprint configures a free Docker web service and a free PostgreSQL evaluation database that expires after 30 days.
 

@@ -1,5 +1,25 @@
 # Vercel services configuration
 
+## Current deployment: Vercel frontend and Render backend
+
+The current configuration deploys only the frontend on Vercel and forwards
+`/api` and `/api/*` to `https://crisp-backend-github.onrender.com`.
+For an existing project with Root Directory `frontend`, Vercel reads
+`frontend/vercel.json`; for a repository-root project it reads the root
+`vercel.json`, which declares the `frontend` service. API rewrites precede the
+frontend fallback in both files. Redeploy after pulling these changes, then
+check `/api/health` and `/api/risk/summary` on the frontend domain.
+
+The browser uses the same-origin gateway, so no service binding or frontend
+API environment variable is required. Database and encryption secrets belong
+on Render. See [Render deployment](RENDER_DEPLOYMENT.md#frontend-connection).
+
+The following notes document the previous setup with both services hosted on
+Vercel and the hosted PostgreSQL implementation. The checked-in configuration
+now uses Render for the API instead.
+
+## Previous two-service setup
+
 Import this repository as one project with the **repository root** as the Vercel
 Root Directory. The root `vercel.json` owns the configuration for both services;
 do not select `frontend` as the project root or enter a single project-wide build

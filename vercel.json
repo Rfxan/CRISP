@@ -1,11 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "services": {
-    "backend": {
-      "root": "backend",
-      "framework": "fastapi",
-      "entrypoint": "app.main:app"
-    },
     "frontend": {
       "root": "frontend",
       "framework": "vite",
@@ -19,8 +14,8 @@
     }
   },
   "rewrites": [
-    { "source": "/api", "destination": { "service": "backend" } },
-    { "source": "/api/(.*)", "destination": { "service": "backend" } },
+    { "source": "/api", "destination": "https://crisp-backend-github.onrender.com/api" },
+    { "source": "/api/:path*", "destination": "https://crisp-backend-github.onrender.com/api/:path*" },
     { "source": "/(.*)", "destination": { "service": "frontend" } }
   ]
 }
