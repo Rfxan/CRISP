@@ -1,0 +1,43 @@
+.risk-explanation { margin-bottom: 20px; padding: 20px 24px; border-top: 3px solid var(--primary); }
+.risk-explanation-heading { display: flex; align-items: center; gap: 14px; cursor: pointer; list-style: none; }
+.risk-explanation-heading::-webkit-details-marker { display: none; }
+.risk-explanation-heading:focus-visible { outline: 2px solid var(--primary); outline-offset: 6px; border-radius: 6px; }
+.risk-explanation-icon { display: flex; padding: 10px; border-radius: 14px; color: var(--primary); background: rgba(183, 140, 102, .09); }
+.risk-explanation-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.risk-explanation-title strong { font-size: 15px; font-weight: 700; color: var(--text-main); }
+.risk-explanation-title > span { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+.risk-explanation-heading .badge { font-size: 10px; white-space: nowrap; }
+.risk-explanation-chevron { flex-shrink: 0; color: var(--text-dim); transition: transform .15s ease; }
+.risk-explanation[open] > summary .risk-explanation-chevron { transform: rotate(180deg); }
+.risk-explanation-body { margin-top: 20px; padding-top: 18px; border-top: 1px solid rgba(122, 118, 112, .12); font-size: 12px; line-height: 1.6; }
+.risk-explanation-empty { display: flex; gap: 16px; align-items: flex-start; padding: 20px; background: rgba(183, 140, 102, .06); border: 1px dashed rgba(183, 140, 102, .3); border-radius: 16px; }
+.risk-explanation-empty > svg { color: var(--primary); flex-shrink: 0; }
+.risk-explanation-empty strong { font-size: 14px; color: var(--text-main); }
+.risk-explanation-empty p { margin: 5px 0 0; max-width: 720px; color: var(--text-dim); }
+.risk-explanation-metrics { display: grid; grid-template-columns: 1.4fr repeat(3, 1fr); gap: 12px; }
+.risk-explanation-metrics > div { display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 16px; border-radius: 14px; background: rgba(232, 229, 220, .28); }
+.risk-explanation-metrics span { color: var(--text-dim); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+.risk-explanation-metrics strong { font-size: 15px; color: var(--text-main); }
+.risk-explanation-metrics .risk-explanation-eal { font-size: 23px; color: var(--primary); }
+.risk-explanation-note { display: flex; align-items: flex-start; gap: 10px; margin: 16px 0; color: var(--text-muted); }
+.risk-explanation-note svg { flex-shrink: 0; margin-top: 2px; color: var(--primary); }
+.risk-explanation-note p { margin: 0; }
+.risk-explanation-identifiers { display: flex; flex-direction: column; gap: 5px; color: var(--text-dim); font-size: 11px; margin-bottom: 16px; }
+.risk-explanation-identifiers code { margin-left: 8px; overflow-wrap: anywhere; color: var(--text-muted); }
+.risk-explanation-sections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: start; }
+.risk-explanation-section { padding: 12px 14px; border: 1px solid rgba(122, 118, 112, .13); border-radius: 12px; min-width: 0; }
+.risk-explanation-section > summary { cursor: pointer; color: var(--text-muted); font-size: 12px; font-weight: 600; text-transform: capitalize; }
+.risk-explanation-section > summary span { margin-left: 8px; color: var(--primary); }
+.risk-explanation-fields { margin: 12px 0 0; }
+.risk-explanation-fields > div { padding: 7px 0; border-bottom: 1px solid rgba(122, 118, 112, .08); }
+.risk-explanation-fields dt { font-size: 11px; color: var(--text-dim); text-transform: capitalize; }
+.risk-explanation-fields dd { margin: 3px 0 0 10px; overflow-wrap: anywhere; color: var(--text-main); }
+.risk-explanation-muted { color: var(--text-dim); font-style: italic; }
+@media (max-width: 700px) {
+  .risk-explanation { padding: 16px; }
+  .risk-explanation-heading { gap: 10px; flex-wrap: wrap; }
+  .risk-explanation-title { flex-basis: calc(100% - 65px); }
+  .risk-explanation-metrics, .risk-explanation-sections { grid-template-columns: 1fr; }
+  .risk-explanation-heading .badge { margin-left: 50px; }
+  .risk-explanation-chevron { margin-left: auto; }
+}

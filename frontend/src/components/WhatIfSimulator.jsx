@@ -7,11 +7,12 @@ import { formatINR, formatINRFull } from '../utils/formatters';
 import { api } from '../services/api';
 import EmptyState from './EmptyState';
 
-export default function WhatIfSimulator({ baselineEal, baselineVar95, status, onNavigateToIngestion }) {
+export default function WhatIfSimulator({ baselineEal, baselineVar95, trials, status, onNavigateToIngestion }) {
   const [mode, setMode] = useState('presets'); // 'presets' | 'custom'
   const [selectedPreset, setSelectedPreset] = useState('mfa');
   const [simResult, setSimResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const isEmpty = status === 'NO_DATA' || status === 'NO_FINDINGS' || baselineEal == null;
 
@@ -61,8 +62,9 @@ export default function WhatIfSimulator({ baselineEal, baselineVar95, status, on
     try {
       const res = await api.simulate(preset.actions, simulationSeed);
       setSimResult(res);
+      setError('');
     } catch (e) {
-      console.error('What-if error:', e);
+      setError(e.message);
     } finally {
       setLoading(false);
     }
@@ -79,8 +81,9 @@ export default function WhatIfSimulator({ baselineEal, baselineVar95, status, on
     try {
       const res = await api.simulate(actions, Number(simulationSeed));
       setSimResult(res);
+      setError('');
     } catch (e) {
-      console.error('Custom simulation error:', e);
+      setError(e.message);
     } finally {
       setLoading(false);
     }
@@ -107,22 +110,17 @@ export default function WhatIfSimulator({ baselineEal, baselineVar95, status, on
   const costOfDelay = simResult?.cost_of_delay;
 
   // Comparison curve data
-  const comparisonCurve = [];
-  if (simResult?.baseline_curve && simResult?.new_curve) {
-    const basePts = simResult.baseline_curve;
-    const newPts = simResult.new_curve;
-    for (let i = 0; i < Math.min(basePts.length, newPts.length); i += 2) {
-      comparisonCurve.push({
-        loss: basePts[i][0],
-        lossFormatted: formatINR(basePts[i][0]),
-        Baseline: Number((basePts[i][1] * 100).toFixed(1)),
-        PostIntervention: Number((newPts[i][1] * 100).toFixed(1))
-      });
+  const curvePoints = new Map();
+  for (const [key, points] of [['Baseline', simResult?.baseline_curve], ['PostIntervention', simResult?.new_curve]]) {
+    for (const [loss, probability] of points || []) {
+      curvePoints.set(loss, { ...curvePoints.get(loss), loss, [key]: Number((probability * 100).toFixed(1)) });
     }
   }
+  const comparisonCurve = [...curvePoints.values()].sort((a, b) => a.loss - b.loss);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      {error && <p role="alert">{error}</p>}
       
       {/* Header & Controls */}
       <div className="glass-panel" style={{ padding: 22, borderTop: '3px solid var(--accent-purple)' }}>
@@ -132,7 +130,7 @@ export default function WhatIfSimulator({ baselineEal, baselineVar95, status, on
             <div>
               <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>What-If Scenario Sandbox & Counterfactual Simulator</h3>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
-                Re-executes 10,000 trials on the <strong>same deterministic seed (Seed: {simulationSeed})</strong> to isolate exact mathematical deltas.
+                Re-executes {trials?.toLocaleString() || 'configured'} trials on the <strong>same deterministic seed (Seed: {simulationSeed})</strong> to isolate exact mathematical deltas.
               </p>
             </div>
           </div>
@@ -301,7 +299,7 @@ export default function WhatIfSimulator({ baselineEal, baselineVar95, status, on
                 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '8px 18px' }}
               >
                 <Play size={14} />
-                <span>{loading ? 'Executing 10,000 Trials...' : 'Run Custom Simulation'}</span>
+                <span>{loading ? 'Executing simulation...' : 'Run Custom Simulation'}</span>
               </button>
             </div>
           </div>
@@ -367,15 +365,15 @@ export default function WhatIfSimulator({ baselineEal, baselineVar95, status, on
           <ResponsiveContainer>
             <AreaChart data={comparisonCurve} margin={{ top: 10, right: 15, left: -10, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-              <XAxis dataKey="lossFormatted" stroke="#64748b" fontSize={11} interval={3} />
+              <XAxis dataKey="loss" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatINR} stroke="#64748b" fontSize={11} />
               <YAxis stroke="#64748b" fontSize={11} tickFormatter={(v) => `${v}%`} />
               <Tooltip 
                 contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 12 }}
                 formatter={(val, name) => [`${val}% probability`, name === 'Baseline' ? 'Baseline Risk' : 'With Intervention']}
               />
               <Legend verticalAlign="top" height={36} wrapperStyle={{ fontSize: 12 }} />
-              <Area type="monotone" dataKey="Baseline" stroke="var(--accent-red)" fill="rgba(201, 114, 114, 0.15)" strokeWidth={2} />
-              <Area type="monotone" dataKey="PostIntervention" stroke="var(--accent-green)" fill="rgba(126, 143, 129, 0.2)" strokeWidth={2.5} />
+              <Area connectNulls type="monotone" dataKey="Baseline" stroke="var(--accent-red)" fill="rgba(201, 114, 114, 0.15)" strokeWidth={2} />
+              <Area connectNulls type="monotone" dataKey="PostIntervention" stroke="var(--accent-green)" fill="rgba(126, 143, 129, 0.2)" strokeWidth={2.5} />
             </AreaChart>
           </ResponsiveContainer>
         </div>

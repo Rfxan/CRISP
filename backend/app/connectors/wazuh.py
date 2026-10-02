@@ -111,7 +111,15 @@ class WazuhConnector(BaseConnector):
                 "total_agents": total,
                 "active_agents": active_count,
                 "agent_coverage_pct": round((active_count / max(1, total)) * 100, 1),
-                "agent_names": agent_names
+                "agent_names": agent_names,
+                "agents": [
+                    {
+                        "id": str(a.get("id", "")),
+                        "name": str(a.get("name") or a.get("id") or ""),
+                        "status": str(a.get("status", ""))
+                    }
+                    for a in eval_agents
+                ]
             }
         except requests.exceptions.ConnectionError as e:
             raise ConnectionError(f"Cannot connect to Wazuh API at {self.base_url}/agents: {e}")

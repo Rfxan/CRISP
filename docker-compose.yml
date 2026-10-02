@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   backend:
     build:
@@ -7,11 +5,28 @@ services:
       dockerfile: Dockerfile.backend
     container_name: crisp-backend
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
+      - CRISP_ENV=${CRISP_ENV:-development}
+      - CRISP_ENCRYPTION_KEY=${CRISP_ENCRYPTION_KEY:-}
+      - CRISP_DATABASE_PATH=/state/crisp.sqlite3
     volumes:
-      - ./backend/app/data:/app/app/data
+      - crisp-state:/state
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    command: ["python", "-m", "app.worker"]
+    environment:
+      - PYTHONUNBUFFERED=1
+      - CRISP_ENV=${CRISP_ENV:-development}
+      - CRISP_ENCRYPTION_KEY=${CRISP_ENCRYPTION_KEY:-}
+      - CRISP_DATABASE_PATH=/state/crisp.sqlite3
+    volumes:
+      - crisp-state:/state
     restart: unless-stopped
 
   frontend:
@@ -20,7 +35,10 @@ services:
       dockerfile: Dockerfile.frontend
     container_name: crisp-frontend
     ports:
-      - "5173:80"
+      - "127.0.0.1:5173:80"
     depends_on:
       - backend
     restart: unless-stopped
+
+volumes:
+  crisp-state:

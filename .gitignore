@@ -56,3 +56,6 @@ scratch/
 # Runtime data & threat caches
 backend/data/
 backend/app/data/threat_cache/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm

@@ -1,6 +1,11 @@
 const API_BASE = '/api';
 
 export const api = {
+  async refreshConnections() {
+    const res = await fetch(`${API_BASE}/connections/refresh`, { method: 'POST' });
+    if (!res.ok) throw new Error('Unable to refresh connections. Please try again.');
+    return res.json();
+  },
   async getSummary(refresh = false) {
     const res = await fetch(`${API_BASE}/risk/summary?refresh=${refresh}`);
     if (!res.ok) throw new Error('Failed to fetch risk summary');
@@ -139,6 +144,15 @@ export const api = {
     return res.json();
   },
 
+  async updateControlsCoverage(controls) {
+    const res = await fetch(`${API_BASE}/controls/bulk-update`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ controls })
+    });
+    if (!res.ok) throw new Error('Failed to apply control changes; your edits have been kept.');
+    return res.json();
+  },
+
   async syncAll() {
     const res = await fetch(`${API_BASE}/sync/all`, {
       method: 'POST'
@@ -234,6 +248,43 @@ export const api = {
     }
     return res.json();
   },
+
+  async updateAsset(assetId, assetData) {
+    const res = await fetch(`${API_BASE}/assets/${encodeURIComponent(assetId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(assetData)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to update asset');
+    }
+    return res.json();
+  },
+
+
+  async deleteAsset(assetId) {
+    const res = await fetch(`${API_BASE}/assets/${encodeURIComponent(assetId)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to delete asset');
+    }
+    return res.json();
+  },
+
+  async clearAssetInventory() {
+    const res = await fetch(`${API_BASE}/assets`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to clear asset inventory');
+    }
+    return res.json();
+  },
+
 
   async inspectVendorFile(formData) {
     const res = await fetch(`${API_BASE}/vendors/inspect`, {

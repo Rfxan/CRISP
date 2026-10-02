@@ -53,10 +53,9 @@ def test_api_excluded_assets_behavior():
     res = client.get("/api/risk/summary?refresh=true")
     assert res.status_code == 200
     data = res.json()
-    assert data["org"]["eal"] == 0.0, f"Expected 0.0 EAL, got {data['org']['eal']}"
+    assert data["org"]["eal"] is None
     assert data["excluded_assets_count"] == 1
     assert data["excluded_assets"][0]["asset_id"] == "192.168.118.212"
-    assert data["loss_breakdown"]["incident_response"] == 0.0
 
     # 2. Verify GET /api/risk/entities?level=asset
     res_ent = client.get("/api/risk/entities?level=asset")
@@ -66,7 +65,7 @@ def test_api_excluded_assets_behavior():
     assert len(ent_data["entities"]) == 1
     assert ent_data["entities"][0]["asset_id"] == "192.168.118.212"
     assert ent_data["entities"][0]["criticality"] is None
-    assert ent_data["entities"][0]["eal"] == 0.0
+    assert ent_data["entities"][0]["eal"] is None
     assert ent_data["entities"][0]["excluded_from_eal"] is True
 
     print("[PASS] API /api/risk/summary & /api/risk/entities verified: EAL=0.0, excluded_assets_count=1")

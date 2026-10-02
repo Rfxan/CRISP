@@ -1,4 +1,5 @@
 from typing import Dict, Any, List
+from app.compliance.evidence import assess_control, reporting_readiness
 from app.compliance.catalog import ControlCatalog, FRAMEWORKS
 from app.compliance.framework_registry import FRAMEWORK_REQUIREMENTS
 
@@ -37,7 +38,7 @@ class FrameworkEngine:
     def __init__(self, catalog: ControlCatalog = None):
         self.catalog = catalog or ControlCatalog()
 
-    def evaluate_framework(self, framework_id: str, control_states: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def evaluate_framework(self, framework_id: str, control_states: List[Dict[str, Any]], assessments=None, exercises=None) -> Dict[str, Any]:
         """
         Evaluates organizational compliance and evidence coverage for a target framework.
         Normalizes framework_id through alias map before lookup.
@@ -64,7 +65,8 @@ class FrameworkEngine:
             cs = state_map.get(c_id, {})
             cov_raw = cs.get("coverage_pct")
             cov_pct = cov_raw if cov_raw is not None else 0.0
-            is_covered = cov_pct >= 70.0
+            assessment = assess_control(cs, (assessments or {}).get(c_id))
+            is_covered = assessment["status"] == "Compliant"
             if is_covered:
                 covered_count += 1
             total_coverage_sum += cov_pct
@@ -74,20 +76,20 @@ class FrameworkEngine:
                 "name": ctrl["name"],
                 "framework_clause": fw_mapping,
                 "coverage_pct": cov_raw,
-                "status": "Compliant" if cov_pct >= 75.0 else ("Partially Compliant" if cov_pct >= 50.0 else "Non-Compliant"),
+                **assessment,
                 "evidence_ref": cs.get("evidence_ref", "No telemetry evidence linked"),
                 "is_simulated": cs.get("is_simulated", False)
             }
             framework_controls.append(ctrl_eval)
 
-            if cov_pct < 70.0:
+            if not is_covered:
                 cost = ctrl.get("capex", 0.0) + ctrl.get("annual_cost", 0.0)
                 gaps.append({
                     "control_id": c_id,
                     "name": ctrl["name"],
                     "framework_clause": fw_mapping,
                     "current_coverage_pct": cov_pct,
-                    "gap_shortfall_pct": round(70.0 - cov_pct, 1),
+                    "gap_shortfall_pct": round(max(0.0, 75.0 - cov_pct), 1),
                     "remediation_cost": cost,
                     "mitigates": ctrl.get("mitigates", [])
                 })
@@ -103,9 +105,13 @@ class FrameworkEngine:
         mapped_count = len(mapped_reqs) if requirements else total_mapped
         unmapped_count = len(unmapped_reqs) if requirements else 0
         mapping_coverage_pct = round((mapped_count / max(1, total_framework_reqs)) * 100.0, 1)
+        requirement_assessments = [{"requirement_id": r["id"],
+            **assess_control(state_map.get(r.get("mapped_control_id"), {}),
+                (assessments or {}).get(r["id"], (assessments or {}).get(r.get("mapped_control_id"))))}
+            for r in requirements]
 
         # Special Regulatory Readiness Modules
-        sebi_6h_readiness = self._check_sebi_6h_readiness(state_map)
+        sebi_6h_readiness = reporting_readiness(exercises)
         dpdp_readiness = self._check_dpdp_readiness(state_map)
 
         return {
@@ -116,6 +122,12 @@ class FrameworkEngine:
             "citation": fw_meta["citation"],
             "disclaimer": "Indicative mapping for simulation and readiness assessment. Not an official regulatory certification.",
             "overall_coverage_pct": overall_coverage,
+            "scope": "Curated requirement subset; mapping coverage is not whole-framework compliance",
+            "observed_control_coverage_pct": round(sum(c["observed_coverage_pct"] for c in framework_controls if c["observed_coverage_pct"] is not None) / max(1, sum(c["observed_coverage_pct"] is not None for c in framework_controls)), 1) if any(c["observed_coverage_pct"] is not None for c in framework_controls) else None,
+            "evidence_completeness_pct": round(100 * sum(c["evidence_complete"] for c in framework_controls) / max(1, len(framework_controls)), 1),
+            "assessed_compliance_pct": round(100 * covered_count / max(1, total_mapped), 1),
+            "requirement_assessments": requirement_assessments,
+            "assessed_requirement_compliance_pct": round(100*sum(r["status"] == "Compliant" for r in requirement_assessments)/max(1,len(requirement_assessments)),1),
             "mapping_coverage_pct": mapping_coverage_pct,
             "total_framework_requirements": total_framework_reqs,
             "mapped_requirements_count": mapped_count,
@@ -130,51 +142,17 @@ class FrameworkEngine:
             "dpdp_readiness": dpdp_readiness
         }
 
-    def _check_sebi_6h_readiness(self, state_map: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Assesses SEBI CSCRF 6-hour incident detection, triage, and reporting capability.
-        Mandated by SEBI Circular dated 20 Aug 2024.
-        """
-        siem_cov = state_map.get("CTRL-SIEM-01", {}).get("coverage_pct") or 0.0
-        edr_cov = state_map.get("CTRL-EDR-01", {}).get("coverage_pct") or 0.0
-        ir_cov = state_map.get("CTRL-IR-01", {}).get("coverage_pct") or 0.0
-
-        readiness_score = round((siem_cov * 0.4) + (edr_cov * 0.3) + (ir_cov * 0.3), 1)
-        is_ready = readiness_score >= 80.0
-
-        return {
-            "requirement": "SEBI CSCRF 6-Hour Incident Notification Mandate",
-            "readiness_score_pct": readiness_score,
-            "status": "READY" if is_ready else "AT RISK",
-            "checklist": [
-                {"item": "SIEM & SOC 24/7 Continuous Alert Telemetry", "coverage_pct": siem_cov, "pass": siem_cov >= 75},
-                {"item": "EDR Active Host Containment & Process Forensics", "coverage_pct": edr_cov, "pass": edr_cov >= 90},
-                {"item": "CERT-In / SEBI Playbook SLA & Retainer On-Call", "coverage_pct": ir_cov, "pass": ir_cov >= 75}
-            ],
-            "recommendation": "Maintain SOC alert triage MTTR under 45 minutes to fulfill the statutory 6-hour declaration window." if is_ready else "Urgent: Increase SIEM/SOC and EDR coverage to ensure detection and triage within the statutory 6-hour window."
-        }
+    def _check_sebi_6h_readiness(self, state_map, exercises=None):
+        return reporting_readiness(exercises)
 
     def _check_dpdp_readiness(self, state_map: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Assesses Digital Personal Data Protection (DPDP) Act 2025 reasonable security safeguards.
-        Statutory penalties up to ₹250 Cr for non-compliance.
+        Reports observed safeguards telemetry without asserting legal compliance.
         """
-        enc_cov = state_map.get("CTRL-ENC-01", {}).get("coverage_pct") or 0.0
-        dlp_cov = state_map.get("CTRL-DLP-01", {}).get("coverage_pct") or 0.0
-        mfa_cov = state_map.get("CTRL-MFA-01", {}).get("coverage_pct") or 0.0
-        pam_cov = state_map.get("CTRL-PAM-01", {}).get("coverage_pct") or 0.0
-
-        safeguard_score = round((enc_cov + dlp_cov + mfa_cov + pam_cov) / 4.0, 1)
-
-        return {
-            "requirement": "DPDP Act 2025 Section 8(5) - Reasonable Security Safeguards",
-            "safeguards_score_pct": safeguard_score,
-            "status": "STRONG" if safeguard_score >= 80 else ("MODERATE" if safeguard_score >= 60 else "VULNERABLE"),
-            "checklist": [
-                {"item": "Encryption of Personal Data at Rest (TDE/HSM)", "coverage_pct": enc_cov, "pass": enc_cov >= 70},
-                {"item": "Data Loss Prevention (DLP) across egress points", "coverage_pct": dlp_cov, "pass": dlp_cov >= 70},
-                {"item": "Multi-Factor Authentication for Customer PII access", "coverage_pct": mfa_cov, "pass": mfa_cov >= 75},
-                {"item": "Privileged Account Vaulting and Access Auditing", "coverage_pct": pam_cov, "pass": pam_cov >= 70}
-            ],
-            "penalty_exposure_cap": "₹250 Crore statutory limit (modeled as fat-tailed loss distribution)"
-        }
+        observed = [assess_control(state_map.get(cid, {}))["observed_coverage_pct"]
+                    for cid in ("CTRL-ENC-01", "CTRL-DLP-01", "CTRL-MFA-01", "CTRL-PAM-01")]
+        known = [v for v in observed if v is not None]
+        return {"requirement": "Personal-data safeguards telemetry (curated subset; independent legal assessment required)",
+                "safeguards_score_pct": round(sum(known)/len(known),1) if known else None,
+                "status": "NOT ASSESSED", "checklist": [],
+                "penalty_exposure_cap": "Configured loss assumption; not an assessed legal liability"}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Server, AlertCircle, Plus } from 'lucide-react';
+import { X, Server, AlertCircle, Plus, Pencil, Save } from 'lucide-react';
 import { api } from '../services/api';
 
 const DEFAULT_SERVICES = [
@@ -11,7 +11,15 @@ const DEFAULT_SERVICES = [
   { id: 'SVC-CORP', name: 'Treasury & Corporate Portals' }
 ];
 
-export default function AddAssetForm({ isOpen, onClose, existingServices = [], onAssetAdded }) {
+export default function AddAssetForm({ 
+  isOpen, 
+  onClose, 
+  existingServices = [], 
+  onAssetAdded,
+  assetToEdit = null,
+  onAssetUpdated 
+}) {
+  const isEditMode = Boolean(assetToEdit);
   const [assetId, setAssetId] = useState('');
   const [name, setName] = useState('');
   const [selectedService, setSelectedService] = useState('SVC-PAY');
@@ -38,17 +46,59 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
     return typeof first === 'object' ? (first.id || first.service_id || 'SVC-PAY') : (first || 'SVC-PAY');
   };
 
-  // Sync service selection when modal opens or available services change
+  // Sync values when modal opens or assetToEdit changes
   useEffect(() => {
     if (isOpen) {
       setError(null);
       const list = (existingServices && existingServices.length > 0) ? existingServices : DEFAULT_SERVICES;
       const fallbackId = getFirstServiceId(list);
-      setSelectedService(prev => (prev && prev !== '__NEW__') ? prev : fallbackId);
-      setIsCustomService(false);
-      setCustomService('');
+
+      if (assetToEdit) {
+        setAssetId(assetToEdit.id || assetToEdit.asset_id || '');
+        setName(assetToEdit.name || '');
+        const rawSvc = (assetToEdit.business_service_id || assetToEdit.service || '').trim();
+        if (rawSvc) {
+          const matchingSvc = list.find(s => {
+            const sid = typeof s === 'object' ? (s.id || s.service_id) : s;
+            return sid === rawSvc;
+          });
+          if (matchingSvc) {
+            setSelectedService(rawSvc);
+            setIsCustomService(false);
+            setCustomService('');
+          } else {
+            setSelectedService('__NEW__');
+            setIsCustomService(true);
+            setCustomService(rawSvc);
+          }
+        } else {
+          setSelectedService(fallbackId);
+          setIsCustomService(false);
+          setCustomService('');
+        }
+        setCriticality(assetToEdit.criticality_1_5 ?? assetToEdit.criticality ?? 3);
+        setRecordsCount(assetToEdit.records_count ?? assetToEdit.records ?? 0);
+        setRevenuePerHour(assetToEdit.revenue_per_hour ?? 0);
+        setInternetFacing(Boolean(assetToEdit.internet_facing));
+        setAssetType(assetToEdit.type || 'Server');
+        setEnvironment(assetToEdit.environment || 'Production');
+        setClassification(assetToEdit.data_classification || 'Confidential');
+      } else {
+        setAssetId('');
+        setName('');
+        setSelectedService(fallbackId);
+        setIsCustomService(false);
+        setCustomService('');
+        setCriticality(3);
+        setRecordsCount(0);
+        setRevenuePerHour(0);
+        setInternetFacing(false);
+        setAssetType('Server');
+        setEnvironment('Production');
+        setClassification('Confidential');
+      }
     }
-  }, [isOpen, existingServices]);
+  }, [isOpen, assetToEdit, existingServices]);
 
   if (!isOpen) return null;
 
@@ -126,18 +176,27 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
 
     setLoading(true);
     try {
-      const res = await api.addAsset(payload);
-      resetForm();
-      if (onAssetAdded) {
-        onAssetAdded(res);
+      if (isEditMode) {
+        const res = await api.updateAsset(trimmedId, payload);
+        if (onAssetUpdated) {
+          onAssetUpdated(res);
+        }
+        onClose();
+      } else {
+        const res = await api.addAsset(payload);
+        resetForm();
+        if (onAssetAdded) {
+          onAssetAdded(res);
+        }
+        onClose();
       }
-      onClose();
     } catch (err) {
-      setError(err.message || 'Failed to add asset.');
+      setError(err.message || (isEditMode ? 'Failed to update asset.' : 'Failed to add asset.'));
     } finally {
       setLoading(false);
     }
   };
+
 
   const activeServiceValue = isCustomService
     ? '__NEW__'
@@ -225,10 +284,12 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
             </div>
             <div>
               <h3 style={{ margin: 0, fontSize: 18, color: '#F4F1EA', fontWeight: 700, letterSpacing: '-0.01em' }}>
-                Add Network Asset Manually
+                {isEditMode ? 'Edit Network Asset & Business Context' : 'Add Network Asset Manually'}
               </h3>
               <p className="modal-helper-text" style={{ margin: '4px 0 0 0', fontSize: 12, color: '#A39E93', lineHeight: 1.4 }}>
-                Register an inventory node with business context, financial exposure, and criticality.
+                {isEditMode
+                  ? 'Update business criticality, downtime revenue exposure, and CMDB parameters for FAIR modeling.'
+                  : 'Register an inventory node with business context, financial exposure, and criticality.'}
               </p>
             </div>
           </div>
@@ -285,21 +346,25 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
                 placeholder="e.g. srv-prod-db-01 or 192.168.1.50"
                 value={assetId}
                 onChange={(e) => setAssetId(e.target.value)}
+                disabled={isEditMode || loading}
                 style={{
                   width: '100%',
                   padding: '10px 12px',
                   borderRadius: 8,
-                  backgroundColor: '#070c18',
-                  border: '1px solid rgba(255, 255, 255, 0.18)',
-                  color: '#F4F1EA',
+                  backgroundColor: isEditMode ? 'rgba(255, 255, 255, 0.05)' : '#070c18',
+                  border: isEditMode ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid rgba(255, 255, 255, 0.18)',
+                  color: isEditMode ? '#A39E93' : '#F4F1EA',
                   fontFamily: 'monospace',
                   fontSize: 13,
-                  boxSizing: 'border-box'
+                  boxSizing: 'border-box',
+                  cursor: isEditMode ? 'not-allowed' : 'text'
                 }}
                 required
               />
               <span className="modal-helper-text" style={{ fontSize: 11, color: '#A39E93', marginTop: 5, display: 'block', lineHeight: 1.3 }}>
-                Unique node identifier (matches vulnerability scan target)
+                {isEditMode
+                  ? 'Asset ID is the primary key and cannot be modified.'
+                  : 'Unique node identifier (matches vulnerability scan target)'}
               </span>
             </div>
 
@@ -659,11 +724,11 @@ export default function AddAssetForm({ isOpen, onClose, existingServices = [], o
               }}
             >
               {loading ? (
-                <span>Adding Asset & Recalculating...</span>
+                <span>{isEditMode ? 'Saving Changes & Recalculating...' : 'Adding Asset & Recalculating...'}</span>
               ) : (
                 <>
-                  <Plus size={16} strokeWidth={2.5} />
-                  <span>Add Asset to Inventory</span>
+                  {isEditMode ? <Save size={16} strokeWidth={2.5} /> : <Plus size={16} strokeWidth={2.5} />}
+                  <span>{isEditMode ? 'Save Asset Changes' : 'Add Asset to Inventory'}</span>
                 </>
               )}
             </button>

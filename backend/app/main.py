@@ -1,10 +1,14 @@
 import logging
 from contextlib import asynccontextmanager
+import os
+from fastapi.responses import JSONResponse
+from app.core.deployment import validate_deployment, production
+from app.core.middleware import TenantMiddleware
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from app.api.routes import router as api_router, sync_wazuh_telemetry, sync_iam_telemetry, store
+from app.api.routes import router as api_router, sync_wazuh_telemetry, sync_iam_telemetry, store, get_active_snapshot
 from app.core.config import settings
 from app.core.connections_store import connections_store
 
@@ -60,46 +64,37 @@ def sync_threat_intel_cycle():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: schedule telemetry sync every 30 seconds
-    scheduler.add_job(
-        sync_telemetry_cycle,
-        "interval",
-        seconds=30,
-        id="live_telemetry_sync",
-        replace_existing=True
-    )
-    # Startup: schedule daily threat intel sync (KEV, EPSS, NVD)
-    scheduler.add_job(
-        sync_threat_intel_cycle,
-        "interval",
-        hours=24,
-        id="daily_threat_intel_sync",
-        replace_existing=True
-    )
-    scheduler.start()
-    logger.info("CRISP Background Schedulers started (Telemetry: 30s, Threat Intel: 24h).")
+    validate_deployment()
     yield
-    # Shutdown
-    if scheduler.running:
-        scheduler.shutdown(wait=False)
-        logger.info("CRISP Background Telemetry Scheduler stopped.")
+
 
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     description="AI-Powered Continuous Cyber Risk Quantification & Investment Optimization Platform (SIH 26105)",
+    docs_url=None if production() else "/docs",
+    redoc_url=None if production() else "/redoc",
+    openapi_url=None if production() else "/openapi.json",
     lifespan=lifespan
 )
 
 # Enable CORS for frontend development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=os.getenv("CRISP_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.add_middleware(TenantMiddleware)
+
+
+@app.exception_handler(ValueError)
+async def invalid_input(request, exc):
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
+
 
 # Mount API routes
 app.include_router(api_router, prefix="/api")
@@ -120,6 +115,12 @@ def root():
 @app.get("/health")
 def health_check():
     return {"status": "ok", "platform": settings.PROJECT_NAME, "version": settings.VERSION}
+
+
+@app.get("/snapshot")
+def get_snapshot_root():
+    """Returns active snapshot with deduplicated control states."""
+    return get_active_snapshot()
 
 
 if __name__ == "__main__":

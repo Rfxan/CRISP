@@ -8,9 +8,9 @@ DATA_DIR = BASE_DIR / "data"
 # Load .env from CRISP root directory
 _env_path = BASE_DIR.parent / ".env"
 if _env_path.exists():
-    load_dotenv(_env_path, override=True)
+    load_dotenv(_env_path, override=False)
 else:
-    load_dotenv(override=True)
+    load_dotenv(override=False)
 
 class Settings:
     PROJECT_NAME: str = "CRISP - Continuous Risk & Investment Simulation Platform"

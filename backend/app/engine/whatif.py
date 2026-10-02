@@ -1,109 +1,83 @@
 import copy
-from typing import Dict, Any, List
+import math
+import json
+from app.core.config import DATA_DIR
 from app.engine.fair_engine import FAIREngine
+from app.engine.model import finding_key, digest
+
+
+def apply_actions(snapshot, actions):
+    """One action interpreter shared by simulations, investments and benchmarks."""
+    result = copy.deepcopy(snapshot)
+    descriptions = []
+    catalog = result.get("controls_catalog")
+    if catalog is None:
+        catalog = json.loads((DATA_DIR / "controls_catalog.json").read_text(encoding="utf-8"))
+    catalog_ids = {c["id"] for c in catalog}
+    for raw in actions:
+        action = dict(raw)
+        kind, target = action.get("type"), action.get("target_id")
+        if kind == "segment_payment_network":
+            kind, target = "increase_control_coverage", "CTRL-SEG-01"
+            action["coverage_pct"] = 100
+        if kind == "increase_control_coverage":
+            coverage = float(action.get("coverage_pct", 100))
+            if not math.isfinite(coverage) or not 0 <= coverage <= 100:
+                raise ValueError("Coverage must be between 0 and 100")
+            if target not in catalog_ids:
+                raise ValueError("Unknown control target")
+            states = result.setdefault("control_state", [])
+            state = next((c for c in states if c["control_id"] == target), None)
+            if state is None:
+                state = {"control_id": target}
+                states.append(state)
+            state.update(coverage_pct=coverage, is_user_assumed=True, is_simulated=True,
+                         evidence_ref="Counterfactual assumption")
+            descriptions.append(f"Set {target} coverage to {coverage}%")
+        elif kind in ("patch_finding", "patch_cve", "patch_all_kev"):
+            findings = result.get("findings", [])
+            def matches(f):
+                if kind == "patch_all_kev":
+                    return bool(result.get("cve_intel", {}).get(f.get("cve_id"), {}).get("in_kev"))
+                if kind == "patch_finding":
+                    return finding_key(f) == target or (f.get("id") == target and f.get("asset_id") == action.get("asset_id"))
+                return (f.get("id") == target or f.get("cve_id") == target) and (not action.get("asset_id") or f.get("asset_id") == action["asset_id"])
+            selected = [f for f in findings if matches(f)]
+            if not selected and kind != "patch_all_kev":
+                raise ValueError("Finding target does not exist in this snapshot")
+            result["findings"] = [f for f in findings if not matches(f)]
+            if selected:
+                result["assessment_state"] = {**result.get("assessment_state", {}), "status": "remediated"}
+            descriptions.append(f"Remediated {len(selected)} finding(s)")
+        else:
+            raise ValueError(f"Unsupported intervention type: {kind}")
+    return result, descriptions
+
 
 class WhatIfSimulator:
-    def __init__(self, engine: FAIREngine = None):
+    def __init__(self, engine=None):
         self.engine = engine or FAIREngine(trials=5000, seed=42)
 
-    def simulate_intervention(self, snapshot: Dict[str, Any], actions: List[Dict[str, Any]], seed: int = 42) -> Dict[str, Any]:
-        """
-        Clones snapshot, applies actions (e.g. increase control coverage, remove findings),
-        and runs FAIR simulation on identical seed to get exact delta.
-        """
-        # Baseline simulation
-        base_res = self.engine.run(snapshot, seed=seed)
-        base_eal = base_res["org"]["eal"]
-        base_var95 = base_res["org"]["var95"]
-
-        # Clone snapshot
-        cloned_snap = copy.deepcopy(snapshot)
-
-        applied_actions = []
-        for action in actions:
-            act_type = action.get("type")
-            target_id = action.get("target_id")
-
-            if act_type == "increase_control_coverage":
-                # target_id is control_id, value is new coverage_pct (e.g. 100.0)
-                new_cov = float(action.get("coverage_pct", 100.0))
-                found = False
-                for cs in cloned_snap.get("control_state", []):
-                    if cs["control_id"] == target_id:
-                        old_cov = cs.get("coverage_pct", 0.0) or 0.0
-                        cs["coverage_pct"] = new_cov
-                        cs["is_user_assumed"] = True
-                        applied_actions.append(f"Upgraded {target_id} coverage from {old_cov}% to {new_cov}%")
-                        found = True
-                        break
-                if not found:
-                    cloned_snap.setdefault("control_state", []).append({
-                        "control_id": target_id,
-                        "coverage_pct": new_cov,
-                        "is_user_assumed": True,
-                        "evidence_ref": "What-If Simulated Action"
-                    })
-                    applied_actions.append(f"Added {target_id} with coverage {new_cov}%")
-            elif act_type == "patch_cve":
-                # Remove finding with this CVE or target_id
-                old_len = len(cloned_snap.get("findings", []))
-                cloned_snap["findings"] = [f for f in cloned_snap.get("findings", []) if f["cve_id"] != target_id and f["id"] != target_id]
-                removed_count = old_len - len(cloned_snap["findings"])
-                applied_actions.append(f"Remediated CVE {target_id} ({removed_count} instances patched)")
-            elif act_type == "patch_all_kev":
-                # Patch all findings listed in CISA KEV
-                cve_intel = cloned_snap.get("cve_intel", {})
-                kev_cves = {cve for cve, data in cve_intel.items() if data.get("in_kev", False)}
-                old_len = len(cloned_snap.get("findings", []))
-                cloned_snap["findings"] = [f for f in cloned_snap.get("findings", []) if f["cve_id"] not in kev_cves]
-                removed_count = old_len - len(cloned_snap["findings"])
-                applied_actions.append(f"Patched all CISA KEV active exploits ({removed_count} findings eliminated)")
-            elif act_type == "segment_payment_network":
-                # Boost CTRL-SEG-01 to 100%
-                for cs in cloned_snap.get("control_state", []):
-                    if cs["control_id"] == "CTRL-SEG-01":
-                        cs["coverage_pct"] = 100.0
-                        applied_actions.append("Full micro-segmentation implemented on Payment Switch")
-
-        # Post-intervention simulation on same seed
-        post_res = self.engine.run(cloned_snap, seed=seed)
-        post_eal = post_res["org"]["eal"]
-        post_var95 = post_res["org"]["var95"]
-
-        delta_eal = base_eal - post_eal
-        delta_var95 = base_var95 - post_var95
-        pct_eal_reduction = round((delta_eal / max(1.0, base_eal)) * 100, 2)
-        pct_var95_reduction = round((delta_var95 / max(1.0, base_var95)) * 100, 2)
-
-        # Cost of delay: financial exposure accumulating each week without these controls
-        # Calculated as delta_eal / 52 (in ₹)
-        cost_of_delay_per_week = round(delta_eal / 52.0, 2)
-
-        return {
-            "applied_actions": applied_actions,
-            "seed": seed,
-            "run_id": post_res["run_id"],
-            "baseline": {
-                "eal": round(base_eal, 2),
-                "var95": round(base_var95, 2),
-                "score": base_res["org"]["score"]
-            },
-            "post_intervention": {
-                "eal": round(post_eal, 2),
-                "var95": round(post_var95, 2),
-                "score": post_res["org"]["score"]
-            },
-            "delta": {
-                "eal_reduction": round(delta_eal, 2),
-                "var95_reduction": round(delta_var95, 2),
-                "pct_eal_reduction": pct_eal_reduction,
-                "pct_var95_reduction": pct_var95_reduction
-            },
-            "cost_of_delay": {
-                "per_week_inr": cost_of_delay_per_week,
-                "per_week_lakhs": round(cost_of_delay_per_week / 100000.0, 2),
-                "rationale": "Accumulated expected cyber loss increase per week of delaying implementation"
-            },
-            "new_curve": post_res["curve"],
-            "baseline_curve": base_res["curve"]
-        }
+    def simulate_intervention(self, snapshot, actions, seed=42, baseline=None):
+        base = baseline or self.engine.run(snapshot, {"calculate_drivers": False}, seed)
+        if base["org"]["eal"] is None:
+            return {"status": base["status"], "message": base.get("message"), "seed": seed,
+                    "run_id": None, "baseline": base["org"], "post_intervention": None,
+                    "delta": {"eal_reduction": None, "var95_reduction": None}, "actions": actions,
+                    "cost_of_delay": {"per_week_inr": None}, "new_curve": [], "baseline_curve": []}
+        modified, descriptions = apply_actions(snapshot, actions)
+        post = self.engine.run(modified, {"calculate_drivers": False}, seed)
+        if post["org"]["eal"] is None:
+            raise ValueError("Intervention cannot be quantified with available business context")
+        reduction = round(base["org"]["eal"] - post["org"]["eal"], 2)
+        var_reduction = round(base["org"]["var95"] - post["org"]["var95"], 2)
+        return {"status": post["status"], "applied_actions": descriptions, "actions": copy.deepcopy(actions),
+                "seed": seed, "trials": post["trials"], "run_id": post["run_id"], "baseline_run_id": base["run_id"],
+                "snapshot_hash": digest(snapshot), "model_version": post["model_version"],
+                "assumptions_version": post["assumptions_version"], "baseline": base["org"], "post_intervention": post["org"],
+                "delta": {"eal_reduction": reduction, "var95_reduction": var_reduction,
+                          "pct_eal_reduction": round(reduction/max(1, base["org"]["eal"])*100, 2),
+                          "pct_var95_reduction": round(var_reduction/max(1, base["org"]["var95"])*100, 2)},
+                "cost_of_delay": {"per_week_inr": round(reduction/52, 2), "per_week_lakhs": round(reduction/5200000, 2),
+                                  "rationale": "Annual expected-loss difference / 52; assumes constant exposure and immediate implementation."},
+                "new_curve": post["curve"], "baseline_curve": base["curve"]}

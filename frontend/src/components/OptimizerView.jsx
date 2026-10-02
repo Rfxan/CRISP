@@ -11,6 +11,8 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
   const [budget, setBudget] = useState(10_000_000); // ₹1 Crore default
   const [optimizerData, setOptimizerData] = useState(null);
   const [paretoData, setParetoData] = useState(null);
+  const [replay, setReplay] = useState(null);
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const isEmpty = status === 'NO_DATA' || status === 'NO_FINDINGS' || baseEal == null;
@@ -20,9 +22,9 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
     setLoading(true);
     try {
       const res = await api.optimize(b);
-      setOptimizerData(res);
+      setOptimizerData(res); setReplay(null); setError('');
     } catch (e) {
-      console.error('Optimization error:', e);
+      setError(e.message);
     } finally {
       setLoading(false);
     }
@@ -83,6 +85,20 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       
+      {error && <p role="alert">{error}</p>}
+      {plan && <div className="glass-panel" style={{ padding: 20 }}>
+        <h3>Simulated portfolio benefit</h3>
+        <p>Residual EAL: {formatINR(plan.remaining_eal)} · Annual reduction: {formatINR(plan.total_reduction)}</p>
+        <p>Approximate selection objective: {formatINR(plan.objective_estimate)}. {plan.selection_method}.</p>
+        <p>Benefits below are evaluated through the same simulator. Action selection estimates can overlap and must not be added as realized savings.</p>
+        <p>Seed {plan.evaluation?.seed} · {plan.evaluation?.trials} trials · {plan.evaluation?.model_version}</p>
+        <details><summary>Benchmark reproduction details</summary><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(benchmark?.reproducibility, null, 2)}</pre></details>
+        <button className="btn-primary" onClick={async () => {
+          try { setReplay(await api.simulate(plan.actions, plan.evaluation.seed)); setError(''); }
+          catch (e) { setError(e.message); }
+        }}>Replay portfolio in simulator</button>
+        {replay && <p role="status">Simulator residual EAL: {formatINR(replay.post_intervention?.eal)} — {replay.snapshot_hash !== plan.evaluation.snapshot_hash ? 'Snapshot changed; run optimization again.' : replay.post_intervention?.eal === plan.remaining_eal ? 'Matches optimizer exactly.' : 'Mismatch; verify model configuration.'}</p>}
+      </div>}
       {/* Interactive Budget Control Bar */}
       <div className="glass-panel" style={{ padding: 22, borderTop: '3px solid var(--primary)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
@@ -91,7 +107,7 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
             <div>
               <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>Security Investment Budget Allocator</h3>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
-                Set available capital for cybersecurity patches and controls. Integer Linear Programming (PuLP) selects the optimal mix.
+                Set available capital for cybersecurity patches and controls. Integer Linear Programming (PuLP) selects an approximate portfolio.
               </p>
             </div>
           </div>
@@ -128,22 +144,22 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
       </div>
 
       {/* THE HEADLINE BENCHMARK PROOF PANEL (PRD Section 10.7 & 14) */}
-      <div className="glass-panel glow-border" style={{ padding: 24, background: 'rgba(10, 20, 40, 0.85)' }}>
+      <div className="glass-panel glow-border crisp-benchmark-panel" style={{ padding: 24, background: '#0B132B' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 14 }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Award size={22} color="var(--primary)" />
-              <h2 className="display-title" style={{ margin: 0, fontSize: 18, color: 'var(--text-main)' }}>
+              <h2 className="display-title" style={{ margin: 0, fontSize: 18, color: '#F8FAFC' }}>
                 Live Benchmark Proof: CRISP ILP vs. Industry Baselines
               </h2>
             </div>
-            <p style={{ margin: '4px 0 0 0', fontSize: 13, color: 'var(--text-muted)' }}>
+            <p className="benchmark-subtitle" style={{ margin: '4px 0 0 0', fontSize: 13, color: '#CBD5E1' }}>
               Evaluated under the <strong>identical FAIR Monte Carlo model and identical {formatINR(budget)} budget</strong>.
             </p>
           </div>
           {headline && (
             <span className="badge badge-real" style={{ fontSize: 13, padding: '6px 12px' }}>
-              +{headline.outperformance_vs_cvss_pct}% More Loss Removed
+              {headline.outperformance_vs_cvss_pct == null ? 'Comparison unavailable' : `${headline.outperformance_vs_cvss_pct}% change vs CVSS`}
             </span>
           )}
         </div>
@@ -151,8 +167,8 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
         {/* Headline Victory Banner */}
         {headline && (
           <div style={{
-            background: 'linear-gradient(90deg, rgba(183, 140, 102, 0.12) 0%, rgba(126, 143, 129, 0.12) 100%)',
-            border: '1px solid rgba(183, 140, 102, 0.3)',
+            background: 'linear-gradient(90deg, rgba(183, 140, 102, 0.15) 0%, rgba(126, 143, 129, 0.15) 100%)',
+            border: '1px solid rgba(183, 140, 102, 0.35)',
             borderRadius: 10,
             padding: '12px 18px',
             margin: '16px 0',
@@ -162,8 +178,8 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
             flexWrap: 'wrap',
             gap: 12
           }}>
-            <div style={{ fontSize: 13, color: '#e2e8f0' }}>
-              <strong>The Headline Finding:</strong> {headline.proof_summary}
+            <div style={{ fontSize: 13, color: '#F1F5F9' }}>
+              <strong>Dataset comparison:</strong> {headline.proof_summary}
             </div>
             <div className="mono" style={{ color: 'var(--accent-green)', fontSize: 13, fontWeight: 700 }}>
               Extra Loss Prevented: {formatINR(headline.extra_rupees_saved)}
@@ -172,57 +188,61 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
         )}
 
         {/* 3 Strategy Comparison Cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, paddingTop: 16 }}>
           {strategies.map((strat, idx) => {
             const isWinner = strat.type === 'recommended';
             return (
               <div key={idx} className="glass-panel" style={{
                 padding: 18,
-                border: isWinner ? '2px solid var(--primary)' : '1px solid var(--border-color)',
-                background: isWinner ? 'rgba(183, 140, 102, 0.05)' : 'rgba(255,255,255,0.02)',
-                position: 'relative'
+                border: isWinner ? '2px solid var(--primary)' : '1px solid rgba(255, 255, 255, 0.12)',
+                background: isWinner ? 'rgba(183, 140, 102, 0.12)' : 'rgba(255, 255, 255, 0.04)',
+                position: 'relative',
+                overflow: 'visible'
               }}>
                 {isWinner && (
                   <div style={{
                     position: 'absolute',
-                    top: -10,
+                    top: -11,
                     right: 14,
-                    background: 'var(--primary)',
-                    color: 'var(--bg-main)',
+                    background: 'linear-gradient(135deg, var(--primary) 0%, #d4a779 100%)',
+                    color: '#0B132B',
                     fontSize: 10,
                     fontWeight: 800,
-                    padding: '2px 8px',
-                    borderRadius: 4,
-                    textTransform: 'uppercase'
+                    padding: '3px 10px',
+                    borderRadius: 6,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    boxShadow: '0 4px 10px rgba(0, 0, 0, 0.4)',
+                    zIndex: 10
                   }}>
-                    Recommended Optimal
+                    ILP selection
                   </div>
                 )}
-                <div style={{ fontSize: 13, fontWeight: 700, color: isWinner ? 'var(--primary)' : 'var(--text-main)' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: isWinner ? 'var(--primary)' : '#F8FAFC' }}>
                   {strat.strategy_name}
                 </div>
-                <p style={{ fontSize: 11, color: 'var(--text-dim)', margin: '4px 0 14px 0' }}>
+                <p style={{ fontSize: 11, color: '#94A3B8', margin: '4px 0 14px 0' }}>
                   {strat.description}
                 </p>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--text-muted)' }}>Budget Spent:</span>
-                    <strong className="mono" style={{ color: 'var(--text-main)' }}>{formatINR(strat.spend)}</strong>
+                    <span style={{ color: '#94A3B8' }}>Budget Spent:</span>
+                    <strong className="mono" style={{ color: '#F8FAFC' }}>{formatINR(strat.spend)}</strong>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--text-muted)' }}>Expected Loss Reduction:</span>
-                    <strong className="mono display-title" style={{ color: isWinner ? 'var(--accent-green)' : 'var(--text-main)', fontSize: 16 }}>
+                    <span style={{ color: '#94A3B8' }}>Simulated annual loss reduction:</span>
+                    <strong className="mono display-title" style={{ color: isWinner ? 'var(--accent-green)' : '#F8FAFC', fontSize: 16 }}>
                       {formatINR(strat.eal_reduction)}
                     </strong>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--text-muted)' }}>Remaining Unhedged EAL:</span>
-                    <strong className="mono" style={{ color: '#f87171' }}>{formatINR(strat.remaining_eal)}</strong>
+                    <span style={{ color: '#94A3B8' }}>Remaining Unhedged EAL:</span>
+                    <strong className="mono" style={{ color: '#F87171' }}>{formatINR(strat.remaining_eal)}</strong>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border-color)', paddingTop: 6 }}>
-                    <span style={{ color: 'var(--text-muted)' }}>Reduction per Rupee:</span>
-                    <strong className="mono" style={{ color: isWinner ? 'var(--primary)' : 'var(--text-dim)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(255, 255, 255, 0.1)', paddingTop: 6 }}>
+                    <span style={{ color: '#94A3B8' }}>Reduction per Rupee:</span>
+                    <strong className="mono" style={{ color: isWinner ? 'var(--primary)' : '#CBD5E1' }}>
                       {strat.reduction_per_rupee}x
                     </strong>
                   </div>
@@ -248,36 +268,86 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
             <span className="badge badge-cyan">CBC MILP Solver</span>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 420, overflowY: 'auto' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: 460, overflowY: 'auto', paddingRight: 6 }}>
             {plan?.all_actions?.map((act, idx) => (
               <div key={idx} className="glass-panel" style={{
-                padding: 14,
-                borderLeft: act.type === 'control' ? '3px solid var(--primary)' : '3px solid var(--accent-purple)',
-                background: 'rgba(255,255,255,0.02)'
+                padding: '14px 16px',
+                borderLeft: act.type === 'control' ? '4px solid var(--primary)' : '4px solid var(--accent-purple)',
+                background: 'var(--bg-card)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+                flexShrink: 0,
+                borderRadius: 12,
+                overflow: 'visible',
+                minHeight: 'fit-content'
               }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
+                {/* Meta header: Badges on left, Cost & ROSI on right */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     <span className="badge" style={{
-                      background: act.type === 'control' ? 'rgba(183, 140, 102, 0.1)' : 'rgba(154, 150, 179, 0.1)',
+                      background: act.type === 'control' ? 'rgba(183, 140, 102, 0.15)' : 'rgba(154, 150, 179, 0.15)',
                       color: act.type === 'control' ? 'var(--primary)' : 'var(--accent-purple)',
+                      borderColor: act.type === 'control' ? 'rgba(183, 140, 102, 0.3)' : 'rgba(154, 150, 179, 0.3)',
                       fontSize: 10,
-                      marginBottom: 4
+                      padding: '2px 8px',
+                      whiteSpace: 'nowrap'
                     }}>
                       {act.type === 'control' ? 'Security Control' : 'Vulnerability Patch'}
                     </span>
-                    <h4 style={{ margin: 0, fontSize: 13, color: 'var(--text-main)' }}>{act.name || act.cve_id}</h4>
                     {act.asset_id && (
-                      <div className="mono" style={{ fontSize: 10, color: 'var(--text-dim)' }}>Target: {act.asset_id}</div>
+                      <span className="mono" style={{ fontSize: 11, color: 'var(--text-dim)', background: 'rgba(0,0,0,0.03)', padding: '2px 6px', borderRadius: 4 }}>
+                        Target: {act.asset_id}
+                      </span>
+                    )}
+                    {act.severity && (
+                      <span className="badge" style={{ fontSize: 9, padding: '2px 6px', color: act.severity === 'Critical' ? 'var(--accent-red)' : 'var(--accent-amber)' }}>
+                        {act.severity}
+                      </span>
                     )}
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div className="mono" style={{ color: 'var(--text-main)', fontSize: 13, fontWeight: 700 }}>{formatINR(act.cost)}</div>
-                    <span className="badge badge-real" style={{ fontSize: 10 }}>ROSI: {act.rosi}x</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span className="mono" style={{ color: 'var(--text-main)', fontSize: 13, fontWeight: 700 }}>
+                      {formatINR(act.cost)}
+                    </span>
+                    <span className="badge badge-real" style={{ fontSize: 10, padding: '2px 7px' }}>
+                      {act.cost_source}
+                    </span>
                   </div>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-dim)', marginTop: 8, borderTop: '1px solid var(--border-color)', paddingTop: 6 }}>
-                  <span>EAL Risk Reduction:</span>
-                  <span className="mono" style={{ color: 'var(--accent-green)', fontWeight: 600 }}>{formatINR(act.estimated_reduction)}</span>
+
+                {/* Action Title: dedicated block, clean wrapping, title tooltip */}
+                <div style={{ width: '100%', minWidth: 0 }}>
+                  <h4 
+                    title={act.name || act.cve_id}
+                    style={{ 
+                      margin: 0, 
+                      fontSize: 13, 
+                      fontWeight: 600, 
+                      color: 'var(--text-main)', 
+                      lineHeight: 1.45,
+                      wordBreak: 'break-word',
+                      overflowWrap: 'break-word'
+                    }}
+                  >
+                    {act.name || act.cve_id}
+                  </h4>
+                </div>
+
+                {/* Loss Reduction */}
+                <div style={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center', 
+                  fontSize: 11, 
+                  color: 'var(--text-dim)', 
+                  borderTop: '1px solid var(--border-color)', 
+                  paddingTop: 6 
+                }}>
+                  <span>Selection estimate:</span>
+                  <span className="mono" style={{ color: 'var(--accent-green)', fontWeight: 700, fontSize: 12 }}>
+                    {formatINR(act.objective_coefficient)}
+                  </span>
                 </div>
               </div>
             ))}
@@ -288,9 +358,9 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
         <div className="glass-panel" style={{ padding: 22 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div>
-              <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>Pareto Frontier & Diminishing Returns</h3>
+              <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>Evaluated Investment Curve</h3>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
-                EAL Reduction vs Budget Sweep (₹10L to ₹5Cr) marking the optimal knee point
+                Simulated EAL reduction across selected budgets (₹10L to ₹5Cr); selection is approximate
               </p>
             </div>
             <span className="badge badge-real">Pareto Curve</span>

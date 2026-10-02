@@ -5,6 +5,9 @@ for regulatory audits (SEBI CSCRF, RBI CSF, NIST CSF, ISO 27001, CIS Controls, D
 """
 
 import io
+import html
+from app.compliance.evidence import assess_control
+from app.engine.model import MODEL_VERSION, finding_key
 import csv
 import json
 from datetime import datetime, timezone
@@ -16,201 +19,52 @@ from app.compliance.framework_registry import FRAMEWORK_REQUIREMENTS
 from app.compliance.framework_engine import normalize_framework_id, FRAMEWORKS
 
 
-# Mapping of technical control IDs to correlated finding characteristics in ingested scans
-CONTROL_FINDING_HEURISTICS: Dict[str, Dict[str, Any]] = {
-    "CTRL-PATCH-01": {"cve_types": ["CVE-2021-44228", "CVE-2024-3400", "CVE-2023-4966", "CVE-2022-22965", "CVE-2024-6387"], "severities": ["Critical", "High"]},
-    "CTRL-EDR-01": {"assets": ["AST-PAY-DB-01", "AST-AD-DC-01", "AST-CORE-DB-01", "AST-NODE-007", "AST-NODE-012"], "severities": ["Critical", "High", "Medium"]},
-    "CTRL-WAF-01": {"assets": ["AST-PAY-GW-01", "AST-NETBANK-APP-01", "AST-CRM-APP-01"], "severities": ["Critical", "High"]},
-    "CTRL-API-01": {"assets": ["AST-PAY-GW-01", "AST-NETBANK-APP-01"], "severities": ["Critical", "High"]},
-    "CTRL-MFA-01": {"assets": ["AST-AD-DC-01"], "severities": ["High", "Critical"]},
-    "CTRL-PAM-01": {"assets": ["AST-AD-DC-01"], "severities": ["High", "Critical"]},
-    "CTRL-ENC-01": {"assets": ["AST-PAY-DB-01", "AST-CORE-DB-01"], "severities": ["Critical", "High"]},
-    "CTRL-DLP-01": {"assets": ["AST-PAY-DB-01", "AST-CORE-DB-01"], "severities": ["Critical", "High"]},
-    "CTRL-SEG-01": {"assets": ["AST-PAY-DB-01", "AST-PAY-GW-01"], "severities": ["Critical"]},
-    "CTRL-BKP-01": {"assets": ["AST-PAY-DB-01", "AST-AD-DC-01"], "severities": ["Critical", "High"]},
-    "CTRL-SIEM-01": {"severities": ["Critical", "High"]},
-    "CTRL-HARD-01": {"assets": ["AST-NODE-007", "AST-NODE-012"], "severities": ["High", "Medium"]},
-    "CTRL-VAPT-01": {"assets": ["AST-PAY-GW-01", "AST-NETBANK-APP-01", "AST-CRM-APP-01"], "severities": ["Critical"]},
-    "CTRL-ANOM-01": {"severities": ["Critical"]},
-    "CTRL-IR-01": {"severities": ["Critical"]},
-    "CTRL-TPRM-01": {"assets": ["AST-PAY-GW-01"], "severities": ["Critical"]}
-}
-
-
 class EvidenceReportGenerator:
-    """
-    Builds audit-ready evidence traceability reports.
-    Correlates framework requirements -> technical controls -> real ingested findings -> run_id.
-    """
-
     @classmethod
-    def get_fallback_demo_snapshot(cls) -> Dict[str, Any]:
-        """Loads seed_snapshot.json to provide ground-truth demo data if snapshot is unpopulated."""
-        seed_path = DATA_DIR / "seed_snapshot.json"
-        if seed_path.exists():
-            with open(seed_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        return {}
-
-    @classmethod
-    def build_structured_report(
-        cls,
-        framework_id: str,
-        snapshot: Dict[str, Any],
-        run_metadata: Optional[Dict[str, Any]] = None,
-        controls_catalog: Optional[List[Dict[str, Any]]] = None
-    ) -> Dict[str, Any]:
-        """
-        Constructs the authoritative evidence report data structure.
-        Ensures unmapped requirements explicitly state 'NO EVIDENCE — unmapped'.
-        Ensures every supporting finding ID resolves to a real ingested finding.
-        """
-        canonical_id = normalize_framework_id(framework_id)
-        fw_meta = FRAMEWORKS[canonical_id]
-        requirements = FRAMEWORK_REQUIREMENTS.get(canonical_id, [])
-
-        # Fallback to seed demo data if active snapshot has no findings
-        active_findings = snapshot.get("findings") or []
-        if not active_findings:
-            demo_data = cls.get_fallback_demo_snapshot()
-            active_findings = demo_data.get("findings", [])
-            active_controls_state = snapshot.get("control_state") or demo_data.get("control_state", [])
-            active_org = snapshot.get("organization") or demo_data.get("organization", {})
-        else:
-            active_controls_state = snapshot.get("control_state", [])
-            active_org = snapshot.get("organization", {})
-
-        # Catalog lookup
-        catalog = controls_catalog or snapshot.get("controls_catalog") or []
-        catalog_map = {c["id"]: c for c in catalog}
-        state_map = {cs["control_id"]: cs for cs in active_controls_state}
-
-        # Index real findings by ID, asset, CVE, severity
-        finding_id_set = {f["id"] for f in active_findings if "id" in f}
-        findings_by_id = {f["id"]: f for f in active_findings if "id" in f}
-
-        # Resolve run_id and timestamp
-        run_id = (run_metadata or {}).get("run_id") or "RUN-42-AUDIT"
-        timestamp = (run_metadata or {}).get("last_recompute_at") or datetime.now(timezone.utc).isoformat()
-
-        structured_requirements = []
-        compliant_count = 0
-        partially_compliant_count = 0
-        non_compliant_count = 0
-        unmapped_count = 0
-
-        for req in requirements:
-            req_id = req["id"]
-            clause = req.get("clause")
-            title = req["title"]
-            domain = req.get("domain", "General")
-            mapped_ctrl_id = req.get("mapped_control_id")
-
-            if not mapped_ctrl_id:
-                # MANDATORY: Unmapped requirements must appear as 'NO EVIDENCE — unmapped'
-                unmapped_count += 1
-                structured_requirements.append({
-                    "requirement_id": req_id,
-                    "clause": clause,
-                    "title": title,
-                    "domain": domain,
-                    "coverage_status": "NO EVIDENCE — unmapped",
-                    "mapped_control_id": None,
-                    "control_name": None,
-                    "control_coverage_pct": 0.0,
-                    "evidence_source": None,
-                    "supporting_finding_ids": [],
-                    "unmapped_reason": req.get("unmapped_reason", "Out of technical telemetry scope"),
-                    "last_assessment_run_id": run_id,
-                    "assessment_timestamp": timestamp
-                })
-            else:
-                ctrl_meta = catalog_map.get(mapped_ctrl_id, {})
-                ctrl_state = state_map.get(mapped_ctrl_id, {})
-                cov_pct = float(ctrl_state.get("coverage_pct", 60.0))
-
-                if cov_pct >= 75.0:
-                    status = "COMPLIANT"
-                    compliant_count += 1
-                elif cov_pct >= 50.0:
-                    status = "PARTIALLY COMPLIANT"
-                    partially_compliant_count += 1
-                else:
-                    status = "NON-COMPLIANT"
-                    non_compliant_count += 1
-
-                # Deterministically correlate real ingested findings
-                heuristic = CONTROL_FINDING_HEURISTICS.get(mapped_ctrl_id, {})
-                target_assets = set(heuristic.get("assets", []))
-                target_cves = set(heuristic.get("cve_types", []))
-                target_sevs = set(heuristic.get("severities", []))
-
-                correlated_fids = []
-                for f in active_findings:
-                    fid = f.get("id")
-                    if not fid or fid not in finding_id_set:
-                        continue
-                    
-                    matched = False
-                    if target_assets and f.get("asset_id") in target_assets:
-                        matched = True
-                    elif target_cves and f.get("cve_id") in target_cves:
-                        matched = True
-                    elif target_sevs and f.get("severity") in target_sevs and not target_assets and not target_cves:
-                        matched = True
-                    
-                    if matched and fid not in correlated_fids:
-                        correlated_fids.append(fid)
-
-                # Cap to top 4 relevant findings for concise reporting
-                correlated_fids = sorted(correlated_fids)[:4]
-
-                structured_requirements.append({
-                    "requirement_id": req_id,
-                    "clause": clause,
-                    "title": title,
-                    "domain": domain,
-                    "coverage_status": status,
-                    "mapped_control_id": mapped_ctrl_id,
-                    "control_name": ctrl_meta.get("name", mapped_ctrl_id),
-                    "control_coverage_pct": cov_pct,
-                    "evidence_source": req.get("evidence_source") or "Continuous Telemetry Sensor",
-                    "supporting_finding_ids": correlated_fids,
-                    "unmapped_reason": None,
-                    "last_assessment_run_id": run_id,
-                    "assessment_timestamp": timestamp
-                })
-
-        total_reqs = len(requirements)
-        mapped_count = total_reqs - unmapped_count
-        mapping_coverage_pct = round((mapped_count / max(1, total_reqs)) * 100.0, 1)
-
-        return {
-            "framework_id": framework_id,
-            "canonical_id": canonical_id,
-            "framework_name": fw_meta["name"],
-            "official_citation": fw_meta["citation"],
-            "organization": {
-                "name": active_org.get("name", "Apex FinCorp Ltd."),
-                "sector": active_org.get("sector", "Banking & Financial Services (BFSI)"),
-                "total_assets": len(snapshot.get("assets") or demo_data.get("assets", []) if 'demo_data' in locals() else snapshot.get("assets", []))
-            },
-            "audit_run": {
-                "run_id": run_id,
-                "assessment_timestamp": timestamp,
-                "engine_version": "CRISP FAIREngine v2.4 (Monte Carlo 5,000 trials)"
-            },
-            "summary_metrics": {
-                "total_requirements": total_reqs,
-                "mapped_requirements": mapped_count,
-                "unmapped_requirements": unmapped_count,
-                "mapping_coverage_pct": mapping_coverage_pct,
-                "compliant_requirements": compliant_count,
-                "partially_compliant_requirements": partially_compliant_count,
-                "non_compliant_requirements": non_compliant_count
-            },
-            "requirements": structured_requirements
-        }
+    def build_structured_report(cls, framework_id, snapshot, run_metadata=None, controls_catalog=None):
+        canonical = normalize_framework_id(framework_id)
+        meta = FRAMEWORKS[canonical]
+        controls = {c["control_id"]: c for c in snapshot.get("control_state", [])}
+        catalog = {c["id"]: c for c in (controls_catalog or snapshot.get("controls_catalog") or [])}
+        findings = snapshot.get("findings", [])
+        known = {f["id"] for f in findings}
+        reviews = snapshot.get("compliance_assessments", {})
+        rows = []
+        for req in FRAMEWORK_REQUIREMENTS.get(canonical, []):
+            cid = req.get("mapped_control_id")
+            state = controls.get(cid, {})
+            review = reviews.get(req["id"], reviews.get(cid, {}))
+            evidence = assess_control(state, review)
+            references = [fid for fid in state.get("supporting_finding_ids", []) if fid in known]
+            status = evidence["status"].upper() if cid else "NO EVIDENCE — unmapped"
+            if cid and not evidence["evidence_complete"]:
+                status = "NO EVIDENCE"
+            rows.append({"requirement_id": req["id"], "clause": req.get("clause"), "title": req["title"],
+                "domain": req.get("domain", "General"), "coverage_status": status, "mapped_control_id": cid,
+                "control_name": catalog.get(cid, {}).get("name"), "control_coverage_pct": evidence["observed_coverage_pct"],
+                "evidence_source": evidence["evidence_source"], "supporting_finding_ids": references,
+                "supporting_finding_keys": [finding_key(f) for f in findings if f.get("id") in references],
+                "unmapped_reason": req.get("unmapped_reason") if not cid else None,
+                "last_assessment_run_id": (run_metadata or {}).get("run_id"),
+                "assessment_timestamp": evidence["evidence_timestamp"],
+                "requirement_source": req.get("source", meta["citation"]),
+                "requirement_version": req.get("version", meta["name"]),
+                "applicability": review.get("applicability", "not_reviewed"),
+                "reviewer_decision": evidence["reviewer_decision"], "reviewer": evidence["reviewer"],
+                "reviewed_at": evidence["reviewed_at"], "evidence_complete": evidence["evidence_complete"]})
+        mapped = sum(bool(r["mapped_control_id"]) for r in rows)
+        org = snapshot.get("organization") or {}
+        return {"framework_id": framework_id, "canonical_id": canonical, "framework_name": meta["name"],
+            "official_citation": meta["citation"], "scope": "Curated subset; source mappings require independent review",
+            "organization": {"name": org.get("name", "Not Configured"), "sector": org.get("sector", "Not provided"), "total_assets": len(snapshot.get("assets", []))},
+            "audit_run": {"run_id": (run_metadata or {}).get("run_id"), "assessment_timestamp": (run_metadata or {}).get("last_recompute_at"), "engine_version": MODEL_VERSION},
+            "summary_metrics": {"total_requirements": len(rows), "mapped_requirements": mapped, "unmapped_requirements": len(rows)-mapped,
+                "mapping_coverage_pct": round(100*mapped/max(1,len(rows)),1),
+                "evidence_completeness_pct": round(100*sum(r["evidence_complete"] for r in rows)/max(1,len(rows)),1),
+                "compliant_requirements": sum(r["coverage_status"]=="COMPLIANT" for r in rows),
+                "partially_compliant_requirements": sum(r["coverage_status"]=="PARTIALLY COMPLIANT" for r in rows),
+                "non_compliant_requirements": sum(r["coverage_status"]=="NON-COMPLIANT" for r in rows)},
+            "requirements": rows}
 
     @classmethod
     def generate_csv_report(cls, report_data: Dict[str, Any]) -> str:
@@ -244,7 +98,7 @@ class EvidenceReportGenerator:
             "Supporting Finding IDs",
             "Assessment Run ID",
             "Assessment Timestamp",
-            "Unmapped Reason / Scope Exemption"
+            "Unmapped Reason / Scope Exemption", "Source", "Version", "Applicability", "Reviewer", "Decision", "Reviewed At"
         ])
 
         # Table rows
@@ -258,12 +112,12 @@ class EvidenceReportGenerator:
                 req["coverage_status"],
                 req["mapped_control_id"] or "N/A",
                 req["control_name"] or "N/A",
-                f"{req['control_coverage_pct']}%" if req["mapped_control_id"] else "0.0%",
+                f"{req['control_coverage_pct']}%" if req["control_coverage_pct"] is not None else "Unknown",
                 req["evidence_source"] or "None",
                 finding_ids_str,
                 req["last_assessment_run_id"],
                 req["assessment_timestamp"],
-                req["unmapped_reason"] or "N/A"
+                req["unmapped_reason"] or "N/A", req["requirement_source"], req["requirement_version"], req["applicability"], req["reviewer"], req["reviewer_decision"], req["reviewed_at"]
             ])
 
         return output.getvalue()
@@ -274,6 +128,15 @@ class EvidenceReportGenerator:
         Renders a high-contrast, printable, audit-grade HTML view.
         Includes @media print stylesheets and client-side download/print hooks.
         """
+        def escaped(value):
+            if isinstance(value, str):
+                return html.escape(value)
+            if isinstance(value, list):
+                return [escaped(v) for v in value]
+            if isinstance(value, dict):
+                return {k: escaped(v) for k, v in value.items()}
+            return value
+        report_data = escaped(report_data)
         fw_name = report_data["framework_name"]
         citation = report_data["official_citation"]
         org = report_data["organization"]
@@ -291,7 +154,7 @@ class EvidenceReportGenerator:
             elif status == "NON-COMPLIANT":
                 status_badge = '<span class="badge badge-danger">NON-COMPLIANT</span>'
             else:
-                status_badge = '<span class="badge badge-unmapped">NO EVIDENCE — unmapped</span>'
+                status_badge = f'<span class="badge badge-unmapped">{status}</span>'
 
             # Format finding tags
             if req["supporting_finding_ids"]:
@@ -301,13 +164,13 @@ class EvidenceReportGenerator:
 
             ctrl_id = req["mapped_control_id"] or "—"
             ctrl_name = req["control_name"] or '<span class="text-dim">Out of scope</span>'
-            cov_str = f"{req['control_coverage_pct']}%" if req["mapped_control_id"] else "—"
+            cov_str = f"{req['control_coverage_pct']}%" if req["control_coverage_pct"] is not None else "Unknown"
             evidence = req["evidence_source"] or f'<span class="text-dim">{req["unmapped_reason"]}</span>'
 
             req_rows.append(f"""
             <tr>
               <td><span class="clause-pill">{req["clause"] or req["requirement_id"]}</span></td>
-              <td><strong>{req["title"]}</strong><br><small class="text-dim">{req["domain"]}</small></td>
+              <td><strong>{req["title"]}</strong><br><small class="text-dim">{req["domain"]}</small><br><small>Source: {req["requirement_source"]}; version: {req["requirement_version"]}; applicability: {req["applicability"]}; reviewer: {req["reviewer"]}; decision: {req["reviewer_decision"]}; reviewed: {req["reviewed_at"]}</small></td>
               <td>{status_badge}</td>
               <td><code>{ctrl_id}</code></td>
               <td><small>{ctrl_name}</small></td>

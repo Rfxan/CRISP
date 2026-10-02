@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import RiskExplanation from './components/RiskExplanation';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import ExecutiveView from './components/ExecutiveView';
@@ -98,6 +99,8 @@ export default function App() {
 
   useEffect(() => {
     loadData();
+    const timer = setInterval(() => { if (!document.hidden) loadData(); }, 60000);
+    return () => clearInterval(timer);
   }, []);
 
   const showToast = (message, type = 'success') => {
@@ -130,11 +133,13 @@ export default function App() {
         runId={summary?.run_id}
         assumptionsVer={summary?.assumptions_version}
         dataQuality={dataQuality}
+        organization={summary?.org?.name}
       />
 
       {/* Main View Area */}
       <main style={{ flex: 1, padding: '32px', overflowY: 'auto' }}>
         
+        <RiskExplanation summary={summary} />
         {/* Toast Alert */}
         {toast && (
           <div style={{
@@ -238,22 +243,33 @@ export default function App() {
               <TechnicalDrilldown summary={summary} driversData={driversData} onNavigateToIngestion={() => setActiveTab('ingestion')} />
             )}
             {activeTab === 'optimizer' && (
-              <OptimizerView />
+              <OptimizerView 
+                baseEal={summary?.org?.eal} 
+                status={summary?.status} 
+                onNavigateToIngestion={() => setActiveTab('ingestion')} 
+              />
             )}
             {activeTab === 'whatif' && (
-              <WhatIfSimulator onSimulate={loadData} />
+              <WhatIfSimulator 
+                baselineEal={summary?.org?.eal} 
+                baselineVar95={summary?.org?.var95}
+                trials={summary?.trials} 
+                status={summary?.status} 
+                onNavigateToIngestion={() => setActiveTab('ingestion')} 
+                onSimulate={loadData} 
+              />
             )}
             {activeTab === 'compliance' && (
-              <ComplianceHub />
+              <ComplianceHub status={summary?.status} onNavigateToIngestion={() => setActiveTab('ingestion')} />
             )}
             {activeTab === 'ai' && (
               <AIQueryCenter />
             )}
             {activeTab === 'ingestion' && (
-              <DataIngestionHub onRefreshData={() => loadData(true)} />
+              <DataIngestionHub onDataUpdated={() => loadData(true)} />
             )}
             {activeTab === 'connections' && (
-              <ConnectionsSettings />
+              <ConnectionsSettings onConnectionChanged={() => loadData()} />
             )}
           </>
         )}
@@ -272,7 +288,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/home" element={<LandingPage onSignIn={() => navigate('/dashboard')} />} />
-      <Route path="/dashboard" element={<DashboardLayout />} />
+      <Route path="/dashboard" element={DashboardLayout()} />
       <Route path="*" element={<Navigate to="/home" replace />} />
     </Routes>
   );

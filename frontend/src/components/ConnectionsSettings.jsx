@@ -49,13 +49,34 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
       setStatusMessage({ type: 'error', text: 'Failed to retrieve connection statuses from CRISP backend.' });
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   };
 
   useEffect(() => {
     fetchConnections();
   }, []);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    setStatusMessage(null);
+    try {
+      const data = await api.refreshConnections();
+      setConnections(data.connections);
+      const entries = Object.entries(data.results);
+      const failed = entries.filter(([, result]) => !result.success);
+      setStatusMessage({
+        type: failed.length ? 'error' : 'success',
+        text: !entries.length ? 'No connections configured yet.' : failed.length
+          ? failed.map(([category, result]) => `${category.toUpperCase()}: ${result.detail}`).join(' • ')
+          : 'Live connection checks and telemetry refresh completed.'
+      });
+      if (onConnectionChanged) onConnectionChanged();
+    } catch (err) {
+      setStatusMessage({ type: 'error', text: err.message });
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const handleInputChange = (category, field, value) => {
     setForms(prev => ({
@@ -155,7 +176,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
 
       setStatusMessage({
         type: 'success',
-        text: `Successfully saved ${category.toUpperCase()} live connection! CRISP scheduler will continuously pull telemetry.`
+        text: `Saved ${category.toUpperCase()} connection. Use Refresh Status to check it now; scheduled updates require the synchronization worker.`
       });
 
       setForms(prev => ({
@@ -221,7 +242,11 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
 
     // Status derivation
     let statusBadge = null;
-    if (conn.connected) {
+    const lastCheck = Date.parse(conn.last_tested);
+    const stale = !Number.isFinite(lastCheck) || Date.now() - lastCheck > 120000;
+    if (conn.connected && stale) {
+      statusBadge = <span className="badge badge-simulated"><AlertCircle size={14} /> Status stale · checked {formatTimeAgo(conn.last_tested)}</span>;
+    } else if (conn.connected) {
       statusBadge = (
         <span style={{
           display: 'inline-flex',
@@ -235,7 +260,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
           color: 'var(--accent-green)',
           border: '1px solid rgba(126, 143, 129, 0.4)'
         }}>
-          <CheckCircle2 size={14} /> Connected ✅ (synced {formatTimeAgo(conn.last_tested)})
+          <CheckCircle2 size={14} /> Connected (checked {formatTimeAgo(conn.last_tested)})
         </span>
       );
     } else if (conn.last_test_result === 'FAILED') {
@@ -592,20 +617,19 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
             </span>
           </div>
           <p style={{ margin: '6px 0 0 0', fontSize: 13, color: 'var(--text-dim)', maxWidth: 800 }}>
-            Configure live connections to your enterprise SIEM/EDR and IAM infrastructure. 
-            CRISP's background engine automatically queries connected systems every 30 seconds 
-            to calibrate real control coverage (CTRL-EDR-01 & CTRL-MFA-01) without hardcoded environment variables.
+            Configure your SIEM/EDR and IAM connections. Refresh Status checks saved endpoints and updates telemetry now.
+            Automatic telemetry updates run approximately every 30 seconds while the synchronization worker is running.
           </p>
         </div>
 
         <button
           className="btn btn-outline"
-          onClick={() => { setRefreshing(true); fetchConnections(); }}
+          onClick={handleRefresh}
           disabled={refreshing}
           style={{ padding: '8px 16px', fontSize: 13 }}
         >
           <RefreshCw size={14} className={refreshing ? 'spin' : ''} style={{ marginRight: 6 }} />
-          Refresh Status
+          {refreshing ? 'Checking live connections…' : 'Refresh Status'}
         </button>
       </div>
 

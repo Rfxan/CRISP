@@ -2,7 +2,7 @@
  * Currency and numbers formatters calibrated for Indian context (₹, Lakhs, Crores)
  */
 export function formatINR(val) {
-  if (val === undefined || val === null || isNaN(val)) return '₹0';
+  if (val === undefined || val === null || isNaN(val)) return 'Unknown';
   const num = Number(val);
   const abs = Math.abs(num);
   const sign = num < 0 ? '-' : '';
@@ -17,6 +17,6 @@ export function formatINR(val) {
 }
 
 export function formatINRFull(val) {
-  if (val === undefined || val === null || isNaN(val)) return '₹0';
+  if (val === undefined || val === null || isNaN(val)) return 'Unknown';
   return `₹${Math.round(val).toLocaleString('en-IN')}`;
 }

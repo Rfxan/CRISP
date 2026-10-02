@@ -1,3 +1,4 @@
+from app.core.tenancy import active, read_document, write_document
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
@@ -75,6 +76,13 @@ class RunHistoryManager:
             "assumptions_version": str(assumptions_version)
         }
 
+        if active() and not self._is_custom:
+            history = read_document("run_history", [])
+            if not history or history[-1]["run_id"] != record["run_id"]:
+                history.append(record)
+                write_document("run_history", history)
+            return record
+
         # Write to primary history file
         try:
             with open(self.history_file, "a", encoding="utf-8") as f:
@@ -97,6 +105,8 @@ class RunHistoryManager:
         """
         Reads and returns all historical run records.
         """
+        if active() and not self._is_custom:
+            return read_document("run_history", [])
         # Determine source path
         target_path = self.history_file
         if not self._is_custom:

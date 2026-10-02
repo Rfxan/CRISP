@@ -42,6 +42,10 @@ def _get_fernet() -> Fernet:
     """
     global _ephemeral_fernet
     key = os.getenv("CRISP_ENCRYPTION_KEY")
+    if os.getenv("CRISP_ENV", "development").lower() == "production":
+        if not key:
+            raise RuntimeError("Production requires a persistent CRISP_ENCRYPTION_KEY")
+        return Fernet(key.strip().encode("utf-8"))
     if not key or not key.strip():
         if _ephemeral_fernet is None:
             logger.warning(

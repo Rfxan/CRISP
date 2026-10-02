@@ -96,8 +96,11 @@ class TelemetryAnomalyDetector:
                 "status": "insufficient_baseline_data",
                 "message": f"insufficient baseline data: minimum {MIN_BASELINE_SAMPLES} observation windows required (received {len(all_records)})",
                 "total_windows": len(all_records),
+                "history_windows_count": len(all_records),
+                "min_required_windows": MIN_BASELINE_SAMPLES,
                 "anomalies_detected": 0,
                 "signals": [],
+                "results": [],
                 "model": "IsolationForest (scikit-learn)",
                 "label": ANOMALY_LABEL,
                 "is_insufficient": True
@@ -142,32 +145,40 @@ class TelemetryAnomalyDetector:
             scores.append(norm_score)
 
         signals = []
+        all_results = []
         for idx, (rec, pred, score) in enumerate(zip(all_records, predictions, scores)):
-            is_anomaly = (pred == -1)
-            if is_anomaly:
-                agent_id = rec.get("agent_id") or rec.get("agent_name") or f"agent-{idx+1:03d}"
-                agent_name = rec.get("agent_name") or agent_id
-                timestamp = rec.get("timestamp") or rec.get("last_sync") or "recent_window"
-                vol, auth_rate, sev_mix = feature_list[idx]
+            is_anomaly = bool(pred == -1)
+            agent_id = rec.get("agent_id") or rec.get("agent_name") or f"agent-{idx+1:03d}"
+            agent_name = rec.get("agent_name") or agent_id
+            timestamp = rec.get("timestamp") or rec.get("last_sync") or "recent_window"
+            vol, auth_rate, sev_mix = feature_list[idx]
+            src = rec.get("source")
+            is_demo = rec.get("is_demo")
 
-                signals.append({
-                    "agent_id": agent_id,
-                    "agent_name": agent_name,
-                    "window_timestamp": timestamp,
-                    "anomaly_score": score,
-                    "is_anomalous": True,
-                    "label": ANOMALY_LABEL,
-                    "features": {
-                        "event_volume": int(vol),
-                        "auth_failure_rate": round(float(auth_rate), 4),
-                        "alert_severity_mix": round(float(sev_mix), 4)
-                    },
-                    "reason": (
-                        f"Statistical anomaly on {agent_name} (Score: {score}): "
-                        f"throughput={int(vol)} events, auth_failure_rate={round(auth_rate * 100, 1)}%, "
-                        f"severity_mix={round(sev_mix * 100, 1)}%."
-                    )
-                })
+            item = {
+                "agent_id": agent_id,
+                "agent_name": agent_name,
+                "window_timestamp": timestamp,
+                "anomaly_score": score,
+                "is_anomalous": is_anomaly,
+                "is_anomaly": is_anomaly,
+                "label": ANOMALY_LABEL,
+                "source": src,
+                "is_demo": is_demo,
+                "features": {
+                    "event_volume": int(vol),
+                    "auth_failure_rate": round(float(auth_rate), 4),
+                    "alert_severity_mix": round(float(sev_mix), 4)
+                },
+                "reason": (
+                    f"Statistical anomaly on {agent_name} (Score: {score}): "
+                    f"throughput={int(vol)} events, auth_failure_rate={round(auth_rate * 100, 1)}%, "
+                    f"severity_mix={round(sev_mix * 100, 1)}%."
+                ) if is_anomaly else f"Normal telemetry window for {agent_name}"
+            }
+            all_results.append(item)
+            if is_anomaly:
+                signals.append(item)
 
         # Sort signals by highest anomaly score first
         signals.sort(key=lambda s: s["anomaly_score"], reverse=True)
@@ -176,8 +187,11 @@ class TelemetryAnomalyDetector:
             "status": "scored",
             "model": "IsolationForest (scikit-learn)",
             "total_windows": len(all_records),
+            "history_windows_count": len(all_records),
+            "min_required_windows": MIN_BASELINE_SAMPLES,
             "anomalies_detected": len(signals),
             "signals": signals,
+            "results": all_results,
             "label": ANOMALY_LABEL,
             "is_insufficient": False,
             "baseline_summary": {

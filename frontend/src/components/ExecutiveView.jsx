@@ -377,7 +377,7 @@ export default function ExecutiveView({
             {formatINR(eal)}
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
-            Annualized mathematical expectation from 10,000 Monte Carlo trials
+            Annualized mathematical expectation from {summary.trials?.toLocaleString()} Monte Carlo trials
           </div>
         </div>
 
@@ -391,7 +391,7 @@ export default function ExecutiveView({
             {formatINR(var95)}
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
-            95th percentile upper financial loss ceiling (VaR99: {formatINR(var99)})
+            95th percentile annual loss (VaR99: {formatINR(var99)})
           </div>
         </div>
 
@@ -436,7 +436,7 @@ export default function ExecutiveView({
             <div>
               <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>Loss Exceedance Curve P(Loss &gt; X)</h3>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
-                Empirical probability distribution from 10,000 vectorized trials
+                Empirical probability distribution from {summary.trials?.toLocaleString()} vectorized trials
               </p>
             </div>
             <span className="badge badge-cyan">FAIR Distribution</span>
@@ -624,7 +624,7 @@ export default function ExecutiveView({
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 14 }}>
             {(() => {
-              const items = tornadoData || [];
+              const items = Array.isArray(tornadoData) ? tornadoData : (tornadoData?.factors || []);
               const maxSpread = Math.max(...items.map(t => t.swing_spread || 0), 1);
               return items.map((item, idx) => (
                 <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12 }}>

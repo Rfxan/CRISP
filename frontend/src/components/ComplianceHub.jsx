@@ -4,6 +4,7 @@ import {
 } from 'lucide-react';
 import { formatINR } from '../utils/formatters';
 import { api } from '../services/api';
+import GovernanceEvidence from './GovernanceEvidence';
 import EmptyState from './EmptyState';
 
 export default function ComplianceHub({ status, onNavigateToIngestion }) {
@@ -11,9 +12,10 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
   const [evalData, setEvalData] = useState(null);
   const [frameworkSummaries, setFrameworkSummaries] = useState({});
   const [loading, setLoading] = useState(false);
+  const [exportError, setExportError] = useState('');
   const [showUnmapped, setShowUnmapped] = useState(true);
 
-  const isEmpty = status === 'NO_DATA' || status === 'NO_FINDINGS';
+  const isEmpty = !status || status === 'NO_DATA' || status === 'NO_FINDINGS';
 
   const frameworks = [
     { id: 'sebi', name: 'SEBI CSCRF 2024', desc: 'Cyber Resilience Framework & 6-Hour Incident Notification' },
@@ -48,6 +50,8 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
   };
 
   useEffect(() => {
+    setEvalData(null);
+    setFrameworkSummaries({});
     if (!isEmpty) {
       loadCompliance('sebi');
       loadSummaries();
@@ -58,8 +62,8 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
     return (
       <EmptyState
         status={status || 'NO_DATA'}
-        title="Compliance & Regulatory Auditing Unavailable"
-        message="Cannot assess regulatory framework compliance without ingested assets and controls telemetry. Ingest data to evaluate SEBI, RBI, and DPDP adherence."
+        title="No compliance evidence ingested yet"
+        message="Add your organization's assets and security telemetry to begin an assessment. Built-in framework mappings are reference material; they are not your organization's compliance results."
         onNavigateToIngestion={onNavigateToIngestion}
       />
     );
@@ -68,13 +72,16 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
   const sebi6h = evalData?.sebi_6hour_readiness;
   const dpdp = evalData?.dpdp_readiness;
 
-  const handleExportHTML = () => {
-    window.open(`/api/compliance/${selectedFramework}/evidence-report?format=html`, '_blank');
+  const downloadReport = async (format) => {
+    try {
+      const content = await api.getEvidenceReport(selectedFramework, format);
+      const url = URL.createObjectURL(new Blob([content], { type: format === 'html' ? 'text/html' : 'text/csv' }));
+      const link = document.createElement('a'); link.href = url; link.download = `${selectedFramework}-evidence.${format}`;
+      link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) { setExportError(e.message); }
   };
-
-  const handleDownloadCSV = () => {
-    window.open(`/api/compliance/${selectedFramework}/evidence-report?format=csv`, '_blank');
-  };
+  const handleExportHTML = () => downloadReport('html');
+  const handleDownloadCSV = () => downloadReport('csv');
 
   // Get live summary stats for current framework
   const activeSummary = frameworkSummaries[selectedFramework] || {
@@ -87,13 +94,20 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       
+      {exportError && <p role="alert">{exportError}</p>}
+      <div className="glass-panel" style={{ padding: 20 }}>
+        <p>{evalData?.scope}</p>
+        <p>Observed control coverage: {evalData?.observed_control_coverage_pct == null ? 'Unknown' : `${evalData.observed_control_coverage_pct}%`} · Evidence completeness: {evalData?.evidence_completeness_pct ?? 'Unknown'}% · Assessed compliant controls: {evalData?.assessed_compliance_pct ?? 'Unknown'}%</p>
+        <p>Mapping coverage describes this curated subset. It does not establish compliance with an entire framework.</p>
+      </div>
+      <GovernanceEvidence controls={evalData?.controls} onSaved={() => { loadCompliance(selectedFramework); loadSummaries(); }} />
       {/* Framework Selector Tabs with Honest Mapping Badges */}
       <div className="glass-panel" style={{ padding: 20, borderTop: '3px solid var(--accent-green)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
           <div>
             <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>Continuous Compliance & Evidence Center</h3>
             <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
-              Ground-truth regulatory auditing backed by continuous technical telemetry (EDR, SIEM, IAM, Vulnerability Scanners).
+              Evidence and reviewer assessments for a curated subset of framework requirements.
             </p>
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -184,17 +198,17 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
             {evalData?.mapping_coverage_pct ?? '--'}%
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-            {evalData?.mapped_requirements_count} of {evalData?.total_framework_requirements} clauses backed by technical sensors
+            {evalData?.mapped_requirements_count} of {evalData?.total_framework_requirements} requirements mapped in the curated subset
           </div>
         </div>
 
         {/* Metric 2: Active Controls Implementation Status */}
         <div className="glass-panel" style={{ padding: 18, borderLeft: '4px solid var(--primary)' }}>
           <div style={{ fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
-            Control Readiness (Mapped)
+            Assessed compliant controls
           </div>
           <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--primary)', fontFamily: 'JetBrains Mono, monospace' }}>
-            {evalData?.overall_coverage_pct ?? '--'}%
+            {evalData?.assessed_compliance_pct ?? '--'}%
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
             {evalData?.compliant_controls} of {evalData?.total_controls_mapped} controls meet compliant thresholds
@@ -241,11 +255,11 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
                 <h4 style={{ margin: 0, fontSize: 14, color: 'var(--text-main)' }}>SEBI CSCRF 6-Hour Reporting Readiness</h4>
               </div>
               <span className={`badge ${sebi6h.status === 'READY' ? 'badge-real' : 'badge-critical'}`}>
-                {sebi6h.status} ({sebi6h.readiness_score_pct}%)
+                {sebi6h.status} {sebi6h.readiness_score_pct == null ? '' : `(${sebi6h.readiness_score_pct}%)`}
               </span>
             </div>
             <p style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 14 }}>
-              Mandated under SEBI Circular 20 Aug 2024: Regulated entities must declare and report cyber incidents within 6 hours of discovery.
+              {sebi6h.requirement}. Readiness requires recorded exercise evidence.
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -255,15 +269,16 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   padding: '8px 12px',
-                  background: 'rgba(255,255,255,0.02)',
+                  background: item.pass ? 'rgba(126, 143, 129, 0.08)' : 'rgba(201, 114, 114, 0.06)',
+                  border: item.pass ? '1px solid rgba(126, 143, 129, 0.2)' : '1px solid rgba(201, 114, 114, 0.15)',
                   borderRadius: 6,
                   fontSize: 12
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     {item.pass ? <CheckCircle size={15} color="var(--accent-green)" /> : <AlertCircle size={15} color="var(--accent-red)" />}
-                    <span style={{ color: item.pass ? '#f8fafc' : '#f87171' }}>{item.item}</span>
+                    <span style={{ color: item.pass ? 'var(--text-main)' : 'var(--accent-red)', fontWeight: 500 }}>{item.item}</span>
                   </div>
-                  <span className="mono" style={{ color: 'var(--primary)' }}>{item.coverage_pct}%</span>
+                  <span className="mono" style={{ color: item.pass ? 'var(--accent-green)' : 'var(--text-dim)', fontWeight: 600 }}>{item.coverage_pct == null ? 'Unknown' : `${item.coverage_pct}%`}</span>
                 </div>
               ))}
             </div>
@@ -276,14 +291,14 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <ShieldAlert size={18} color="var(--accent-red)" />
-                <h4 style={{ margin: 0, fontSize: 14, color: 'var(--text-main)' }}>DPDP Act 2025 Safeguards & Penalty Exposure</h4>
+                <h4 style={{ margin: 0, fontSize: 14, color: 'var(--text-main)' }}>Personal-data safeguards evidence</h4>
               </div>
               <span className="badge badge-simulated">
-                {dpdp.status} ({dpdp.safeguards_score_pct}%)
+                {dpdp.status} {dpdp.safeguards_score_pct == null ? '' : `(${dpdp.safeguards_score_pct}%)`}
               </span>
             </div>
             <p style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 14 }}>
-              Statutory cap: <strong>₹250 Crore</strong> for failing reasonable safeguards (Section 8(5)). Modeled as heavy-tailed PERT.
+              {dpdp.requirement}
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -293,15 +308,16 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   padding: '8px 12px',
-                  background: 'rgba(255,255,255,0.02)',
+                  background: item.pass ? 'rgba(126, 143, 129, 0.08)' : 'rgba(201, 114, 114, 0.06)',
+                  border: item.pass ? '1px solid rgba(126, 143, 129, 0.2)' : '1px solid rgba(201, 114, 114, 0.15)',
                   borderRadius: 6,
                   fontSize: 12
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     {item.pass ? <CheckCircle size={15} color="var(--accent-green)" /> : <AlertCircle size={15} color="var(--accent-red)" />}
-                    <span style={{ color: item.pass ? '#f8fafc' : '#f87171' }}>{item.item}</span>
+                    <span style={{ color: item.pass ? 'var(--text-main)' : 'var(--accent-red)', fontWeight: 500 }}>{item.item}</span>
                   </div>
-                  <span className="mono" style={{ color: 'var(--primary)' }}>{item.coverage_pct}%</span>
+                  <span className="mono" style={{ color: item.pass ? 'var(--accent-green)' : 'var(--text-dim)', fontWeight: 600 }}>{item.coverage_pct == null ? 'Unknown' : `${item.coverage_pct}%`}</span>
                 </div>
               ))}
             </div>
@@ -318,7 +334,7 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
               {evalData?.framework_name} — Mapped Technical Controls & Audit Evidence
             </h3>
             <p style={{ margin: '4px 0 0 0', fontSize: 12, color: 'var(--text-dim)' }}>
-              Showing {evalData?.controls?.length || 0} active telemetry-audited controls mapped to {evalData?.framework_name}.
+              Showing {evalData?.controls?.length || 0} catalog controls mapped to {evalData?.framework_name}; evidence and review status are shown individually.
             </p>
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>

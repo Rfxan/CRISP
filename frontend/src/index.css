@@ -65,9 +65,29 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Force override hardcoded dark-mode inline styles from JS (excluding dedicated dark modals) */
-h1:not(.crisp-add-asset-modal *), h2:not(.crisp-add-asset-modal *), h3:not(.crisp-add-asset-modal *), h4:not(.crisp-add-asset-modal *), h5:not(.crisp-add-asset-modal *), h6:not(.crisp-add-asset-modal *) { color: var(--text-main) !important; }
-:not(.crisp-add-asset-modal):not(.crisp-add-asset-modal *)[style*="color: #fff"], :not(.crisp-add-asset-modal):not(.crisp-add-asset-modal *)[style*="color: rgb(255, 255, 255)"], :not(.crisp-add-asset-modal):not(.crisp-add-asset-modal *)[style*="color: white"] { color: var(--text-main) !important; }
+/* Force override hardcoded dark-mode inline styles from JS (excluding dedicated dark modals & benchmark panels) */
+h1:not(.crisp-add-asset-modal *):not(.crisp-benchmark-panel *), 
+h2:not(.crisp-add-asset-modal *):not(.crisp-benchmark-panel *), 
+h3:not(.crisp-add-asset-modal *):not(.crisp-benchmark-panel *), 
+h4:not(.crisp-add-asset-modal *):not(.crisp-benchmark-panel *), 
+h5:not(.crisp-add-asset-modal *):not(.crisp-benchmark-panel *), 
+h6:not(.crisp-add-asset-modal *):not(.crisp-benchmark-panel *) { color: var(--text-main) !important; }
+
+:not(.crisp-add-asset-modal):not(.crisp-add-asset-modal *):not(.crisp-benchmark-panel):not(.crisp-benchmark-panel *)[style*="color: #fff"], 
+:not(.crisp-add-asset-modal):not(.crisp-add-asset-modal *):not(.crisp-benchmark-panel):not(.crisp-benchmark-panel *)[style*="color: rgb(255, 255, 255)"], 
+:not(.crisp-add-asset-modal):not(.crisp-add-asset-modal *):not(.crisp-benchmark-panel):not(.crisp-benchmark-panel *)[style*="color: white"] { color: var(--text-main) !important; }
+
+.crisp-benchmark-panel {
+  background: #0B132B !important;
+  color: #F8FAFC !important;
+}
+.crisp-benchmark-panel h2, .crisp-benchmark-panel h3, .crisp-benchmark-panel h4 {
+  color: #F8FAFC !important;
+}
+.crisp-benchmark-panel p, .crisp-benchmark-panel .benchmark-subtitle {
+  color: #CBD5E1 !important;
+}
+
 [style*="background: rgba(255,255,255,0.02)"] { background: rgba(0,0,0,0.02) !important; box-shadow: var(--clay-inner) !important; border: none !important;}
 [style*="background: rgba(255,255,255,0.05)"] { background: rgba(0,0,0,0.03) !important; box-shadow: var(--clay-inner) !important; border: none !important;}
 [style*="rgba(15, 23, 42"] { background: var(--bg-card) !important; }

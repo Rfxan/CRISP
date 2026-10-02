@@ -1,7 +1,7 @@
 import React from 'react';
 import { ShieldAlert, Activity, Database } from 'lucide-react';
 
-export default function Navbar({ runId, assumptionsVer, dataQuality }) {
+export default function Navbar({ runId, assumptionsVer, organization, dataQuality }) {
   return (
     <header style={{
       background: 'rgba(243, 240, 233, 0.85)',
@@ -33,7 +33,7 @@ export default function Navbar({ runId, assumptionsVer, dataQuality }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="display-title" style={{ fontSize: 20, letterSpacing: '0.04em', color: 'var(--text-main)' }}>CRISP</span>
               <span className="badge badge-cyan">SIH 26105</span>
-              <span className="badge badge-simulated">Apex FinCorp (Simulated NBFC)</span>
+              <span className="badge badge-simulated">{organization || 'Organization not configured'}</span>
             </div>
             <p style={{ fontSize: 11, color: 'var(--text-dim)', margin: 0, fontWeight: 500 }}>
               "Not a risk score. A budget decision, with the proof."

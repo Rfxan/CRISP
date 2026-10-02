@@ -28,7 +28,39 @@ export default function TechnicalDrilldown({ summary, driversData, entitiesData,
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Activity size={20} color="var(--accent-amber)" />
             <div>
-              <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>Emerging Threat Signals (IsolationForest Telemetry Layer)</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 2 }}>
+                <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>Emerging Threat Signals (IsolationForest Telemetry Layer)</h3>
+                {anomalyInfo?.is_demo && (
+                  <span
+                    className="badge"
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      background: 'rgba(245, 158, 11, 0.18)',
+                      color: 'var(--accent-amber)',
+                      border: '1px solid rgba(245, 158, 11, 0.4)',
+                      padding: '2px 8px',
+                      letterSpacing: '0.04em'
+                    }}
+                  >
+                    DEMO DATA — not from live ingestion
+                  </span>
+                )}
+                {anomalyInfo?.source && (
+                  <span
+                    className={`badge ${anomalyInfo.source === 'Wazuh Live API' ? 'badge-real' : anomalyInfo.source === 'Wazuh Telemetry Mock' ? 'badge-simulated' : ''}`}
+                    style={{
+                      fontSize: 10,
+                      background: anomalyInfo.source === 'Wazuh Live API' ? undefined : 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid var(--border-color)',
+                      color: anomalyInfo.source === 'Wazuh Live API' ? 'var(--accent-green)' : 'var(--text-dim)',
+                      padding: '2px 8px'
+                    }}
+                  >
+                    Source: {anomalyInfo.source}
+                  </span>
+                )}
+              </div>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
                 Unsupervised anomaly detection over per-agent telemetry (event volume, auth-failure rate, alert severity mix)
               </p>
@@ -41,15 +73,46 @@ export default function TechnicalDrilldown({ summary, driversData, entitiesData,
 
         {/* Cold Start vs Active Anomalies vs Nominal */}
         {anomalyInfo?.status === 'insufficient_baseline_data' ? (
-          <div style={{ padding: '12px 16px', background: 'rgba(255,255,255,0.02)', borderRadius: 8, fontSize: 12, color: 'var(--text-dim)' }}>
-            <strong>insufficient baseline data</strong>: Requires minimum 5 observation windows before scoring. Signal layer is strictly outside the deterministic FAIR loss core.
-          </div>
+          (anomalyInfo?.source === 'Wazuh Live API' || anomalyInfo?.message?.includes('Building baseline')) ? (
+            <div style={{ padding: '14px 18px', background: 'rgba(56, 189, 248, 0.05)', border: '1px solid rgba(56, 189, 248, 0.25)', borderRadius: 8, fontSize: 12, color: 'var(--text-dim)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                <Activity size={16} color="var(--primary)" />
+                <strong style={{ color: 'var(--text-main)', fontSize: 13 }}>
+                  Building baseline: {anomalyInfo?.total_windows ?? 0}/5 windows · Source: Wazuh Live API
+                </strong>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                Insufficient data: accumulating live observation windows from real Wazuh sync. Minimum 5 windows required for Isolation Forest baseline.
+              </div>
+              <div style={{ marginTop: 10, background: 'rgba(255, 255, 255, 0.08)', borderRadius: 4, height: 6, width: '100%', maxWidth: 320, overflow: 'hidden' }}>
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${Math.min(100, (((anomalyInfo?.total_windows ?? 0) / 5) * 100))}%`,
+                    background: 'var(--primary)',
+                    transition: 'width 0.3s ease'
+                  }}
+                />
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding: '12px 16px', background: 'rgba(255,255,255,0.02)', borderRadius: 8, fontSize: 12, color: 'var(--text-dim)' }}>
+              <strong>insufficient baseline data</strong>: Requires minimum 5 observation windows before scoring. Signal layer is strictly outside the deterministic FAIR loss core.
+            </div>
+          )
         ) : emergingThreats.length > 0 ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
             {emergingThreats.map((threat, idx) => (
               <div key={idx} className="glass-panel" style={{ padding: 14, background: 'rgba(201, 114, 114, 0.08)', border: '1px solid rgba(201, 114, 114, 0.3)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <strong style={{ fontSize: 13, color: 'var(--text-main)' }}>{threat.agent_name || threat.agent_id}</strong>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <strong style={{ fontSize: 13, color: 'var(--text-main)' }}>{threat.agent_name || threat.agent_id}</strong>
+                    {threat.is_demo && (
+                      <span className="badge" style={{ fontSize: 9, background: 'rgba(245, 158, 11, 0.15)', color: 'var(--accent-amber)' }}>
+                        DEMO
+                      </span>
+                    )}
+                  </div>
                   <span className="badge badge-critical" style={{ fontSize: 11 }}>
                     Anomaly Score: {(threat.anomaly_score * 100).toFixed(0)}%
                   </span>
@@ -196,7 +259,7 @@ export default function TechnicalDrilldown({ summary, driversData, entitiesData,
                 <tr key={idx}>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <strong className="mono" style={{ color: 'var(--text-main)', fontSize: 13 }}>{d.id}</strong>
+                      <strong className="mono" style={{ color: 'var(--text-main)', fontSize: 13 }}>{d.cve_id || d.finding_id || d.id}</strong>
                     </div>
                   </td>
                   <td>
@@ -211,7 +274,7 @@ export default function TechnicalDrilldown({ summary, driversData, entitiesData,
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       <span className="badge badge-cyan" style={{ fontSize: 10 }}>
-                        EPSS: {(d.epss * 100).toFixed(1)}%
+                        EPSS: {d.epss == null ? 'Unknown' : `${(d.epss * 100).toFixed(1)}%`}
                       </span>
                       {d.in_kev && (
                         <span className="badge badge-kev" style={{ fontSize: 10 }}>
@@ -247,7 +310,7 @@ export default function TechnicalDrilldown({ summary, driversData, entitiesData,
               Service level EAL aggregated across dependent asset graphs and RTO tolerances
             </p>
           </div>
-          <span className="badge badge-simulated">Apex FinCorp Services</span>
+          <span className="badge badge-simulated">Business services</span>
         </div>
 
         <div style={{ overflowX: 'auto' }}>

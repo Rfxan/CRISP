@@ -1,431 +1,187 @@
+import copy
 import json
 import numpy as np
-from typing import Dict, Any, List, Tuple
 from app.core.config import settings, DATA_DIR
 from app.core.graph import DependencyGraph
-from app.engine.distributions import sample_pert, sample_poisson, sample_lognormal
+from app.engine.distributions import sample_pert, sample_poisson
+from app.engine.model import MODEL_VERSION, assumptions, digest, stable_seed, finding_key
 
-# Judgment-based placeholder exploitability priors for findings without CVE IDs (e.g., CSPM / cloud misconfigurations).
-# Calibrated as transparent baseline assumptions consistent with how TEF, RTO, and loss priors are documented as
-# traceable assumptions elsewhere in the CRISP codebase — these are judgment-based priors, not claimed as EPSS-equivalent precision.
-SEVERITY_EXPLOITABILITY_PRIORS = {
-    "Critical": 0.60,
-    "High": 0.40,
-    "Medium": 0.20,
-    "Low": 0.05,
-    "Info": 0.01
-}
+SEVERITY_EXPLOITABILITY_PRIORS = {"Critical": .10, "High": .05, "Medium": .02, "Low": .005, "Info": .001}
+
 
 class FAIREngine:
-    def __init__(self, trials: int = settings.DEFAULT_TRIALS, seed: int = settings.DEFAULT_SEED):
-        self.trials = trials
-        self.seed = seed
+    def __init__(self, trials=settings.DEFAULT_TRIALS, seed=settings.DEFAULT_SEED):
+        self.trials, self.seed = trials, seed
 
-    def _empty_result(self, status: str, message: str, seed: int, org_meta: dict, risk_appetite: float) -> Dict[str, Any]:
-        """Returns a structured empty-state result when there is insufficient data to simulate."""
-        return {
-            "status": status,
-            "message": message,
-            "eal": None,
-            "var95": None,
-            "var99": None,
-            "tail": None,
-            "score": None,
-            "drivers": [],
-            "curve": [],
-            "run_id": None,
-            "ts": None,
-            "seed": seed,
-            "trials": 0,
-            "assumptions_version": settings.ASSUMPTIONS_VERSION,
-            "org": {
-                "name": org_meta.get("name", "Not Configured"),
-                "eal": None,
-                "var95": None,
-                "var99": None,
-                "tail": None,
-                "score": None,
-                "appetite": risk_appetite,
-                "headroom": None,
-                "data_quality": 0.0
-            },
-            "loss_breakdown": {},
-            "scenario_eals": {},
-            "assets": [],
-            "services": [],
-            "choke_points": [],
-            "excluded_assets": [],
-            "excluded_assets_count": 0
-        }
+    def _empty_result(self, status, message, seed, org, appetite):
+        return {"status": status, "message": message, "eal": None, "var95": None, "var99": None,
+            "tail": None, "score": None, "drivers": [], "curve": [], "run_id": None, "ts": None,
+            "seed": seed, "trials": 0, "model_version": MODEL_VERSION, "assumptions_version": "5.0",
+            "org": {"name": org.get("name", "Not Configured"), "eal": None, "var95": None, "var99": None,
+                    "tail": None, "score": None, "appetite": appetite, "headroom": None, "data_quality": 0},
+            "loss_breakdown": {}, "scenario_eals": {}, "assets": [], "services": [],
+            "choke_points": [], "excluded_assets": [], "excluded_assets_count": 0}
 
-    def run(self, snapshot: Dict[str, Any], params: Dict[str, Any] = None, seed: int = None) -> Dict[str, Any]:
-        """
-        Pure, deterministic FAIR Monte Carlo simulation.
-        run(snapshot, params, seed) -> RiskResult
+    @staticmethod
+    def relevance(finding, scenario, config):
+        if "scenario_ids" in finding:
+            return float(scenario["id"] in finding["scenario_ids"])
+        kind = finding.get("vulnerability_type") or finding.get("issue_type")
+        return 1. if kind and kind in scenario.get("applicable_vulns", []) else config["unknown_scenario_relevance"]
 
-        Returns a structured NO_DATA or NO_FINDINGS response if the snapshot
-        has no assets or no findings, rather than silently producing ₹0 results.
-        """
-        active_seed = seed if seed is not None else self.seed
-        rng = np.random.default_rng(active_seed)
-        num_trials = params.get("trials", self.trials) if params else self.trials
-
-        assets = snapshot.get("assets", [])
+    def run(self, snapshot, params=None, seed=None):
+        params = params or {}
+        seed = self.seed if seed is None else seed
+        trials = int(params.get("trials", self.trials))
+        if not 1 <= trials <= 100000:
+            raise ValueError("Trials must be between 1 and 100000")
+        cfg = assumptions(snapshot)
+        org = snapshot.get("organization") or {}
+        appetite = org.get("risk_appetite_var95", settings.DEFAULT_RISK_APPETITE)
+        assets = sorted(snapshot.get("assets", []), key=lambda a: str(a.get("id") or a.get("asset_id")))
+        if params.get("asset_scope") is not None:
+            assets = [a for a in assets if (a.get("id") or a.get("asset_id")) == params["asset_scope"]]
+        findings = [f for f in snapshot.get("findings", []) if not f.get("is_patched")]
+        scan_status = snapshot.get("assessment_state", {}).get("status")
+        if not assets:
+            return self._empty_result("NO_DATA", "No assets have been ingested.", seed, org, appetite)
+        if not findings and scan_status not in ("completed", "remediated"):
+            return self._empty_result("NO_FINDINGS", "No completed scan evidence is available.", seed, org, appetite)
         services = snapshot.get("services", [])
-        findings = snapshot.get("findings", [])
-        cve_intel = snapshot.get("cve_intel", {})
-        control_states = snapshot.get("control_state", [])
-        scenarios = snapshot.get("scenarios", [])
-        org_meta = snapshot.get("organization") or {}
-        risk_appetite = org_meta.get("risk_appetite_var95", settings.DEFAULT_RISK_APPETITE)
-
-        # ── Empty-state guards ───────────────────────────────────────────
-        # Zero risk and no-data-yet are meaningfully different things.
-        # Return a clear structured status instead of running the simulation
-        # on empty data or producing misleading ₹0.00 results.
-        if len(assets) == 0:
-            return self._empty_result(
-                status="NO_DATA",
-                message="No assets have been ingested yet. Upload an asset inventory to begin risk analysis.",
-                seed=active_seed, org_meta=org_meta, risk_appetite=risk_appetite
-            )
-
-        if len(findings) == 0:
-            return self._empty_result(
-                status="NO_FINDINGS",
-                message="Assets are loaded, but no vulnerability findings have been ingested yet. Upload a scan report to compute risk.",
-                seed=active_seed, org_meta=org_meta, risk_appetite=risk_appetite
-            )
-        # ─────────────────────────────────────────────────────────────────
-
-        # Build Dependency Graph
-        dep_graph = DependencyGraph(services, assets)
-
-        # Build Map of Asset -> Findings
-        asset_findings: Dict[str, List[Dict[str, Any]]] = {}
+        scenarios = sorted(snapshot.get("scenarios", []), key=lambda s: s["id"])
+        if not scenarios:
+            return self._empty_result("NO_SCENARIOS", "No incident scenarios are configured.", seed, org, appetite)
+        catalog = snapshot.get("controls_catalog")
+        if catalog is None:
+            with open(DATA_DIR / "controls_catalog.json", encoding="utf-8") as f:
+                catalog = json.load(f)
+        controls = {c["control_id"]: c for c in snapshot.get("control_state", [])}
+        graph = DependencyGraph(services, assets)
+        excluded = [{"asset_id": a.get("id") or a.get("asset_id"), "name": a.get("name"), "criticality": None,
+                     "reason": "Missing declared business context"}
+                    for a in assets if a.get("criticality_1_5") is None or a.get("has_business_context") is False]
+        excluded_ids = {a["asset_id"] for a in excluded}
+        if len(excluded_ids) == len(assets):
+            r = self._empty_result("INSUFFICIENT_CONTEXT", "All assets lack business context; exposure is unknown.", seed, org, appetite)
+            r.update(excluded_assets=excluded, excluded_assets_count=len(excluded))
+            r["assets"] = [{"asset_id": a.get("id") or a.get("asset_id"), "name": a.get("name"),
+                "criticality": None, "eal": None, "var95": None, "excluded_from_eal": True,
+                "has_business_context": False} for a in assets]
+            return r
+        rng = np.random.default_rng(stable_seed(seed, "systemic"))
+        sigma = cfg["systemic_sigma"]
+        systemic = rng.lognormal(-sigma*sigma/2, sigma, trials)
+        asset_losses = {(a.get("id") or a.get("asset_id")): np.zeros(trials) for a in assets}
+        service_losses = {(s.get("id") or s.get("service_id")): np.zeros(trials) for s in services}
+        scenario_losses = {s["id"]: np.zeros(trials) for s in scenarios}
+        breakdown = {k: 0. for k in ("downtime", "incident_response", "data_breach", "regulatory_penalty", "reputational")}
+        by_asset = {}
         for f in findings:
-            a_id = f["asset_id"]
-            if a_id not in asset_findings:
-                asset_findings[a_id] = []
-            asset_findings[a_id].append(f)
-
-        # Build Control Effectiveness Map: scenario_id -> coverage factor
-        # Conservative principle: treat unverified "Not Connected" coverage as 0.0 (assume guard absent)
-        # unless explicitly set as a user assumption.
-        control_map = {}
-        for cs in control_states:
-            c_id = cs.get("control_id")
-            cov = cs.get("coverage_pct")
-            ev = cs.get("evidence_ref")
-            if ev == "Not Connected" and not cs.get("is_user_assumed", False):
-                control_map[c_id] = 0.0
-            else:
-                control_map[c_id] = (cov or 0.0) / 100.0
-
-        # Global systemic threat intensity factor G ~ LogNormal(0, 0.45)
-        G = sample_lognormal(mean_log=0.0, sigma_log=0.45, size=num_trials, rng=rng)
-
-        # Precompute Base Likelihood & Loss for each asset-scenario pair
-        # We accumulate trial loss vectors
-        total_trial_losses = np.zeros(num_trials, dtype=np.float64)
-        asset_trial_losses: Dict[str, np.ndarray] = {(a.get("id") or a.get("asset_id")): np.zeros(num_trials, dtype=np.float64) for a in assets}
-        service_trial_losses: Dict[str, np.ndarray] = {(s.get("id") or s.get("service_id")): np.zeros(num_trials, dtype=np.float64) for s in services}
-        scenario_trial_losses: Dict[str, np.ndarray] = {sc["id"]: np.zeros(num_trials, dtype=np.float64) for sc in scenarios}
-
-        # Controls catalog from snapshot or default
-        controls_catalog = snapshot.get("controls_catalog")
-        if not controls_catalog:
-            cat_path = DATA_DIR / "controls_catalog.json"
-            if cat_path.exists():
-                with open(cat_path, "r", encoding="utf-8") as f:
-                    controls_catalog = json.load(f)
-            else:
-                controls_catalog = []
-
-        # Loss breakdown across categories
-        breakdown_totals = {
-            "downtime": 0.0,
-            "incident_response": 0.0,
-            "data_breach": 0.0,
-            "regulatory_penalty": 0.0,
-            "reputational": 0.0
-        }
-
-        # ── Exclude assets with no declared business context (Approach A) ────────
-        # Assets auto-created by scan ingestion or missing criticality_1_5 have no
-        # known business value. Silently defaulting criticality to 1.0 or assuming
-        # revenue would artificially inflate EAL (e.g. ₹20L on unassigned IPs).
-        # We strictly identify these assets, exclude them from loss magnitude computation,
-        # and surface them in the response for UI transparency.
-        excluded_assets = []
-        for a in assets:
-            a_id = a.get("id") or a.get("asset_id")
-            crit_val = a.get("criticality_1_5")
-            has_ctx = a.get("has_business_context")
-            # Distinct from a genuinely-declared 0 or 1: check for actual None / missing
-            if crit_val is None or has_ctx is False:
-                excluded_assets.append({
-                    "asset_id": a_id,
-                    "name": a.get("name", a_id),
-                    "criticality": None,
-                    "reason": "Missing business context (criticality not declared)"
-                })
-        excluded_asset_ids = {item["asset_id"] for item in excluded_assets}
-
-        # Simulation Loop over Scenarios and Assets with aligned per-scenario RNG
-        for sc_idx, sc in enumerate(scenarios):
-            sc_id = sc["id"]
-            sc_seed = int((active_seed * 10007 + sc_idx * 9973) % (2**31 - 1))
-            rng_sc = np.random.default_rng(sc_seed)
-
-            tef_params = sc.get("tef_params", {"low": 0.1, "likely": 0.3, "high": 0.8})
-            tef_samples = sample_pert(tef_params["low"], tef_params["likely"], tef_params["high"], size=num_trials, rng=rng_sc)
-            
-            # Apply G to correlated TEF
-            effective_tef = tef_samples * G
-
-            # Dynamic Control Mitigation from controls_catalog and control_map:
-            # Multiplicative reduction based on controls mitigating this scenario
-            control_mitigation = 1.0
-            for ctrl in controls_catalog:
-                if sc_id in ctrl.get("mitigates", []):
-                    c_id = ctrl["id"]
-                    eff = ctrl.get("effectiveness_dist", {}).get("mean", 0.75)
-                    cov = control_map.get(c_id, 0.0)
-                    control_mitigation *= (1.0 - (eff * cov))
-
-            # If no specific controls in catalog map to this scenario, default to 1.0 (unmitigated)
-            control_mitigation = np.clip(control_mitigation, 0.05, 1.0)
-
-            for a_idx, asset in enumerate(assets):
-                a_id = asset.get("id") or asset.get("asset_id")
-
-                # Approach A: Skip loss magnitude computation entirely for assets with no declared business context
-                if a_id in excluded_asset_ids:
+            by_asset.setdefault(f["asset_id"], []).append(f)
+        service_map = {(s.get("id") or s.get("service_id")): s for s in services}
+        likelihood_inputs = []
+        for sc in scenarios:
+            srng = np.random.default_rng(stable_seed(seed, sc["id"], "frequency"))
+            tef = sample_pert(**sc.get("tef_params", {"low": .1, "likely": .3, "high": .8}), size=trials, rng=srng)
+            mitigation = 1.
+            for ctrl in catalog:
+                if sc["id"] not in ctrl.get("mitigates", []):
                     continue
-
-                pair_seed = int((active_seed * 10007 + sc_idx * 9973 + a_idx * 137) % (2**31 - 1))
-                rng_pair = np.random.default_rng(pair_seed)
-
-                crit = float(asset["criticality_1_5"])
-                is_pub = bool(asset.get("internet_facing") is True)
-                svc_id = asset.get("business_service_id")
-                raw_records = asset.get("records_count")
-                records = int(raw_records) if raw_records is not None else 0
-
-                # Compute asset exploitability P_vuln
-                f_list = asset_findings.get(a_id, [])
-                if not f_list:
-                    # Baseline background exploitability
-                    p_vuln_base = 0.02 if not is_pub else 0.08
-                else:
-                    p_unexploited = 1.0
-                    for f in f_list:
-                        cve = f.get("cve_id")
-                        if cve:
-                            intel = cve_intel.get(cve, {})
-                            epss_30 = float(intel.get("epss", 0.2))
-                            in_kev = intel.get("in_kev", False)
-                        else:
-                            sev = f.get("severity", "Medium")
-                            epss_30 = SEVERITY_EXPLOITABILITY_PRIORS.get(sev, 0.20)
-                            in_kev = False
-
-                        # Annualize EPSS
-                        p_ann = 1.0 - (1.0 - epss_30) ** 12
-                        p_ann = np.clip(p_ann, 0.05, 0.99)
-                        if in_kev:
-                            p_ann = max(p_ann, 0.85)
-                        if is_pub:
-                            p_ann = min(0.999, p_ann * 1.3)
-                        p_unexploited *= (1.0 - p_ann)
-                    p_vuln_base = 1.0 - p_unexploited
-
-                # Residual likelihood for asset-scenario pair
-                p_residual = p_vuln_base * control_mitigation
-                lambda_pair = float(np.mean(effective_tef)) * p_residual
-
-                # Sample incident count per trial using dedicated pair RNG
-                n_events = sample_poisson(lam=lambda_pair, size=num_trials, rng=rng_pair)
-
-                # Compute loss magnitude components
-                effective_hourly_rev = dep_graph.compute_asset_effective_revenue_impact(a_id)
-                rto = 0.0
-                if svc_id:
-                    for s in services:
-                        if (s.get("id") or s.get("service_id")) == svc_id:
-                            rto = float(s.get("rto_hours", 4.0))
-                            break
-
-                if rto > 0 and effective_hourly_rev > 0:
-                    outage_hours = sample_pert(max(0.5, 0.5 * rto), rto, 3.0 * rto, size=num_trials, rng=rng_pair)
-                    downtime_loss = n_events * outage_hours * effective_hourly_rev * 0.75
-                else:
-                    downtime_loss = np.zeros(num_trials, dtype=np.float64)
-
-                ir_base = sample_pert(500000.0, 1500000.0, 4500000.0, size=num_trials, rng=rng_pair)
-                ir_loss = n_events * ir_base * (crit / 3.0)
-
-                data_loss = np.zeros(num_trials, dtype=np.float64)
-                reg_penalty = np.zeros(num_trials, dtype=np.float64)
-                churn_loss = np.zeros(num_trials, dtype=np.float64)
-
-                if records > 0 and sc_id in ["data_breach", "ransomware", "insider_misuse"]:
-                    frac_breached = sample_pert(0.05, 0.20, 0.60, size=num_trials, rng=rng_pair)
-                    cost_per_rec = sample_pert(1800.0, 2850.0, 4500.0, size=num_trials, rng=rng_pair)
-                    data_loss = n_events * (records * frac_breached) * cost_per_rec
-
-                    penalty_sample = sample_pert(10000000.0, 50000000.0, 350000000.0, size=num_trials, rng=rng_pair)
-                    reg_penalty = np.minimum(n_events * penalty_sample, settings.DPDP_PENALTY_CEILING)
-
-                    churn_loss = n_events * (records * frac_breached) * 450.0
-
-                pair_loss = downtime_loss + ir_loss + data_loss + reg_penalty + churn_loss
-                total_trial_losses += pair_loss
-                asset_trial_losses[a_id] += pair_loss
-                scenario_trial_losses[sc_id] += pair_loss
-                if svc_id and svc_id in service_trial_losses:
-                    service_trial_losses[svc_id] += pair_loss
-
-                # Track breakdown means
-                breakdown_totals["downtime"] += float(np.mean(downtime_loss))
-                breakdown_totals["incident_response"] += float(np.mean(ir_loss))
-                breakdown_totals["data_breach"] += float(np.mean(data_loss))
-                breakdown_totals["regulatory_penalty"] += float(np.mean(reg_penalty))
-                breakdown_totals["reputational"] += float(np.mean(churn_loss))
-
-        # Core Metrics Aggregation
-        eal = float(np.mean(total_trial_losses))
-        var95 = float(np.percentile(total_trial_losses, 95))
-        var99 = float(np.percentile(total_trial_losses, 99))
-        tail_losses = total_trial_losses[total_trial_losses >= var95]
-        tail_loss = float(np.mean(tail_losses)) if len(tail_losses) > 0 else var95
-
-        # Headroom vs Risk Appetite
-        headroom = float(risk_appetite - var95)
-
-        # Risk Score (0-100): Log scale normalized relative to risk appetite
-        # 100 = catastrophic (> 2x appetite), 50 = at appetite, 0 = negligible
-        ratio = var95 / max(1.0, risk_appetite)
-        score = int(np.clip(np.round(50.0 + 35.0 * np.log2(max(0.1, ratio))), 0, 100))
-
-        # Loss Exceedance Curve Points: P(Loss > x) vs x
-        sorted_losses = np.sort(total_trial_losses)
-        percentile_levels = np.linspace(0.01, 0.99, 50)
-        curve_points = []
-        for p in percentile_levels:
-            val = float(np.percentile(sorted_losses, p * 100))
-            prob_exceed = round(1.0 - p, 4)
-            curve_points.append([round(val, 2), prob_exceed])
-
-        # Leave-One-Out (LOO) Marginal EAL for Top Vulnerability Risk Drivers
+                state = controls.get(ctrl["id"], {})
+                cov = (state.get("coverage_pct") or 0)/100
+                if state.get("evidence_ref") == "Not Connected" and not state.get("is_user_assumed"):
+                    cov = 0
+                eff = np.clip(ctrl.get("effectiveness_dist", {}).get("mean", .75)*cfg["control_effectiveness_multiplier"], 0, 1)
+                mitigation *= 1-eff*np.clip(cov, 0, 1)
+            for asset in assets:
+                aid = asset.get("id") or asset.get("asset_id")
+                if aid in excluded_ids:
+                    continue
+                exposure = asset.get("exposure_probability")
+                if exposure is None:
+                    exposure = cfg["public_exposure"] if asset.get("internet_facing") else cfg["internal_exposure"]
+                if not 0 <= exposure <= 1:
+                    raise ValueError("Asset exposure_probability must be between 0 and 1")
+                remaining = 1.
+                for f in by_asset.get(aid, []):
+                    intel = snapshot.get("cve_intel", {}).get(f.get("cve_id"), {})
+                    epss = intel.get("epss")
+                    signal = cfg["missing_epss_prior"] if epss is None else float(epss)
+                    if not f.get("cve_id"):
+                        signal = SEVERITY_EXPLOITABILITY_PRIORS.get(f.get("severity"), cfg["missing_epss_prior"])
+                    # EPSS is a global 30-day signal. TEF is annual; this susceptibility
+                    # mapping is explicit and uncalibrated, not annualized EPSS.
+                    weight = np.clip(signal*exposure*self.relevance(f, sc, cfg)*(cfg["kev_multiplier"] if intel.get("in_kev") else 1), 0, 1)
+                    remaining *= 1-weight
+                susceptibility = 1-(1-cfg["background_probability"]*exposure)*remaining
+                rate = tef*systemic*susceptibility*mitigation*cfg["likelihood_multiplier"]
+                events = sample_poisson(rate, trials, np.random.default_rng(stable_seed(seed, sc["id"], aid, "events")))
+                prng = np.random.default_rng(stable_seed(seed, sc["id"], aid, "magnitude"))
+                svc = service_map.get(asset.get("business_service_id"), {})
+                rto = float(svc.get("rto_hours") or 0)
+                downtime = events*sample_pert(.5*rto, rto, 3*rto, trials, rng=prng)*graph.compute_asset_effective_revenue_impact(aid)*cfg["downtime_fraction"]
+                response = events*sample_pert(**cfg["incident_response"], size=trials, rng=prng)*float(asset["criticality_1_5"])/3
+                data = np.zeros(trials); penalty = np.zeros(trials); churn = np.zeros(trials)
+                records = max(0, int(asset.get("records_count") or 0))
+                if records and sc["id"] in ("data_breach", "ransomware", "insider_misuse"):
+                    breached = records*sample_pert(**cfg["breached_fraction"], size=trials, rng=prng)
+                    data = events*breached*sample_pert(**cfg["cost_per_record"], size=trials, rng=prng)
+                    penalty = np.minimum(events*sample_pert(**cfg["penalty"], size=trials, rng=prng)*(prng.random(trials)<cfg["penalty_probability"]), cfg["penalty_ceiling"])
+                    churn = events*breached*cfg["churn_per_record"]
+                pair = np.zeros(trials)
+                for key,values in zip(breakdown, (downtime, response, data, penalty, churn)):
+                    values = values*cfg["loss_multiplier"]
+                    pair += values; breakdown[key] += float(values.mean())
+                asset_losses[aid] += pair; scenario_losses[sc["id"]] += pair
+                if asset.get("business_service_id") in service_losses:
+                    service_losses[asset["business_service_id"]] += pair
+                likelihood_inputs.append({"asset_id": aid, "scenario_id": sc["id"], "exposure": exposure,
+                    "susceptibility": float(susceptibility), "control_survival": float(mitigation), "mean_annual_event_rate": float(rate.mean())})
+        total = sum(asset_losses.values(), np.zeros(trials))
+        eal = float(total.mean()); var95,var99 = np.percentile(total, [95,99])
+        fingerprint = digest({"snapshot": snapshot, "assumptions": cfg, "model": MODEL_VERSION, "seed": seed, "trials": trials})
         drivers = []
-        for f in findings:
-            f_cve = f.get("cve_id")
-            f_asset_id = f.get("asset_id")
-            intel = cve_intel.get(f_cve, {}) if f_cve else {}
-            # Marginal contribution approximation based on asset share and exploitability
-            asset_eal = float(np.mean(asset_trial_losses.get(f_asset_id, np.zeros(1))))
-            f_sev = f.get("severity")
-            epss_val = intel.get("epss") if intel else None
-            if epss_val is None:
-                epss_val = SEVERITY_EXPLOITABILITY_PRIORS.get(f_sev, 0.20) if f_sev else 0.20
-            in_kev = intel.get("in_kev", False)
-            weight = epss_val * (1.5 if in_kev else 1.0)
-            marginal_eal = round(asset_eal * min(0.9, weight * 0.75), 2)
-            # For non-CVE findings (e.g. CSPM / cloud misconfigurations), use the finding's own 'id' field
-            driver_id = f_cve or f.get("id") or "UNKNOWN-FINDING"
-            raw_cvss = f.get("cvss")
-            cvss_val = float(raw_cvss) if raw_cvss is not None else 0.0
-            exploitability_label = "KEV-confirmed active exploitation" if in_kev else "Standard exploit likelihood"
-            drivers.append({
-                "type": "finding",
-                "id": driver_id,
-                "finding_id": f.get("id"),
-                "asset_id": f_asset_id,
-                "asset_name": next((a.get("name") or a.get("id") for a in assets if (a.get("id") or a.get("asset_id")) == f_asset_id), f_asset_id),
-                "cvss": cvss_val,
-                "severity": f.get("severity", "High"),
-                "epss": epss_val,
-                "in_kev": in_kev,
-                "exploitability_label": exploitability_label,
-                "marginal_eal": marginal_eal
-            })
-
-        drivers.sort(key=lambda x: x["marginal_eal"], reverse=True)
-
-        # Asset-level summary
-        asset_summaries = []
-        for a in assets:
-            a_id = a.get("id") or a.get("asset_id")
-            a_loss = asset_trial_losses.get(a_id, np.zeros(1))
-            a_eal = float(np.mean(a_loss))
-            is_excluded = a_id in excluded_asset_ids
-            if a_eal > 0 or a.get("is_real_lab_asset", False) or is_excluded:
-                asset_summaries.append({
-                    "asset_id": a_id,
-                    "name": a.get("name", a_id),
-                    "criticality": a.get("criticality_1_5"),
-                    "service_id": a.get("business_service_id"),
-                    "eal": round(a_eal, 2),
-                    "var95": round(float(np.percentile(a_loss, 95)), 2),
-                    "is_real_lab_asset": a.get("is_real_lab_asset", False),
-                    "excluded_from_eal": is_excluded,
-                    "has_business_context": not is_excluded
-                })
-        asset_summaries.sort(key=lambda x: x["eal"], reverse=True)
-
-        # Service-level summary
-        service_summaries = []
-        for s in services:
-            s_id = s.get("id") or s.get("service_id")
-            s_loss = service_trial_losses.get(s_id, np.zeros(1))
-            service_summaries.append({
-                "service_id": s_id,
-                "name": s["name"],
-                "revenue_per_hour": float(s.get("revenue_per_hour") or 0.0),
-                "eal": round(float(np.mean(s_loss)), 2),
-                "var95": round(float(np.percentile(s_loss, 95)), 2)
-            })
-        service_summaries.sort(key=lambda x: x["eal"], reverse=True)
-
-        # Choke Points
-        choke_points = dep_graph.identify_choke_points(top_n=5)
-
-        # Data quality score: Real lab asset ratio and scan freshness
-        real_assets_count = sum(1 for a in assets if a.get("is_real_lab_asset", False))
-        data_quality = round((real_assets_count / max(1, len(assets)) * 0.4) + 0.55, 2)
-
-        # Scenario-level exact EAL mapping
-        scenario_eals = {
-            sc_id: round(float(np.mean(sc_losses)), 2)
-            for sc_id, sc_losses in scenario_trial_losses.items()
-        }
-
-        return {
-            "run_id": f"RUN-{active_seed}-{int(np.sum(total_trial_losses[:5])) % 100000:05d}",
-            "ts": snapshot.get("timestamp"),
-            "seed": active_seed,
-            "trials": num_trials,
-            "assumptions_version": settings.ASSUMPTIONS_VERSION,
-            "org": {
-                "name": org_meta.get("name", "Apex FinCorp Ltd."),
-                "eal": round(eal, 2),
-                "var95": round(var95, 2),
-                "var99": round(var99, 2),
-                "tail": round(tail_loss, 2),
-                "score": score,
-                "appetite": risk_appetite,
-                "headroom": round(headroom, 2),
-                "data_quality": data_quality
-            },
-            "loss_breakdown": {k: round(v, 2) for k, v in breakdown_totals.items()},
-            "scenario_eals": scenario_eals,
-            "drivers": drivers,
-            "curve": curve_points,
-            "assets": asset_summaries[:15],
-            "services": service_summaries,
-            "choke_points": choke_points,
-            "excluded_assets": excluded_assets,
-            "excluded_assets_count": len(excluded_assets)
-        }
+        if params.get("calculate_drivers", True):
+            ranked = sorted(findings, key=lambda f: float(asset_losses.get(f["asset_id"], np.zeros(1)).mean()), reverse=True)
+            for index,f in enumerate(ranked):
+                aid = f["asset_id"]; marginal = None
+                asset_mean = float(asset_losses.get(aid, np.zeros(1)).mean())
+                if index < cfg["driver_limit"] and aid not in excluded_ids:
+                    modified = copy.deepcopy(snapshot)
+                    modified["findings"] = [x for x in findings if finding_key(x) != finding_key(f)]
+                    modified["assessment_state"] = {"status": "remediated"}
+                    after = self.run(modified, {"calculate_drivers": False, "trials": trials, "asset_scope": aid}, seed)
+                    if after["org"]["eal"] is not None:
+                        marginal = round(asset_mean-after["org"]["eal"], 2)
+                intel = snapshot.get("cve_intel", {}).get(f.get("cve_id"), {})
+                drivers.append({"type": "finding", "id": finding_key(f), "finding_id": f.get("id"), "cve_id": f.get("cve_id"),
+                    "asset_id": aid, "asset_name": next((a.get("name", aid) for a in assets if (a.get("id") or a.get("asset_id"))==aid), aid),
+                    "cvss": f.get("cvss") or 0, "severity": f.get("severity"), "epss": intel.get("epss"), "in_kev": intel.get("in_kev", False),
+                    "source": f.get("source", "Unknown source"), "marginal_eal": marginal, "screening_estimate": round(asset_mean,2),
+                    "benefit_method": "paired_removal_simulation" if marginal is not None else "not_evaluated",
+                    "exploitability_label": "Global 30-day EPSS signal" if intel.get("epss") is not None else "Assumed susceptibility prior"})
+            drivers.sort(key=lambda d: (d["marginal_eal"] is not None, d["marginal_eal"] or 0), reverse=True)
+        return {"status": "PARTIAL" if excluded else ("REMEDIATED" if scan_status=="remediated" and not findings else "READY"),
+            "run_id": "RUN-"+fingerprint[:20], "snapshot_hash": digest(snapshot), "model_version": MODEL_VERSION,
+            "assumptions_version": cfg["version"], "ts": snapshot.get("timestamp"), "seed": seed, "trials": trials,
+            "org": {"name": org.get("name", "Not Configured"), "eal": round(eal,2), "var95": round(float(var95),2), "var99": round(float(var99),2),
+                    "tail": round(float(total[total>=var95].mean()),2), "score": int(np.clip(round(50+35*np.log2(max(.1,var95/max(1,appetite)))),0,100)),
+                    "appetite": appetite, "headroom": round(appetite-float(var95),2), "data_quality": round((len(assets)-len(excluded))/len(assets),2)},
+            "loss_breakdown": {k:round(v,2) for k,v in breakdown.items()}, "scenario_eals": {k:round(float(v.mean()),2) for k,v in scenario_losses.items()},
+            "drivers": drivers, "curve": [[round(float(np.percentile(total,p)),2),round(1-p/100,4)] for p in np.linspace(1,99,50)],
+            "assets": [{"asset_id": a.get("id") or a.get("asset_id"), "name": a.get("name"), "criticality": a.get("criticality_1_5"),
+                        "service_id": a.get("business_service_id"),
+                        "eal": None if (a.get("id") or a.get("asset_id")) in excluded_ids else round(float(asset_losses[a.get("id") or a.get("asset_id")].mean()),2),
+                        "var95": None if (a.get("id") or a.get("asset_id")) in excluded_ids else round(float(np.percentile(asset_losses[a.get("id") or a.get("asset_id")],95)),2),
+                        "excluded_from_eal": (a.get("id") or a.get("asset_id")) in excluded_ids,
+                        "has_business_context": (a.get("id") or a.get("asset_id")) not in excluded_ids, "is_real_lab_asset": a.get("is_real_lab_asset",False)} for a in assets],
+            "services": [{"service_id": s.get("id") or s.get("service_id"), "name": s["name"], "business_unit": s.get("business_unit"),
+                          "revenue_per_hour": s.get("revenue_per_hour") or 0, "eal": round(float(service_losses[s.get("id") or s.get("service_id")].mean()),2),
+                          "var95": round(float(np.percentile(service_losses[s.get("id") or s.get("service_id")],95)),2)} for s in services],
+            "choke_points": graph.identify_choke_points(5), "excluded_assets": excluded, "excluded_assets_count": len(excluded),
+            "explanation": {"assumptions": cfg, "business_inputs": assets, "services": services,
+                "source_timestamps": [{"finding_id": f.get("id"), "asset_id": f["asset_id"], "source": f.get("source"), "last_seen": f.get("last_seen")} for f in findings],
+                "likelihood_inputs": likelihood_inputs, "annual_loss_percentiles": {"p95": float(var95), "p99": float(var99)},
+                "parameter_uncertainty": {"method": "Input PERT ranges; not a confidence interval on EAL", "calibrated": False},
+                "monte_carlo_standard_error_eal": float(total.std()/np.sqrt(trials)),
+                "limitations": ["EPSS mapping is an uncalibrated planning assumption.", "Totals exclude assets without business context.", "VaR is an annual-loss percentile, not a loss ceiling."]}}

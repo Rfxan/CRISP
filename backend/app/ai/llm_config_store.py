@@ -1,3 +1,5 @@
+from app.core.tenancy import active, read_document, write_document, principal_context
+from app.core.deployment import production
 """
 CRISP LLM Configuration Store.
 Manages persistent configuration for multi-provider LLM integrations (Gemini, OpenAI, Groq, Anthropic, Ollama, Custom).
@@ -65,6 +67,8 @@ class LLMConfigStore:
 
     def _ensure_file(self):
         """Ensures the llm_config.json file exists and is valid JSON."""
+        if active():
+            return
         if not self.file_path.exists():
             self._write_file({})
         else:
@@ -78,6 +82,15 @@ class LLMConfigStore:
 
     def _read_file(self) -> Dict[str, Any]:
         self._ensure_file()
+        if active():
+            document = read_document("llm_config")
+            if document is None and not production() and principal_context.get()["tenant"] == "local":
+                try:
+                    document = json.loads(self.file_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    document = {}
+                write_document("llm_config", document)
+            return document or {}
         try:
             with open(self.file_path, "r", encoding="utf-8") as f:
                 return json.load(f)
@@ -86,6 +99,9 @@ class LLMConfigStore:
             return {}
 
     def _write_file(self, data: Dict[str, Any]):
+        if active():
+            write_document("llm_config", data)
+            return
         try:
             self.file_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.file_path, "w", encoding="utf-8") as f:
@@ -127,7 +143,7 @@ class LLMConfigStore:
             except Exception as e:
                 logger.error(f"Failed to decrypt stored LLM API key: {e}")
 
-        if not api_key:
+        if not api_key and (not active() or (not production() and principal_context.get()["tenant"] == "local")):
             if provider == "openai":
                 api_key = os.getenv("OPENAI_API_KEY", "")
             elif provider == "gemini":

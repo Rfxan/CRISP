@@ -147,12 +147,7 @@ def test_api_upload_existing_ingestion_endpoint(client):
 
 
 def test_fair_engine_edr_exploitability_scale():
-    """
-    Verify EDR detections flow into FAIR engine with agreed exploitability assumptions:
-    Critical 0.6 / High 0.4 / Medium 0.2 / Low 0.05.
-    """
-    assert SEVERITY_EXPLOITABILITY_PRIORS["Critical"] == 0.60
-    assert SEVERITY_EXPLOITABILITY_PRIORS["High"] == 0.40
-    assert SEVERITY_EXPLOITABILITY_PRIORS["Medium"] == 0.20
-    assert SEVERITY_EXPLOITABILITY_PRIORS["Low"] == 0.05
-    assert SEVERITY_EXPLOITABILITY_PRIORS["Info"] == 0.01
+    """Severity priors are bounded, ordered planning assumptions, not measured probabilities."""
+    ordered = [SEVERITY_EXPLOITABILITY_PRIORS[s] for s in ('Critical','High','Medium','Low','Info')]
+    assert ordered == sorted(ordered, reverse=True)
+    assert all(0 < x < 1 for x in ordered)

@@ -1,3 +1,4 @@
+from app.core.tenancy import active, read_document, write_document
 """
 CRISP Telemetry Synchronization State Manager.
 Persists the timestamp, source, counts (assets/findings/agents), and status (ok/error)
@@ -65,6 +66,9 @@ class SyncStateManager:
 
     def _load(self):
         """Loads sync_state.json from disk if present."""
+        if active():
+            self._state = read_document("sync_state", {})
+            return
         if self.file_path.exists():
             try:
                 with open(self.file_path, "r", encoding="utf-8") as f:
@@ -89,6 +93,9 @@ class SyncStateManager:
 
     def _save(self):
         """Persists current sync state dictionary to disk and mirrors to secondary paths."""
+        if active():
+            write_document("sync_state", self._state)
+            return
         try:
             self.file_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.file_path, "w", encoding="utf-8") as f:
@@ -124,6 +131,8 @@ class SyncStateManager:
         message: detail description or error message
         extra: optional arbitrary metadata
         """
+        if active():
+            self._load()
         now = _iso_now()
         entry: Dict[str, Any] = {
             "job": job_name,
@@ -148,6 +157,8 @@ class SyncStateManager:
 
     def get_job(self, job_name: str) -> Optional[Dict[str, Any]]:
         """Returns sync status for a specific job."""
+        if active():
+            self._load()
         return self._state.get(job_name)
 
     def get_freshness_summary(self) -> Dict[str, Any]:

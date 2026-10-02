@@ -1,3 +1,5 @@
+from app.core.tenancy import active, read_document, write_document, principal_context
+from app.core.deployment import production
 """
 CRISP Connections Store.
 Manages persistent storage and lifecycle for SIEM (Wazuh) and IAM (Keycloak) live connections.
@@ -54,6 +56,8 @@ class ConnectionsStore:
 
     def _ensure_file(self):
         """Ensures the connections.json file exists and is valid JSON."""
+        if active():
+            return
         if not self.file_path.exists():
             self._write_file({})
         else:
@@ -67,6 +71,15 @@ class ConnectionsStore:
 
     def _read_file(self) -> Dict[str, Any]:
         """Reads and parses connections.json."""
+        if active():
+            document = read_document("connections")
+            if document is None and not production() and principal_context.get()["tenant"] == "local":
+                try:
+                    document = json.loads(self.file_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    document = {}
+                write_document("connections", document)
+            return document or {}
         try:
             with open(self.file_path, "r", encoding="utf-8") as f:
                 return json.load(f)
@@ -76,6 +89,9 @@ class ConnectionsStore:
 
     def _write_file(self, data: Dict[str, Any]):
         """Persists connections dict to connections.json."""
+        if active():
+            write_document("connections", data)
+            return
         try:
             self.file_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.file_path, "w", encoding="utf-8") as f:
@@ -266,6 +282,17 @@ class ConnectionsStore:
 
         self._write_file(data)
 
+        return self.get_public_connection(cat)
+
+    def record_connection_result(self, category: str, success: bool, detail: str):
+        """Update a saved connection check without changing its encrypted credentials."""
+        cat = _normalize_category(category)
+        data = self._read_file()
+        if cat not in data:
+            return None
+        data[cat].update(connected=success, last_tested=datetime.now(timezone.utc).isoformat(),
+                         last_test_result="SUCCESS" if success else "FAILED", last_test_detail=detail)
+        self._write_file(data)
         return self.get_public_connection(cat)
 
     def remove_connection(self, category: str) -> bool:

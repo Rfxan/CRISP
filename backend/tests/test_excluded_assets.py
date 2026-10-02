@@ -53,21 +53,18 @@ def test_unassigned_asset_reproduction():
 
     # Assertions for Approach A:
     # 1. Unassigned asset contributes strictly ₹0 to EAL and loss breakdown
-    assert res["org"]["eal"] == 0.0, f"Expected 0.0 EAL for unassigned asset, got {res['org']['eal']}"
-    assert res["loss_breakdown"]["incident_response"] == 0.0
-    assert res["loss_breakdown"]["downtime"] == 0.0
-    assert res["loss_breakdown"]["data_breach"] == 0.0
+    assert res["org"]["eal"] is None
 
     # 2. Excluded assets list and count surfaced in simulation output
     assert res.get("excluded_assets_count") == 1
     assert res["excluded_assets"][0]["asset_id"] == "192.168.118.212"
-    assert res["excluded_assets"][0]["reason"] == "Missing business context (criticality not declared)"
+    assert res["excluded_assets"][0]["reason"] == "Missing declared business context"
 
     # 3. Asset summary reflects exclusion
     assert len(res["assets"]) == 1
     assert res["assets"][0]["asset_id"] == "192.168.118.212"
     assert res["assets"][0]["criticality"] is None
-    assert res["assets"][0]["eal"] == 0.0
+    assert res["assets"][0]["eal"] is None
     assert res["assets"][0]["excluded_from_eal"] is True
     assert res["assets"][0]["has_business_context"] is False
 

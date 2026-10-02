@@ -41,11 +41,10 @@ def sample_pert(low: float, likely: float, high: float, size: int = 10000, gamma
 
 def sample_poisson(lam: float, size: int = 10000, rng: np.random.Generator = None) -> np.ndarray:
     """Vectorized Poisson count sampler."""
-    if lam <= 0:
-        return np.zeros(size, dtype=int)
-    if rng is not None:
-        return rng.poisson(lam=lam, size=size)
-    return np.random.poisson(lam=lam, size=size)
+    from scipy.stats import poisson
+    rates = np.maximum(np.asarray(lam, dtype=float), 0)
+    uniform = (rng or np.random.default_rng()).random(size)
+    return poisson.ppf(np.clip(uniform, 1e-12, 1-1e-12), rates).astype(int)
 
 def sample_lognormal(mean_log: float = 0.0, sigma_log: float = 0.45, size: int = 10000, rng: np.random.Generator = None) -> np.ndarray:
     """Vectorized LogNormal sampler for systemic threat intensity factor G."""

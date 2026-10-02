@@ -2,14 +2,49 @@ import React, { useState, useEffect } from 'react';
 import { 
   Database, UploadCloud, RefreshCw, Shield, AlertTriangle, 
   CheckCircle2, FileText, Sliders, Globe, Server, Activity,
-  Sparkles, Plus, PlusCircle, Cpu, Crosshair
+  Sparkles, Plus, PlusCircle, Cpu, Crosshair, Trash2, Pencil
 } from 'lucide-react';
 import { formatINR } from '../utils/formatters';
 import { api } from '../services/api';
 import VendorWizard from './VendorWizard';
 import AddAssetForm from './AddAssetForm';
 
+function isBetterControlState(candidate, current) {
+  // 1. Most recent last_checked timestamp
+  if (candidate.last_checked && !current.last_checked) return true;
+  if (!candidate.last_checked && current.last_checked) return false;
+  if (candidate.last_checked && current.last_checked) {
+    const candTime = new Date(candidate.last_checked).getTime();
+    const currTime = new Date(current.last_checked).getTime();
+    if (!isNaN(candTime) && !isNaN(currTime)) {
+      if (candTime > currTime) return true;
+      if (candTime < currTime) return false;
+    }
+  }
+
+  // 2. Prefer non-null / non-undefined coverage_pct
+  const candHasCov = candidate.coverage_pct !== null && candidate.coverage_pct !== undefined;
+  const currHasCov = current.coverage_pct !== null && current.coverage_pct !== undefined;
+  if (candHasCov && !currHasCov) return true;
+  if (!candHasCov && currHasCov) return false;
+
+  // 3. Prefer connected evidence over "Not Connected"
+  const candConn = candidate.evidence_ref && candidate.evidence_ref.toLowerCase() !== 'not connected';
+  const currConn = current.evidence_ref && current.evidence_ref.toLowerCase() !== 'not connected';
+  if (candConn && !currConn) return true;
+  if (!candConn && currConn) return false;
+
+  // 4. Prefer user-set assumption
+  if (candidate.is_user_assumed && !current.is_user_assumed) return true;
+
+  // 5. Default keep-last rule
+  return true;
+}
+
 export default function DataIngestionHub({ onDataUpdated }) {
+  const notifyUpdated = () => {
+    if (onDataUpdated) onDataUpdated();
+  };
   const [snapshot, setSnapshot] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeSection, setActiveSection] = useState('assets');
@@ -19,9 +54,11 @@ export default function DataIngestionHub({ onDataUpdated }) {
   const [uploadingAssets, setUploadingAssets] = useState(false);
   const [statusMsg, setStatusMsg] = useState(null);
   const [controlEdits, setControlEdits] = useState({});
+  const [savingControls, setSavingControls] = useState(false);
   const [customVendors, setCustomVendors] = useState([]);
   const [uploadingVendorSlug, setUploadingVendorSlug] = useState(null);
   const [showAddAssetModal, setShowAddAssetModal] = useState(false);
+  const [editingAsset, setEditingAsset] = useState(null);
   const [anomalyData, setAnomalyData] = useState(null);
   const [anomalyLoading, setAnomalyLoading] = useState(false);
   const [injectingAnomaly, setInjectingAnomaly] = useState(false);
@@ -47,7 +84,7 @@ export default function DataIngestionHub({ onDataUpdated }) {
         text: `Synthetic Telemetry Spike Injected! Agent '${res.injected_window?.agent_name || res.injected_window?.agent_id}' scored ${(res.score_evaluation?.anomaly_score != null ? (res.score_evaluation.anomaly_score * 100).toFixed(0) : 'High')}% (${res.label}).`
       });
       await fetchAnomalies();
-      if (onDataUpdated) onDataUpdated();
+      notifyUpdated();
     } catch (err) {
       setStatusMsg({ type: 'error', text: 'Failed to inject anomaly: ' + err.message });
     } finally {
@@ -61,8 +98,56 @@ export default function DataIngestionHub({ onDataUpdated }) {
       text: `Asset '${res.asset?.name || res.asset?.id}' added successfully! Total assets: ${res.total_active_assets}. New Organization EAL: ${res.new_eal ? formatINR(res.new_eal) : 'Recalculated'}`
     });
     await fetchSnapshot();
-    if (onDataUpdated) onDataUpdated();
+    notifyUpdated();
   };
+
+  const handleAssetUpdated = async (res) => {
+    setStatusMsg({
+      type: 'success',
+      text: `Asset '${res.asset?.name || res.asset?.id}' updated successfully! New Organization EAL: ${res.new_eal ? formatINR(res.new_eal) : 'Recalculated'}`
+    });
+    setEditingAsset(null);
+    await fetchSnapshot();
+    notifyUpdated();
+  };
+
+  const handleDeleteAsset = async (assetId, assetName) => {
+    const label = assetName && assetName !== assetId ? `${assetName} (${assetId})` : assetId;
+    if (!window.confirm(`Are you sure you want to delete asset "${label}"? This will remove the asset and recalculate FAIR risk exposure.`)) {
+      return;
+    }
+    setStatusMsg(null);
+    try {
+      const res = await api.deleteAsset(assetId);
+      setStatusMsg({
+        type: 'success',
+        text: `Asset '${assetId}' deleted successfully. Active assets: ${res.total_active_assets}.${res.new_eal ? ` New Organization EAL: ${formatINR(res.new_eal)}` : ''}`
+      });
+      await fetchSnapshot();
+      notifyUpdated();
+    } catch (err) {
+      setStatusMsg({ type: 'error', text: 'Failed to delete asset: ' + err.message });
+    }
+  };
+
+  const handleClearInventory = async () => {
+    if (!window.confirm(`Are you sure you want to delete the entire asset inventory (${assets.length} assets)? This will clear all network nodes and recalculate risk exposure.`)) {
+      return;
+    }
+    setStatusMsg(null);
+    try {
+      const res = await api.clearAssetInventory();
+      setStatusMsg({
+        type: 'success',
+        text: `Asset inventory cleared successfully (${res.assets_removed || assets.length} assets removed).`
+      });
+      await fetchSnapshot();
+      notifyUpdated();
+    } catch (err) {
+      setStatusMsg({ type: 'error', text: 'Failed to clear asset inventory: ' + err.message });
+    }
+  };
+
 
   const fetchVendors = async () => {
     try {
@@ -73,12 +158,12 @@ export default function DataIngestionHub({ onDataUpdated }) {
     }
   };
 
-  const fetchSnapshot = async () => {
+  const fetchSnapshot = async (resetEdits = true) => {
     try {
       const data = await api.getSnapshot();
       setSnapshot(data);
       // Reset pending edits on fresh snapshot
-      setControlEdits({});
+      if (resetEdits) setControlEdits({});
     } catch (err) {
       console.error('Failed to fetch snapshot:', err);
     } finally {
@@ -102,7 +187,7 @@ export default function DataIngestionHub({ onDataUpdated }) {
         text: `Threat Intel Synchronized: ${res.synced_cves} CVEs enriched via FIRST EPSS API & CISA KEV catalog. Source: ${res.source}`
       });
       await fetchSnapshot();
-      if (onDataUpdated) onDataUpdated();
+      notifyUpdated();
     } catch (err) {
       setStatusMsg({ type: 'error', text: 'Failed to sync live intel: ' + err.message });
     } finally {
@@ -115,8 +200,10 @@ export default function DataIngestionHub({ onDataUpdated }) {
   };
 
   const handleSaveControl = async (ctrlId) => {
+    if (savingControls) return;
     const val = controlEdits[ctrlId];
     if (val === undefined || val === null) return;
+    setSavingControls(true);
     try {
       await api.updateControlCoverage(ctrlId, val);
       setStatusMsg({
@@ -128,10 +215,28 @@ export default function DataIngestionHub({ onDataUpdated }) {
         delete next[ctrlId];
         return next;
       });
-      await fetchSnapshot();
-      if (onDataUpdated) onDataUpdated();
+      await fetchSnapshot(false);
+      if (Object.keys(controlEdits).length === 1) notifyUpdated();
     } catch (err) {
       setStatusMsg({ type: 'error', text: 'Failed to update control: ' + err.message });
+    } finally {
+      setSavingControls(false);
+    }
+  };
+
+  const handleSaveAllControls = async () => {
+    if (savingControls || !Object.keys(controlEdits).length) return;
+    setSavingControls(true);
+    try {
+      const controls = Object.entries(controlEdits).map(([control_id, coverage_pct]) => ({ control_id, coverage_pct }));
+      const result = await api.updateControlsCoverage(controls);
+      setStatusMsg({ type: 'success', text: `${result.updated_count} control assumptions applied together. Risk recalculated once.` });
+      await fetchSnapshot();
+      notifyUpdated();
+    } catch (err) {
+      setStatusMsg({ type: 'error', text: err.message });
+    } finally {
+      setSavingControls(false);
     }
   };
 
@@ -152,7 +257,7 @@ export default function DataIngestionHub({ onDataUpdated }) {
           text: `Scan Ingested Successfully: ${res.findings_added || res.parsed} findings added. New Organization EAL: ${formatINR(res.new_eal)}`
         });
         await fetchSnapshot();
-        if (onDataUpdated) onDataUpdated();
+        notifyUpdated();
       } catch (err) {
         setStatusMsg({ type: 'error', text: err.message });
       } finally {
@@ -167,7 +272,7 @@ export default function DataIngestionHub({ onDataUpdated }) {
           text: `Microsoft Defender EDR Ingested: ${res.detections_added || res.findings_added || 0} detections added. New Organization EAL: ${formatINR(res.new_eal)}`
         });
         await fetchSnapshot();
-        if (onDataUpdated) onDataUpdated();
+        notifyUpdated();
       } catch (err) {
         setStatusMsg({ type: 'error', text: err.message });
       } finally {
@@ -182,7 +287,7 @@ export default function DataIngestionHub({ onDataUpdated }) {
           text: `Assets Ingested Successfully: ${res.assets_loaded} inventory items loaded. New Organization EAL: ${formatINR(res.new_eal)}`
         });
         await fetchSnapshot();
-        if (onDataUpdated) onDataUpdated();
+        notifyUpdated();
       } catch (err) {
         setStatusMsg({ type: 'error', text: err.message });
       } finally {
@@ -217,7 +322,7 @@ export default function DataIngestionHub({ onDataUpdated }) {
         text: `Scan for ${vendorName || res.vendor} Ingested Successfully: ${res.parsed} findings added (${res.skipped} skipped). New Organization EAL: ${formatINR(res.new_eal)}`
       });
       await fetchSnapshot();
-      if (onDataUpdated) onDataUpdated();
+      notifyUpdated();
     } catch (err) {
       setStatusMsg({ type: 'error', text: err.message });
     } finally {
@@ -296,7 +401,21 @@ export default function DataIngestionHub({ onDataUpdated }) {
       });
     }
 
-    return merged;
+    // Defensive dedupe: collapse controlStates by control_id before rendering (same keep-last / best-state rule)
+    const dedupedMap = new Map();
+    for (const cs of merged) {
+      if (!cs || !cs.control_id) continue;
+      if (!dedupedMap.has(cs.control_id)) {
+        dedupedMap.set(cs.control_id, cs);
+      } else {
+        const existingCs = dedupedMap.get(cs.control_id);
+        if (isBetterControlState(cs, existingCs)) {
+          dedupedMap.set(cs.control_id, cs);
+        }
+      }
+    }
+
+    return Array.from(dedupedMap.values());
   }, [snapshot?.control_state, catalogList]);
 
   const cveIntel = snapshot?.cve_intel || {};
@@ -626,12 +745,29 @@ export default function DataIngestionHub({ onDataUpdated }) {
 
       {/* SECTION 1: Control Coverage Tuner */}
       {activeSection === 'controls' && (
-        <div className="glass-panel" style={{ padding: 22 }}>
+        <div className="glass-panel" style={{ padding: 22 }} onKeyDown={e => {
+          if (e.key === 'Enter') { e.preventDefault(); handleSaveAllControls(); }
+        }}>
           <div style={{ marginBottom: 16 }}>
             <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>Dynamic Control Coverage & Mitigation Tuner</h3>
             <p style={{ margin: '4px 0 0 0', fontSize: 12, color: 'var(--text-dim)' }}>
-              Adjust control coverage percentage in real time. The FAIR Monte Carlo engine recalculates residual loss and EAL across all affected asset scenarios dynamically.
+              Adjust multiple sliders, then click Apply all changes or press Enter to save them together and recalculate risk once.
             </p>
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginTop: 14 }}>
+              <button type="button" className="btn btn-primary" disabled={savingControls || !Object.keys(controlEdits).length} onClick={handleSaveAllControls}>
+                {savingControls ? 'Applying changes…' : `Apply all changes (${Object.keys(controlEdits).length})`}
+              </button>
+              <button type="button" className="btn" disabled={savingControls || !Object.keys(controlEdits).length} onClick={() => setControlEdits({})}>Discard changes</button>
+              <span
+                role="status"
+                className={`badge ${Object.keys(controlEdits).length ? 'badge-simulated' : 'badge-real'}`}
+                style={{ fontSize: 11, padding: '6px 10px', letterSpacing: '0.02em' }}
+              >
+                {savingControls ? 'Saving changes…' : Object.keys(controlEdits).length
+                  ? `${Object.keys(controlEdits).length} unsaved change${Object.keys(controlEdits).length === 1 ? '' : 's'}`
+                  : 'No pending changes'}
+              </span>
+            </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16 }}>
@@ -845,6 +981,8 @@ export default function DataIngestionHub({ onDataUpdated }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <input
                       type="range"
+                      aria-label={`${cs.control_id} coverage`}
+                      disabled={savingControls}
                       min="0"
                       max="100"
                       step="5"
@@ -854,7 +992,7 @@ export default function DataIngestionHub({ onDataUpdated }) {
                     />
                     <button
                       onClick={() => handleSaveControl(cs.control_id)}
-                      disabled={!hasChanged}
+                      disabled={savingControls || !hasChanged}
                       className="btn btn-primary"
                       style={{
                         padding: '6px 12px',
@@ -1133,7 +1271,10 @@ export default function DataIngestionHub({ onDataUpdated }) {
               <button
                 type="button"
                 className="btn btn-primary"
-                onClick={() => setShowAddAssetModal(true)}
+                onClick={() => {
+                  setEditingAsset(null);
+                  setShowAddAssetModal(true);
+                }}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -1160,7 +1301,30 @@ export default function DataIngestionHub({ onDataUpdated }) {
                   Underlying nodes used in FAIR loss magnitude sampling and business downtime calculations.
                 </p>
               </div>
-              <span className="badge badge-emerald">CMDB Mapped</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {assets.length > 0 && (
+                  <button
+                    onClick={handleClearInventory}
+                    className="btn btn-secondary"
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: 12,
+                      color: 'var(--accent-red)',
+                      border: '1px solid rgba(201, 114, 114, 0.35)',
+                      background: 'rgba(201, 114, 114, 0.08)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      cursor: 'pointer'
+                    }}
+                    title="Delete entire asset inventory"
+                  >
+                    <Trash2 size={13} />
+                    <span>Delete Inventory</span>
+                  </button>
+                )}
+                <span className="badge badge-emerald">CMDB Mapped</span>
+              </div>
             </div>
 
             <div style={{ overflowX: 'auto' }}>
@@ -1174,9 +1338,17 @@ export default function DataIngestionHub({ onDataUpdated }) {
                     <th style={{ padding: '8px 12px' }}>PII Records</th>
                     <th style={{ padding: '8px 12px' }}>Revenue Exposure / Hr</th>
                     <th style={{ padding: '8px 12px' }}>Internet Facing</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
+                  {assets.length === 0 && (
+                    <tr>
+                      <td colSpan={8} style={{ padding: '28px 12px', textAlign: 'center', color: 'var(--text-dim)' }}>
+                        No network assets in inventory. Ingest an Asset Inventory CSV or click "Add Asset Manually".
+                      </td>
+                    </tr>
+                  )}
                   {assets.map((a) => (
                     <tr key={a.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
                       <td style={{ padding: '10px 12px', color: 'var(--primary)', fontFamily: 'monospace' }}>{a.id}</td>
@@ -1226,6 +1398,51 @@ export default function DataIngestionHub({ onDataUpdated }) {
                           <span style={{ color: 'var(--text-dim)', fontStyle: 'italic', fontSize: 11 }}>Unknown</span>
                         )}
                       </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+                          <button
+                            onClick={() => {
+                              setEditingAsset(a);
+                              setShowAddAssetModal(true);
+                            }}
+                            className="btn btn-secondary"
+                            style={{
+                              padding: '4px 8px',
+                              fontSize: 11,
+                              color: 'var(--accent-amber)',
+                              border: '1px solid rgba(224, 169, 109, 0.35)',
+                              background: 'rgba(224, 169, 109, 0.08)',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              cursor: 'pointer'
+                            }}
+                            title={`Edit asset ${a.id}`}
+                          >
+                            <Pencil size={12} />
+                            <span>Edit</span>
+                          </button>
+                          <button
+                            onClick={() => handleDeleteAsset(a.id, a.name)}
+                            className="btn btn-secondary"
+                            style={{
+                              padding: '4px 8px',
+                              fontSize: 11,
+                              color: 'var(--accent-red)',
+                              border: '1px solid rgba(201, 114, 114, 0.25)',
+                              background: 'rgba(201, 114, 114, 0.06)',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              cursor: 'pointer'
+                            }}
+                            title={`Delete asset ${a.id}`}
+                          >
+                            <Trash2 size={12} />
+                            <span>Delete</span>
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1240,11 +1457,41 @@ export default function DataIngestionHub({ onDataUpdated }) {
         <div className="glass-panel" style={{ padding: 22 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 14, marginBottom: 20 }}>
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <Cpu size={20} color="var(--accent-amber)" />
                 <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>
                   Unsupervised Telemetry Anomaly Detection (IsolationForest)
                 </h3>
+                {anomalyData?.is_demo && (
+                  <span
+                    className="badge"
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      background: 'rgba(245, 158, 11, 0.18)',
+                      color: 'var(--accent-amber)',
+                      border: '1px solid rgba(245, 158, 11, 0.4)',
+                      padding: '2px 8px',
+                      letterSpacing: '0.04em'
+                    }}
+                  >
+                    DEMO DATA — not from live ingestion
+                  </span>
+                )}
+                {anomalyData?.source && (
+                  <span
+                    className={`badge ${anomalyData.source === 'Wazuh Live API' ? 'badge-real' : anomalyData.source === 'Wazuh Telemetry Mock' ? 'badge-simulated' : ''}`}
+                    style={{
+                      fontSize: 10,
+                      background: anomalyData.source === 'Wazuh Live API' ? undefined : 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid var(--border-color)',
+                      color: anomalyData.source === 'Wazuh Live API' ? 'var(--accent-green)' : 'var(--text-dim)',
+                      padding: '2px 8px'
+                    }}
+                  >
+                    Source: {anomalyData.source}
+                  </span>
+                )}
               </div>
               <p style={{ margin: '4px 0 0 0', fontSize: 12, color: 'var(--text-dim)', maxWidth: 700 }}>
                 Scikit-learn IsolationForest trained over per-agent SIEM telemetry features: <strong>Event Volume</strong>, <strong>Auth Failure Rate</strong>, and <strong>Alert Severity Mix</strong>.
@@ -1286,9 +1533,11 @@ export default function DataIngestionHub({ onDataUpdated }) {
           {anomalyData?.is_insufficient ? (
             <div className="glass-panel" style={{ padding: 24, textAlign: 'center', background: 'rgba(255,255,255,0.02)', border: '1px dashed var(--border-color)' }}>
               <Activity size={36} color="var(--text-dim)" style={{ marginBottom: 10 }} />
-              <h4 style={{ margin: 0, fontSize: 15, color: 'var(--text-main)' }}>insufficient baseline data</h4>
+              <h4 style={{ margin: 0, fontSize: 15, color: 'var(--text-main)' }}>
+                {anomalyData?.message?.startsWith('Building baseline:') ? anomalyData.message : 'insufficient baseline data'}
+              </h4>
               <p style={{ margin: '8px auto', fontSize: 12, color: 'var(--text-muted)', maxWidth: 500 }}>
-                Currently {anomalyData.history_windows_count || 0} observation windows recorded (minimum {anomalyData.min_required_windows || 5} required).
+                Currently {anomalyData.history_windows_count || anomalyData.total_windows || 0} observation windows recorded (minimum {anomalyData.min_required_windows || anomalyData.required_windows || 5} required).
                 CRISP refuses to fabricate synthetic curves or guess anomaly scores during cold-start.
               </p>
               <button
@@ -1427,12 +1676,17 @@ export default function DataIngestionHub({ onDataUpdated }) {
         />
       )}
 
-      {/* Manual Asset Creation Modal */}
+      {/* Manual Asset Creation / Edit Modal */}
       <AddAssetForm
         isOpen={showAddAssetModal}
-        onClose={() => setShowAddAssetModal(false)}
+        onClose={() => {
+          setShowAddAssetModal(false);
+          setEditingAsset(null);
+        }}
         existingServices={snapshot?.services || []}
         onAssetAdded={handleAssetAdded}
+        assetToEdit={editingAsset}
+        onAssetUpdated={handleAssetUpdated}
       />
     </div>
   );
