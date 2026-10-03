@@ -154,12 +154,12 @@ export default function App() {
       {/* Main View Area */}
       <main style={{ flex: 1, padding: '32px', overflowY: 'auto' }}>
         {guestWorkspace && (
-          <div className="glass-panel" style={{ padding: '12px 18px', marginBottom: 20, color: 'var(--text-muted)' }}>
+          <div className="glass-panel workspace-notice" style={{ padding: '12px 18px', marginBottom: 20, color: 'var(--text-muted)' }}>
             Your workspace · Upload data, configure integrations, and test recommendations. Your changes stay separate from other visitors and expire after 24 hours.
           </div>
         )}
         {!canEdit && (
-          <div className="glass-panel" style={{ padding: '12px 18px', marginBottom: 20, color: 'var(--text-muted)' }}>
+          <div className="glass-panel workspace-notice" style={{ padding: '12px 18px', marginBottom: 20, color: 'var(--text-muted)' }}>
             Public read-only demo · Explore analytics and scenarios. Saved changes and integrations are unavailable.
           </div>
         )}
