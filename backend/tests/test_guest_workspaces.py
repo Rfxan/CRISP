@@ -103,3 +103,19 @@ def test_public_sample_dataset_can_load_and_stays_isolated(guest):
         assert all(finding.get('is_simulated') for finding in snapshot['findings'])
         assert snapshot.get('wazuh_telemetry', {}) == {}
         assert second.get('/api/data/snapshot').json()['assets'] == []
+
+
+def test_connection_policy_error_is_actionable_without_echoing_secrets(guest, monkeypatch):
+    from unittest.mock import patch
+    from app.main import app
+    monkeypatch.delenv('CRISP_OUTBOUND_ORIGINS', raising=False)
+    with TestClient(app, base_url='https://testserver') as client, patch('requests.post') as outbound:
+        client.get('/api/security/capabilities')
+        response = client.post('/api/connections/siem/test', json={
+            'base_url':'https://unapproved.invalid:55000',
+            'username':'wazuh-wui', 'password':'submitted-secret'})
+        assert response.status_code == 200
+        assert response.json()['success'] is False
+        assert 'allowlist' in response.json()['detail']
+        assert 'submitted-secret' not in response.text
+        outbound.assert_not_called()

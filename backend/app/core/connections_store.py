@@ -210,7 +210,12 @@ class ConnectionsStore:
 
         base_url = base_url.strip().rstrip("/")
         from app.core.outbound import validate_outbound_url
-        validate_outbound_url(base_url)
+        try:
+            validate_outbound_url(base_url)
+        except ValueError as exc:
+            # Policy errors contain static, safe explanations, not credentials.
+            # Keep them visible instead of the generic production ValueError.
+            return {"success": False, "detail": str(exc)}
 
         if cat == "siem":
             try:

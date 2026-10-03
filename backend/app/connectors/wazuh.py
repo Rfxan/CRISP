@@ -37,12 +37,18 @@ class WazuhConnector(BaseConnector):
                 raise ConnectionError("Wazuh API returned no token in authentication response")
             self._token = token
             return token
-        except requests.exceptions.ConnectionError as e:
-            raise ConnectionError(f"Cannot connect to Wazuh API at {self.base_url}: {e}")
+        except requests.exceptions.SSLError:
+            raise ConnectionError("Wazuh HTTPS certificate could not be verified. Use a certificate trusted by CRISP that matches the endpoint hostname.") from None
+        except requests.exceptions.ConnectTimeout:
+            raise ConnectionError("Wazuh API connection timed out. Check the API port mapping and Oracle/Ubuntu firewall rules for access from Render.") from None
+        except requests.exceptions.ConnectionError:
+            raise ConnectionError("Cannot reach the Wazuh API. Check that the API is running and the endpoint and firewall rules allow access from Render.") from None
         except requests.exceptions.Timeout:
-            raise ConnectionError(f"Wazuh API at {self.base_url} timed out during authentication")
+            raise ConnectionError("Wazuh API did not respond before the timeout. Check API health and retry.") from None
         except requests.exceptions.HTTPError as e:
-            raise ConnectionError(f"Wazuh API authentication failed (HTTP {resp.status_code}): {e}")
+            if resp.status_code in (401, 403):
+                raise ConnectionError(f"Wazuh API authentication failed (HTTP {resp.status_code}). Use API_USERNAME and API_PASSWORD, not the dashboard login.") from None
+            raise ConnectionError(f"Wazuh API authentication failed (HTTP {resp.status_code})") from None
 
     def _get_headers(self) -> Dict[str, str]:
         if not self._token:
