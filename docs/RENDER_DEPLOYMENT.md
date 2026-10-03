@@ -103,6 +103,13 @@ an authenticated gateway and a separately designed authorized API policy.
 Connector URLs must be reachable from Render; a laptop `localhost` address or
 Docker-only hostname cannot reach the laptop from the deployed backend.
 
+Scan import saves the uploaded evidence without waiting for external EPSS,
+NVD or KEV lookups. Existing workspace intelligence is reused where available;
+otherwise the findings retain pending intelligence provenance. Use the explicit
+threat-intelligence synchronization action separately. Upload handlers run in
+the API thread pool so parsing and risk calculation do not block health checks.
+Imported hosts without business context retain unknown financial exposure.
+
 The Wazuh connector currently supports manager API authentication and agent
 status on port 55000. A successful refresh measures registered-agent activity;
 it does not measure protection across an independently inventoried fleet.

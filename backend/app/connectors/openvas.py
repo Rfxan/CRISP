@@ -23,7 +23,7 @@ class OpenVASConnector(BaseConnector):
     def _extract_cve(cls, raw_val: Optional[str]) -> Optional[str]:
         """
         Extracts the first valid CVE identifier from raw string (e.g. from CVEs/CVE/cve_id).
-        Splits on commas, strips whitespace, matches ^CVE-\d{4}-\d{4,}$,
+        Splits on commas, strips whitespace, matches the CVE identifier pattern,
         and treats 'NOCVE', 'NONE', or empty values as None.
         """
         if not raw_val:
@@ -116,7 +116,7 @@ class OpenVASConnector(BaseConnector):
                 })
 
         elif fname.endswith(".csv"):
-            reader = csv.DictReader(io.StringIO(content.decode("utf-8", errors="ignore")))
+            reader = csv.DictReader(io.StringIO(content.decode("utf-8-sig", errors="strict")))
             for row_idx, row in enumerate(reader):
                 asset = row.get("Host") or row.get("Hostname") or row.get("asset_id") or row.get("IP")
                 if not asset or not asset.strip():

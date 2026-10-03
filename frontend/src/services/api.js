@@ -367,7 +367,9 @@ export const api = {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || 'Failed to ingest scan file');
+      throw new Error(err.detail || (res.status >= 500
+        ? `The backend could not complete the upload (HTTP ${res.status}). Please retry after it recovers.`
+        : `Unable to import this scan (HTTP ${res.status}). Check the report format or use the vendor mapping wizard.`));
     }
     return res.json();
   },

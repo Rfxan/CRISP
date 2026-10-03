@@ -602,7 +602,7 @@ class SnapshotStore:
             "run_id": summary["run_id"]
         }
 
-    def enrich_findings_intel(self, findings: List[Dict[str, Any]]):
+    def enrich_findings_intel(self, findings: List[Dict[str, Any]], live: bool = True):
         """
         Enriches findings with live EPSS, NVD, and CISA KEV intelligence.
         Surfaces per-finding provenance and KEV exploitability label.
@@ -611,6 +611,24 @@ class SnapshotStore:
         enforce_limits(self.current_snapshot)
         enforce_limits({"findings": findings})
         cve_intel = self.current_snapshot.get("cve_intel", {})
+        if not live:
+            # Import is a durable intake operation, not a sequence of remote
+            # feed lookups. Do not hold the workspace transaction while waiting
+            # for external services. Unknown intelligence stays unknown.
+            for finding in findings:
+                cve = finding.get("cve_id")
+                if not cve:
+                    continue
+                cve = cve.strip().upper()
+                finding["cve_id"] = cve
+                intel = cve_intel.get(cve, {})
+                finding["in_kev"] = intel.get("in_kev")
+                finding["exploitability_label"] = intel.get("exploitability_label", "Threat intelligence not yet synchronized")
+                finding["threat_intel_provenance"] = intel.get("provenance") or {
+                    source: {"status": "pending", "fetched_at": None}
+                    for source in ("epss", "nvd", "kev")
+                }
+            return
         kev_res = self.threat_intel.fetch_cisa_kev()
 
         for f in findings:
@@ -1311,14 +1329,14 @@ def apply_control_coverage(payload: UpdateControlRequest):
         })
 
 @router.post("/ingest/openvas")
-async def ingest_openvas_scan(file: UploadFile = File(...)):
+def ingest_openvas_scan(file: UploadFile = File(...)):
     """
     Parses uploaded OpenVAS report (XML, CSV, or JSON format), extracts real findings,
     enriches them with threat intel, and updates the active snapshot.
     Delegates parsing to OpenVASConnector.
     Never invents business metrics — discovered hosts are created with null business context.
     """
-    content = await file.read()
+    content = file.file.read()
     filename = file.filename or "report.xml"
 
     connector = OpenVASConnector()
@@ -1357,7 +1375,7 @@ async def ingest_openvas_scan(file: UploadFile = File(...)):
                 existing_assets[aid] = new_asset
 
         store.merge_findings(new_findings)
-        store.enrich_findings_intel(new_findings)
+        store.enrich_findings_intel(new_findings, live=False)
         store.get_summary(force_refresh=True)
 
     return {
@@ -1371,14 +1389,14 @@ async def ingest_openvas_scan(file: UploadFile = File(...)):
     }
 
 @router.post("/ingest/scan")
-async def ingest_unified_scan(file: UploadFile = File(...)):
+def ingest_unified_scan(file: UploadFile = File(...)):
     """
     Unified scan ingestion endpoint supporting multiple scanner formats:
     - OpenVAS (XML with <report> root, CSV, JSON)
     - Nessus (XML with <NessusClientData_v2> root)
     Auto-detects format from file content. Returns 400 for unknown formats.
     """
-    content = await file.read()
+    content = file.file.read()
     filename = file.filename or "scan.xml"
 
     scan_format = detect_scan_format(content, filename)
@@ -1444,11 +1462,12 @@ async def ingest_unified_scan(file: UploadFile = File(...)):
                 existing_assets[aid] = new_asset
 
         store.merge_findings(new_findings)
-        store.enrich_findings_intel(new_findings)
+        store.enrich_findings_intel(new_findings, live=False)
         store.get_summary(force_refresh=True)
 
     return {
         "status": "INGESTED",
+        "intel_status": "pending",
         "format": scan_format,
         "detected_format": scan_format,
         "parsed": len(new_findings),
@@ -1460,13 +1479,13 @@ async def ingest_unified_scan(file: UploadFile = File(...)):
 
 
 @router.post("/ingest/defender")
-async def ingest_defender_edr(file: UploadFile = File(...)):
+def ingest_defender_edr(file: UploadFile = File(...)):
     """
     POST /api/ingest/defender
     Ingests Microsoft Defender for Endpoint Advanced Hunting exports (CSV or JSON).
     Deterministic parsing of endpoint detections, severity mapping, and MITRE ATT&CK techniques.
     """
-    content = await file.read()
+    content = file.file.read()
     filename = file.filename or "defender.csv"
     offset = len(store.current_snapshot["findings"])
     connector = DefenderEDRConnector()
@@ -1504,7 +1523,7 @@ async def ingest_defender_edr(file: UploadFile = File(...)):
                 existing_assets[aid] = new_asset
 
         store.merge_findings(new_findings)
-        store.enrich_findings_intel(new_findings)
+        store.enrich_findings_intel(new_findings, live=False)
         store.get_summary(force_refresh=True)
 
     return {
@@ -1950,12 +1969,12 @@ def sync_iam_telemetry(simulate: Optional[bool] = False):
 
 
 @router.post("/ingest/cspm")
-async def ingest_cspm_scan(file: UploadFile = File(...)):
+def ingest_cspm_scan(file: UploadFile = File(...)):
     """
     Parses uploaded Prowler CSPM JSON report, extracts FAIL-status cloud findings,
     merges them into current snapshot findings, and re-runs the quantification engine.
     """
-    content = await file.read()
+    content = file.file.read()
     connector = ProwlerConnector()
     offset = len(store.current_snapshot["findings"])
     try:
@@ -2154,7 +2173,7 @@ def list_vendor_configs():
 
 
 @router.post("/ingest/vendor/{vendor_slug}")
-async def ingest_custom_vendor_scan(vendor_slug: str, file: UploadFile = File(...)):
+def ingest_custom_vendor_scan(vendor_slug: str, file: UploadFile = File(...)):
     """
     Ingests report for a configured vendor using its saved mapping config.
     """
@@ -2174,7 +2193,7 @@ async def ingest_custom_vendor_scan(vendor_slug: str, file: UploadFile = File(..
     if not config:
         raise HTTPException(status_code=404, detail="Vendor mapping not found in this organization")
 
-    content = await file.read()
+    content = file.file.read()
     connector = GenericVendorConnector(config)
     offset = len(store.current_snapshot["findings"])
 
@@ -2190,7 +2209,7 @@ async def ingest_custom_vendor_scan(vendor_slug: str, file: UploadFile = File(..
 
     if new_findings:
         store.merge_findings(new_findings)
-        store.enrich_findings_intel(new_findings)
+        store.enrich_findings_intel(new_findings, live=False)
         store.get_summary(force_refresh=True)
 
     return {
@@ -2213,13 +2232,13 @@ def reset_all_data():
 
 
 @router.post("/ingest/assets")
-async def ingest_assets_file(file: UploadFile = File(...)):
+def ingest_assets_file(file: UploadFile = File(...)):
     """
     Parses uploaded Asset Inventory CSV, updating assets and business services dynamically.
     Rejects XML/scan files and CSVs missing required asset schema columns.
     Never fabricates fake business parameters.
     """
-    content = await file.read()
+    content = file.file.read()
 
     # Guard against accidental XML/scan file upload to asset inventory
     first_chunk = content[:300].strip()

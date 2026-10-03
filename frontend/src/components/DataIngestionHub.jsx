@@ -263,10 +263,10 @@ export default function DataIngestionHub({ onDataUpdated }) {
     if (type === 'openvas') {
       setUploadingScan(true);
       try {
-        const res = await api.ingestOpenVAS(formData);
+        const res = await api.ingestUnifiedScan(formData);
         setStatusMsg({
           type: 'success',
-          text: `Scan Ingested Successfully: ${res.findings_added || res.parsed} findings added. New Organization EAL: ${formatINR(res.new_eal)}`
+          text: `Scan imported: ${res.findings_added ?? res.parsed} findings parsed, ${res.skipped || 0} skipped. ${res.new_eal == null ? 'Add business context to calculate financial exposure.' : `Organization EAL: ${formatINR(res.new_eal)}.`} Threat intelligence is synchronized separately.`
         });
         await fetchSnapshot();
         notifyUpdated();
@@ -1199,7 +1199,7 @@ export default function DataIngestionHub({ onDataUpdated }) {
                 <tbody>
                   {findings.map((f, i) => {
                     const intel = cveIntel[f.cve_id] || {};
-                    const epssPct = intel.epss ? (intel.epss * 100).toFixed(1) + '%' : 'N/A';
+                    const epssPct = intel.epss != null ? (intel.epss * 100).toFixed(1) + '%' : 'Not synced';
                     return (
                       <tr key={f.id || i} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
                         <td style={{ padding: '10px 12px', color: 'var(--primary)', fontFamily: 'monospace' }}>{f.id}</td>
@@ -1244,6 +1244,8 @@ export default function DataIngestionHub({ onDataUpdated }) {
                         <td style={{ padding: '10px 12px' }}>
                           {intel.in_kev ? (
                             <span className="badge" style={{ background: 'rgba(201, 114, 114, 0.2)', color: 'var(--accent-red)' }}>YES (KEV)</span>
+                          ) : intel.in_kev == null ? (
+                            <span style={{ color: 'var(--text-dim)' }}>Not synced</span>
                           ) : (
                             <span style={{ color: 'var(--text-dim)' }}>No</span>
                           )}
