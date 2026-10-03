@@ -66,11 +66,14 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
       setConnections(data.connections);
       const entries = Object.entries(data.results);
       const failed = entries.filter(([, result]) => !result.success);
+      const warnings = entries.filter(([, result]) => result.warning);
       setStatusMessage({
         type: failed.length ? 'error' : 'success',
         text: !entries.length ? 'No connections configured yet.' : failed.length
           ? failed.map(([category, result]) => `${category.toUpperCase()}: ${result.detail}`).join(' • ')
-          : 'Live connection checks and telemetry refresh completed.'
+          : warnings.length
+            ? warnings.map(([category, result]) => `${category.toUpperCase()}: ${result.detail}`).join(' · ')
+            : 'Live connection checks and telemetry refresh completed.'
       });
       if (onConnectionChanged) onConnectionChanged();
     } catch (err) {

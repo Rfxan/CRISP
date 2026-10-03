@@ -103,6 +103,15 @@ an authenticated gateway and a separately designed authorized API policy.
 Connector URLs must be reachable from Render; a laptop `localhost` address or
 Docker-only hostname cannot reach the laptop from the deployed backend.
 
+The Wazuh connector currently supports manager API authentication and agent
+status on port 55000. A successful refresh measures registered-agent activity;
+it does not measure protection across an independently inventoried fleet.
+Rolling alert counts require querying the separate Wazuh indexer and are not
+implemented by this manager connector. They remain unknown, with an explicit
+warning, and do not create anomaly-history records. The manager API has no
+`/alerts` search endpoint, and daily manager statistics are not a substitute for
+rolling 24-hour alert measurements. See the [Wazuh indexer API use cases](https://documentation.wazuh.com/current/user-manual/indexer-api/use-case.html).
+
 ## Validation
 
 * Root Blueprint accepted by Render's published JSON schema.

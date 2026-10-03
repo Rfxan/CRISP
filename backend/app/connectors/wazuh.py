@@ -1,18 +1,14 @@
-from typing import Dict, Any, List, Optional
-from datetime import datetime, timezone, timedelta
-import logging
+from typing import Dict, Any, Optional
+from datetime import datetime, timezone
 import requests
-from app.core.outbound import integration_request, validate_outbound_url
+from app.core.outbound import integration_request
 from app.connectors.base import BaseConnector
 from app.core.config import settings
-
-logger = logging.getLogger(__name__)
-
 
 class WazuhConnector(BaseConnector):
     """
     Wazuh SIEM + EDR Connector.
-    Fetches real agent status (EDR) and alert summaries (SIEM) from Wazuh REST API.
+    Fetches real agent status from the Wazuh manager API; indexed alert counts remain unavailable.
     Never returns hardcoded fallback numbers — raises clear errors on failure.
     """
     def __init__(self, base_url: Optional[str] = None, username: Optional[str] = None, password: Optional[str] = None):
@@ -56,7 +52,7 @@ class WazuhConnector(BaseConnector):
         return {"Authorization": f"Bearer {self._token}"}
 
     def fetch(self) -> Dict[str, Any]:
-        """Fetch combined agent + alert data from Wazuh API."""
+        """Fetch agent data and disclose that indexed alert counts are unavailable."""
         agents = self.fetch_agent_status()
         alerts = self.fetch_alert_summary()
         return {**agents, **alerts, "source": "Wazuh Manager API", "last_sync": datetime.now(timezone.utc).isoformat()}
@@ -86,6 +82,8 @@ class WazuhConnector(BaseConnector):
             "recent_alerts_24h": raw_telemetry.get("recent_alerts_24h"),
             "high_severity_alerts_24h": raw_telemetry.get("high_severity_alerts_24h"),
             "auth_failures_24h": raw_telemetry.get("auth_failures_24h"),
+            "alert_status": raw_telemetry.get("alert_status"),
+            "alert_detail": raw_telemetry.get("alert_detail"),
             "last_sync": datetime.now(timezone.utc).isoformat()
         }
 
@@ -136,72 +134,15 @@ class WazuhConnector(BaseConnector):
             raise ConnectionError(f"Wazuh API /agents call failed (HTTP {resp.status_code}): {e}")
 
     def fetch_alert_summary(self, hours: int = 24) -> Dict[str, Any]:
+        """Manager API cannot supply a rolling alert search; this needs the indexer.
+
+        Daily manager processing statistics are not equivalent to indexed alerts
+        in the last 24 hours. Keep these measurements unknown, never zero.
         """
-        Queries Wazuh alerts summary.
-        Supports both GET {base_url}/manager/stats (standard in Wazuh 4.x) and GET {base_url}/alerts.
-        Returns {recent_alerts_24h, high_severity_alerts_24h, auth_failures_24h}.
-        Raises ConnectionError on failure — never returns fake numbers.
-        """
-        # Known Wazuh rule IDs for authentication failures
-        AUTH_FAILURE_RULE_IDS = {
-            "5503", "5504", "5710", "5711", "5716", "5720", "5501",  # SSH
-            "60122", "60204", "60103",  # Windows auth
-            "80710", "80711",  # PAM
+        return {
+            "recent_alerts_24h": None,
+            "high_severity_alerts_24h": None,
+            "auth_failures_24h": None,
+            "alert_status": "unavailable",
+            "alert_detail": "Agent telemetry synced. Alert counts require a separate Wazuh indexer connection; the manager API does not provide alert searches."
         }
-
-        # 1. Primary: Query /manager/stats (supported on Wazuh 4.x manager)
-        try:
-            resp_stats = integration_request("get",
-                f"{self.base_url}/manager/stats",
-                headers=self._get_headers(),
-                timeout=10
-            )
-            if resp_stats.status_code == 200:
-                stats_items = resp_stats.json().get("data", {}).get("affected_items", [])
-                total_alerts = sum(it.get("totalAlerts", 0) for it in stats_items)
-                high_severity = sum(
-                    sum(a.get("times", 0) for a in it.get("alerts", []) if a.get("level", 0) >= 12)
-                    for it in stats_items
-                )
-                auth_failures = sum(
-                    sum(a.get("times", 0) for a in it.get("alerts", []) if str(a.get("sigid", "")) in AUTH_FAILURE_RULE_IDS)
-                    for it in stats_items
-                )
-                return {
-                    "recent_alerts_24h": total_alerts,
-                    "high_severity_alerts_24h": high_severity,
-                    "auth_failures_24h": auth_failures
-                }
-        except Exception as e:
-            logger.debug(f"Wazuh /manager/stats query skipped: {e}")
-
-        # 2. Secondary: Query /alerts if available
-        try:
-            resp = integration_request("get",
-                f"{self.base_url}/alerts",
-                headers=self._get_headers(),
-                params={"limit": 10000, "older_than": f"{hours}h", "select": "rule.level,rule.id"},
-                timeout=15
-            )
-            resp.raise_for_status()
-            data = resp.json().get("data", {})
-            alerts = data.get("affected_items", [])
-            total_alerts = data.get("total_affected_items", len(alerts))
-
-            high_severity = sum(1 for a in alerts if a.get("rule", {}).get("level", 0) >= 12)
-            auth_failures = sum(
-                1 for a in alerts
-                if str(a.get("rule", {}).get("id", "")) in AUTH_FAILURE_RULE_IDS
-            )
-
-            return {
-                "recent_alerts_24h": total_alerts,
-                "high_severity_alerts_24h": high_severity,
-                "auth_failures_24h": auth_failures
-            }
-        except requests.exceptions.ConnectionError as e:
-            raise ConnectionError(f"Cannot connect to Wazuh API at {self.base_url}/alerts: {e}")
-        except requests.exceptions.Timeout:
-            raise ConnectionError(f"Wazuh API at {self.base_url}/alerts timed out")
-        except requests.exceptions.HTTPError as e:
-            raise ConnectionError(f"Wazuh API /alerts call failed (HTTP {resp.status_code}): {e}")

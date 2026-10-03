@@ -1720,14 +1720,14 @@ def sync_wazuh_telemetry(simulate: Optional[bool] = False):
             "active_agents": active_agents,
             "assets": active_agents,
             "findings": 0,
-            "alerts_24h": alert_data.get("recent_alerts_24h", 0)
+            "alerts_24h": alert_data.get("recent_alerts_24h")
         },
         status="ok",
-        message=f"Synced {active_agents}/{total_agents} active agents"
+        message=f"Synced {active_agents}/{total_agents} active agents" + (". " + alert_data["alert_detail"] if alert_data.get("alert_detail") else "")
     )
 
     # In real, non-simulated path only: append one real telemetry window per live agent
-    if not is_sim:
+    if not is_sim and all(alert_data.get(key) is not None for key in ("recent_alerts_24h", "auth_failures_24h", "high_severity_alerts_24h")):
         store.has_real_siem_sync = True
         store.telemetry_source = "Wazuh Live API"
 
@@ -1767,8 +1767,13 @@ def sync_wazuh_telemetry(simulate: Optional[bool] = False):
             })
 
         store.telemetry_history = store.telemetry_history[-200:]
-    else:
+    elif is_sim:
         store.telemetry_source = "Wazuh Telemetry Mock"
+    else:
+        # Agent health alone cannot produce measured alert/anomaly windows.
+        store.has_real_siem_sync = False
+        store.telemetry_history = []
+        store.telemetry_source = "Wazuh Agent API (alerts unavailable)"
 
     # Diff against previous state and conditionally recompute
     summary = store.check_and_recompute(trigger="sync_wazuh_telemetry")
@@ -2729,7 +2734,11 @@ def refresh_connections():
         connections_store.record_connection_result(category, bool(result.get("success")), result.get("detail", ""))
         try:
             # Failed checks also clear stale coverage through the not-connected path.
-            sync(simulate=False)
+            synced = sync(simulate=False)
+            warning = synced.get("wazuh_telemetry", {}).get("alert_detail")
+            if warning:
+                result = {**result, "warning": warning, "detail": result.get("detail", "") + ". " + warning}
+                connections_store.record_connection_result(category, True, result["detail"])
         except Exception as exc:
             result = {"success": False, "detail": str(getattr(exc, "detail", "Telemetry synchronization failed"))}
             connections_store.record_connection_result(category, False, result["detail"])

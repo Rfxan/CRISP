@@ -14,7 +14,7 @@ def test_refresh_checks_saved_endpoint_and_updates_result(tmp_path, monkeypatch,
         'encrypted_password':'unchanged','connected':True,'last_tested':'2020-01-01T00:00:00Z'}})
     with patch('app.api.routes.connections_store',saved), \
          patch.object(saved,'test_connection',return_value={'success':success,'detail':'Checked now'}) as check, \
-         patch('app.api.routes.sync_wazuh_telemetry') as sync, patch('app.api.routes.sync_iam_telemetry') as iam:
+         patch('app.api.routes.sync_wazuh_telemetry', return_value={}) as sync, patch('app.api.routes.sync_iam_telemetry') as iam:
         response=TestClient(app).post('/api/connections/refresh')
     assert response.status_code==200
     result=response.json()['connections']['siem']
