@@ -25,6 +25,8 @@ only on request. See [security configuration and limits](docs/SECURITY.md).
 
 Read [Risk model and deployment contract](docs/RISK_MODEL_AND_DEPLOYMENT.md) for calculation assumptions, evidence rules, direct workspace access, persistent transactional storage, worker setup and remaining limits. Financial estimates are uncalibrated planning estimates; curated mappings are not regulatory certification. The API no longer starts background schedulers: run `python -m app.worker` separately.
 
+For real alert-based anomaly detection, configure **Alert Telemetry (Wazuh Indexer)** under Connectors as well as the Manager connection. See [Wazuh Indexer setup](docs/WAZUH_INDEXER.md) for credentials, networking and the hourly baseline.
+
 ## 1. Executive Summary
 
 Enterprises invest heavily in cybersecurity, yet risk is still reported in qualitative labels (*High, Medium, Low*) or isolated CVSS numbers that board members and financial officers cannot translate into budget decisions. 

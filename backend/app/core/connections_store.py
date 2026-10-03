@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from app.core.config import DATA_DIR
 from app.core.security import encrypt_credential, decrypt_credential
 from app.connectors.wazuh import WazuhConnector
+from app.connectors.wazuh_indexer import WazuhIndexerConnector
 from app.connectors.iam import KeycloakConnector
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,8 @@ def _normalize_category(category: str) -> str:
         return "siem"
     if cat in ["iam", "keycloak", "idp"]:
         return "iam"
+    if cat in ["indexer", "wazuh-indexer"]:
+        return "indexer"
     return cat
 
 
@@ -157,7 +160,7 @@ class ConnectionsStore:
         """
         data = self._read_file()
         result = {}
-        for cat in ["siem", "iam"]:
+        for cat in ["siem", "indexer", "iam"]:
             if cat in data:
                 c = data[cat]
                 result[cat] = {
@@ -201,6 +204,8 @@ class ConnectionsStore:
                     "success": False,
                     "detail": f"No credentials provided or saved for connection category '{category}'."
                 }
+            if password is None and ((base_url and base_url.strip().rstrip("/") != saved.get("base_url", "").strip().rstrip("/")) or (username is not None and username != saved.get("username", ""))):
+                return {"success": False, "detail": "Enter credentials again when changing the endpoint or username."}
             base_url = base_url or saved.get("base_url")
             username = username if username is not None else saved.get("username")
             password = password if password is not None else saved.get("password")
@@ -229,6 +234,12 @@ class ConnectionsStore:
             except Exception as e:
                 return {"success": False, "detail": str(e)}
 
+        elif cat == "indexer":
+            try:
+                return WazuhIndexerConnector(base_url, username or "", password or "").test_connection()
+            except Exception as e:
+                return {"success": False, "detail": str(e)}
+
         elif cat == "iam":
             try:
                 connector = KeycloakConnector(base_url=base_url, username=username or "", password=password or "")
@@ -242,7 +253,7 @@ class ConnectionsStore:
                 return {"success": False, "detail": str(e)}
 
         else:
-            return {"success": False, "detail": f"Unknown connection category '{category}'. Must be 'siem' or 'iam'."}
+            return {"success": False, "detail": "Unknown connection category. Use siem, indexer or iam."}
 
     def save_connection(
         self,
@@ -259,8 +270,8 @@ class ConnectionsStore:
         Returns sanitized public connection information.
         """
         cat = _normalize_category(category)
-        if cat not in ["siem", "iam"]:
-            raise ValueError(f"Invalid connection category '{category}'. Must be 'siem' or 'iam'.")
+        if cat not in ["siem", "indexer", "iam"]:
+            raise ValueError("Invalid connection category. Use siem, indexer or iam.")
 
         from app.core.outbound import validate_outbound_url
         validate_outbound_url(base_url)
@@ -268,6 +279,8 @@ class ConnectionsStore:
         existing = data.get(cat, {})
 
         if not password and existing.get("encrypted_password"):
+            if base_url.strip().rstrip("/") != existing.get("base_url", "").strip().rstrip("/") or username.strip() != existing.get("username", ""):
+                raise ValueError("Enter credentials again when changing the endpoint or username.")
             enc_pwd = existing["encrypted_password"]
             dec_pwd = decrypt_credential(enc_pwd)
         else:

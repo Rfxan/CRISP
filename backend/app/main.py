@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from app.api.routes import router as api_router, sync_wazuh_telemetry, sync_iam_telemetry, store, get_active_snapshot
+from app.api.routes import router as api_router, sync_wazuh_telemetry, sync_wazuh_indexer, sync_iam_telemetry, store, get_active_snapshot
 from app.core.config import settings
 from app.core.connections_store import connections_store
 
@@ -37,6 +37,11 @@ def sync_telemetry_cycle():
             sync_wazuh_telemetry(simulate=False)
     except Exception as e:
         logger.warning(f"Telemetry Scheduler: SIEM sync error: {e}")
+
+    try:
+        sync_wazuh_indexer()
+    except Exception:
+        logger.warning("Telemetry Scheduler: Indexer sync failed")
 
     # 2. Check & Sync IAM (Keycloak)
     try:

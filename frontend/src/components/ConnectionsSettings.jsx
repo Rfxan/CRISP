@@ -11,6 +11,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
   const { guestWorkspace } = React.useContext(AccessContext);
   const [connections, setConnections] = useState({
     siem: { connected: false, base_url: '', username: '', last_tested: null, last_test_result: null, last_test_detail: 'Not configured' },
+    indexer: { connected: false, base_url: '', username: '', last_tested: null, last_test_result: null, last_test_detail: 'Not configured' },
     iam: { connected: false, base_url: '', username: '', last_tested: null, last_test_result: null, last_test_detail: 'Not configured' }
   });
   const [loading, setLoading] = useState(true);
@@ -19,13 +20,14 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
   // Form states
   const [forms, setForms] = useState({
     siem: { base_url: '', username: '', password: '', showPassword: false, editing: false },
+    indexer: { base_url: '', username: '', password: '', showPassword: false, editing: false },
     iam: { base_url: '', username: '', password: '', showPassword: false, editing: false }
   });
 
   // Test states
-  const [testing, setTesting] = useState({ siem: false, iam: false });
-  const [testResults, setTestResults] = useState({ siem: null, iam: null });
-  const [saving, setSaving] = useState({ siem: false, iam: false });
+  const [testing, setTesting] = useState({ siem: false, indexer: false, iam: false });
+  const [testResults, setTestResults] = useState({ siem: null, indexer: null, iam: null });
+  const [saving, setSaving] = useState({ siem: false, indexer: false, iam: false });
   const [statusMessage, setStatusMessage] = useState(null);
 
   const fetchConnections = async () => {
@@ -39,6 +41,11 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
           ...prev.siem,
           base_url: prev.siem.editing ? prev.siem.base_url : (data.siem?.base_url || ''),
           username: prev.siem.editing ? prev.siem.username : (data.siem?.username || '')
+        },
+        indexer: {
+          ...prev.indexer,
+          base_url: prev.indexer.editing ? prev.indexer.base_url : (data.indexer?.base_url || ''),
+          username: prev.indexer.editing ? prev.indexer.username : (data.indexer?.username || '')
         },
         iam: {
           ...prev.iam,
@@ -112,7 +119,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
       [category]: {
         ...prev[category],
         base_url: conn.base_url || '',
-        username: conn.username || (category === 'siem' ? 'wazuh-wui' : 'admin'),
+        username: conn.username || (category === 'siem' ? 'wazuh-wui' : ''),
         password: '',
         editing: true
       }
@@ -181,7 +188,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
 
       setStatusMessage({
         type: 'success',
-        text: `Saved ${category.toUpperCase()} connection. Use Refresh Status to check it now; scheduled updates require the synchronization worker.`
+        text: `Saved ${category.toUpperCase()} connection. ${res.connection.last_test_detail || 'Use Refresh Status to synchronize.'}`
       });
 
       setForms(prev => ({
@@ -423,12 +430,12 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
           }}>
             <div>
               <label style={{ display: 'block', fontSize: 12, color: 'var(--text-dim)', marginBottom: 6 }}>
-                Base URL (REST API Host)
+                {category === 'indexer' ? 'Indexer HTTPS URL (separate from Manager API)' : 'Base URL (REST API Host)'}
               </label>
               <input
                 type="text"
                 style={{ width: '100%', fontFamily: 'monospace', fontSize: 13, padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: 8, background: 'var(--bg-card)' }}
-                placeholder={category === 'siem' ? 'https://wazuh.your-domain.com:55000' : 'https://identity.your-domain.com'}
+                placeholder={category === 'indexer' ? 'https://indexer.your-domain.com' : category === 'siem' ? 'https://wazuh.your-domain.com:55000' : 'https://identity.your-domain.com'}
                 value={form.base_url}
                 onChange={(e) => handleInputChange(category, 'base_url', e.target.value)}
               />
@@ -440,12 +447,12 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
               <div>
                 <label style={{ display: 'block', fontSize: 12, color: 'var(--text-dim)', marginBottom: 6 }}>
-                  API Username / Client ID
+                  {category === 'indexer' ? 'Indexer Username' : 'API Username / Client ID'}
                 </label>
                 <input
                   type="text"
                   style={{ width: '100%', fontSize: 13, padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: 8, background: 'var(--bg-card)' }}
-                  placeholder={category === 'siem' ? 'wazuh-wui' : 'admin'}
+                  placeholder={category === 'siem' ? 'wazuh-wui' : category === 'indexer' ? 'Read-only Indexer account' : 'Client ID'}
                   value={form.username}
                   onChange={(e) => handleInputChange(category, 'username', e.target.value)}
                 />
@@ -453,7 +460,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
 
               <div>
                 <label style={{ display: 'block', fontSize: 12, color: 'var(--text-dim)', marginBottom: 6 }}>
-                  Password / Bearer Token
+                  {category === 'indexer' ? 'Indexer Password' : 'Password / Bearer Token'}
                 </label>
                 <div style={{ position: 'relative' }}>
                   <input
@@ -664,12 +671,19 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
       )}
 
       {/* Grid of Connection Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(480px, 1fr))', gap: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 480px), 1fr))', gap: 24 }}>
         {renderCard(
           'siem',
           'SIEM & EDR (Wazuh)',
-          'Syncs registered-agent activity and coverage for CTRL-EDR-01. Alert counts require a separate indexer integration.',
+          'Syncs registered-agent activity and coverage for CTRL-EDR-01. Add Alert Telemetry (Wazuh Indexer) below to enable anomaly detection.',
           <Cpu size={24} />
+        )}
+
+        {renderCard(
+          'indexer',
+          'Alert Telemetry (Wazuh Indexer)',
+          'Reads wazuh-alerts-* using Indexer credentials. Loads per-agent completed hourly alert windows for anomaly detection. Use a read-only Indexer account; Manager API credentials do not apply.',
+          <ShieldAlert size={24} />
         )}
 
         {renderCard(

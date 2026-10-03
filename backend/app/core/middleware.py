@@ -45,7 +45,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
             # Connector failures clear stale coverage; persist that evidence even when
             # the connector returns 502. Other rejected mutations roll back atomically.
             connector_failure = response.status_code == 502 and request.url.path in (
-                "/api/ingest/wazuh-sync", "/api/ingest/iam-sync")
+                "/api/ingest/wazuh-sync", "/api/ingest/wazuh-indexer-sync", "/api/ingest/iam-sync")
             if read_only_demo():
                 # Counterfactuals and lazy analytics may populate transient state,
                 # but public requests must never persist it or append audit rows.

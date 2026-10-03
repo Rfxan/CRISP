@@ -30,6 +30,7 @@ from app.ai.decision_support import DecisionSupportAI
 from app.ai.anomaly import TelemetryAnomalyDetector, ANOMALY_LABEL
 from app.connectors.openvas import OpenVASConnector
 from app.connectors.wazuh import WazuhConnector
+from app.connectors.wazuh_indexer import WazuhIndexerConnector
 from app.connectors.nessus import NessusConnector
 from app.connectors.iam import KeycloakConnector
 from app.connectors.cspm import ProwlerConnector
@@ -303,6 +304,23 @@ class SnapshotStore:
         Demo seeding is only acceptable with zero connections configured, AND then only behind a prominent DEMO DATA badge.
         Until 5 real windows exist, shows 'Building baseline: N/5 windows · Source: Wazuh Live API'.
         """
+        indexer = self.current_snapshot.get("indexer_telemetry")
+        if indexer is not None:
+            records = [r for r in self.telemetry_history if r.get("source") == "Wazuh Indexer API"]
+            count = len({r["timestamp"] for r in records})
+            metadata = {"source": "Wazuh Indexer API", "is_demo": False,
+                        "total_windows": count, "history_windows_count": count, "observation_count": len(records),
+                        "required_windows": 5, "min_required_windows": 5, "model": "IsolationForest (scikit-learn)",
+                        "label": ANOMALY_LABEL, "window_seconds": 3600}
+            if indexer.get("status") != "ok" or count < 5:
+                message = indexer.get("detail") if indexer.get("status") != "ok" else f"Building baseline: {count}/5 distinct completed hourly windows with indexed alerts."
+                return {**metadata, "status": "insufficient_baseline_data", "is_insufficient": True,
+                        "message": message, "anomalies_detected": 0, "signals": [], "results": []}
+            result = self.anomaly_detector.detect_anomalies(records)
+            for row in result.get("signals", []) + result.get("results", []):
+                row.update(source="Wazuh Indexer API", is_demo=False)
+            return {**result, **metadata}
+
         conn = connections_store.get_connection("siem")
         has_siem_conn = bool(conn and conn.get("base_url") and conn.get("connected", True))
         has_real_sync = getattr(self, "has_real_siem_sync", False) or (self.current_snapshot.get("wazuh_telemetry", {}).get("source") == "Wazuh Live API")
@@ -312,9 +330,11 @@ class SnapshotStore:
             # SIEM connection exists or real sync has succeeded: NEVER fabricate demo data
             current_windows = len(self.telemetry_history)
             if current_windows < 5:
+                missing_alerts = self.current_snapshot.get("wazuh_telemetry", {}).get("alert_status") == "unavailable"
                 return {
                     "status": "insufficient_baseline_data",
-                    "message": f"Building baseline: {current_windows}/5 windows · Source: Wazuh Live API",
+                    "message": ("Agent connection active. Configure Wazuh Indexer in Connectors to retrieve alert telemetry for anomaly detection."
+                                if missing_alerts else f"Building baseline: {current_windows}/5 windows · Source: Wazuh Live API"),
                     "total_windows": current_windows,
                     "history_windows_count": current_windows,
                     "required_windows": 5,
@@ -1788,7 +1808,7 @@ def sync_wazuh_telemetry(simulate: Optional[bool] = False):
         store.telemetry_history = store.telemetry_history[-200:]
     elif is_sim:
         store.telemetry_source = "Wazuh Telemetry Mock"
-    else:
+    elif not store.current_snapshot.get("indexer_telemetry"):
         # Agent health alone cannot produce measured alert/anomaly windows.
         store.has_real_siem_sync = False
         store.telemetry_history = []
@@ -2738,11 +2758,56 @@ def get_connections():
     return connections_store.get_all_public()
 
 
+@router.post("/ingest/wazuh-indexer-sync")
+def sync_wazuh_indexer():
+    """Load real per-agent hourly alert counts; history is durable tenant state."""
+    conn = connections_store.get_connection("indexer")
+    if not conn or not conn.get("base_url"):
+        return {"status": "NOT_CONFIGURED"}
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        measured = WazuhIndexerConnector(conn["base_url"], conn.get("username", ""), conn.get("password", "")).fetch_alert_windows()
+    except Exception as exc:
+        # Keep the last successful history for diagnosis, but do not score stale data.
+        detail = str(exc) if isinstance(exc, (ConnectionError, ValueError)) else "Wazuh Indexer synchronization failed."
+        store.current_snapshot["indexer_telemetry"] = {"status": "error", "detail": detail, "last_checked": now}
+        if store.current_snapshot.get("wazuh_telemetry"):
+            store.current_snapshot["wazuh_telemetry"].update(recent_alerts_24h=None, auth_failures_24h=None,
+                                                          high_severity_alerts_24h=None, alert_status="unavailable", alert_detail=detail)
+        connections_store.record_connection_result("indexer", False, detail)
+        sync_state_manager.record_sync(job_name="wazuh_indexer", source="Wazuh Indexer API", counts={}, status="error", message=detail)
+        raise HTTPException(status_code=502, detail=detail)
+    names = {str(a.get("id")): a.get("name") for a in store.current_snapshot.get("wazuh_telemetry", {}).get("agents", [])}
+    # Replace the rolling history with canonical (agent, hour) keys. Refreshes
+    # update late-arriving alerts rather than inventing additional observations.
+    rows = {}
+    for row in measured.pop("windows"):
+        row["agent_name"] = names.get(row["agent_id"]) or row["agent_id"]
+        rows[(row["agent_id"], row["timestamp"])] = row
+    store.telemetry_history = sorted(rows.values(), key=lambda r: (r["timestamp"], r["agent_id"]))
+    count = len({r["timestamp"] for r in store.telemetry_history})
+    detail = f"Loaded {measured['recent_alerts_24h']:,} alerts across {count} distinct completed hourly windows ({len(rows)} agent observations)."
+    state = {**measured, "status": "ok", "source": "Wazuh Indexer API", "detail": detail,
+             "last_sync": now, "total_windows": count, "observation_count": len(rows)}
+    store.current_snapshot["indexer_telemetry"] = state
+    if store.current_snapshot.get("wazuh_telemetry"):
+        store.current_snapshot["wazuh_telemetry"].update({k: measured[k] for k in (
+            "recent_alerts_24h", "auth_failures_24h", "high_severity_alerts_24h", "alert_status", "alert_detail")})
+        store.current_snapshot["wazuh_telemetry"].update(alert_source="Wazuh Indexer API", alert_last_sync=now,
+                                                      alert_range_start=measured["range_start"], alert_range_end=measured["range_end"])
+    store.has_real_siem_sync = True
+    store.telemetry_source = "Wazuh Indexer API"
+    connections_store.record_connection_result("indexer", True, detail)
+    sync_state_manager.record_sync(job_name="wazuh_indexer", source="Wazuh Indexer API",
+                                  counts={"alerts": measured["recent_alerts_24h"], "windows": count}, status="ok", message=detail)
+    return {"status": "SYNCED", "indexer_telemetry": state}
+
+
 @router.post("/connections/refresh")
 def refresh_connections():
     """Recheck saved endpoints and synchronize telemetry; report failures per connector."""
     results = {}
-    for category, sync in (("siem", sync_wazuh_telemetry), ("iam", sync_iam_telemetry)):
+    for category, sync in (("siem", sync_wazuh_telemetry), ("indexer", sync_wazuh_indexer), ("iam", sync_iam_telemetry)):
         configured = connections_store.get_public_connection(category)
         if not configured or not configured.get("base_url"):
             continue
@@ -2753,7 +2818,9 @@ def refresh_connections():
         connections_store.record_connection_result(category, bool(result.get("success")), result.get("detail", ""))
         try:
             # Failed checks also clear stale coverage through the not-connected path.
-            synced = sync(simulate=False)
+            synced = sync() if category == "indexer" else sync(simulate=False)
+            if category == "indexer":
+                result = {"success": True, "detail": synced["indexer_telemetry"]["detail"]}
             warning = synced.get("wazuh_telemetry", {}).get("alert_detail")
             if warning:
                 result = {**result, "warning": warning, "detail": result.get("detail", "") + ". " + warning}
@@ -2762,6 +2829,11 @@ def refresh_connections():
             result = {"success": False, "detail": str(getattr(exc, "detail", "Telemetry synchronization failed"))}
             connections_store.record_connection_result(category, False, result["detail"])
         results[category] = result
+    if results.get("indexer", {}).get("success") and results.get("siem", {}).get("success"):
+        # The Manager's partial-data warning is resolved by this Indexer sync.
+        results["siem"].pop("warning", None)
+        results["siem"]["detail"] = "Agent telemetry synchronized; indexed alert telemetry synchronized separately."
+        connections_store.record_connection_result("siem", True, results["siem"]["detail"])
     return {"connections": connections_store.get_all_public(), "results": results}
 
 
@@ -2776,7 +2848,7 @@ def test_connection_endpoint(category: str, payload: ConnectionPayload):
         category=category,
         base_url=payload.base_url,
         username=payload.username or "",
-        password=payload.password or ""
+        password=payload.password or None
     )
     return res
 
@@ -2794,6 +2866,9 @@ def save_connection_endpoint(category: str, payload: ConnectionPayload):
             username=payload.username or "",
             password=payload.password or ""
         )
+        if category.lower() in ["indexer", "wazuh-indexer"]:
+            store.telemetry_history = []
+            store.current_snapshot["indexer_telemetry"] = {"status": "unavailable", "detail": "Indexer is saved but alert history has not been synchronized."}
         # If connection is active, trigger immediate snapshot sync
         if saved.get("connected"):
             if category.lower() in ["siem", "edr", "wazuh"]:
@@ -2806,6 +2881,15 @@ def save_connection_endpoint(category: str, payload: ConnectionPayload):
                     sync_iam_telemetry(simulate=False)
                 except Exception as e:
                     logger.warning(f"Immediate IAM sync warning: {e}")
+            elif category.lower() in ["indexer", "wazuh-indexer"]:
+                # Old endpoint history must never be relabeled as a new source.
+                store.telemetry_history = []
+                try:
+                    sync_wazuh_indexer()
+                except HTTPException:
+                    pass  # Error status is recorded and returned with the saved connection.
+
+        saved = connections_store.get_public_connection(category)
 
         return {
             "status": "SAVED",
@@ -2824,6 +2908,15 @@ def delete_connection_endpoint(category: str):
     Removes a saved connection.
     """
     removed = connections_store.remove_connection(category)
+    if removed and category.lower() in ("indexer", "wazuh-indexer"):
+        store.telemetry_history = []
+        store.has_real_siem_sync = False
+        store.current_snapshot.pop("indexer_telemetry", None)
+        store.telemetry_source = "none"
+        if store.current_snapshot.get("wazuh_telemetry"):
+            store.current_snapshot["wazuh_telemetry"].update(recent_alerts_24h=None, auth_failures_24h=None,
+                                                          high_severity_alerts_24h=None, alert_status="unavailable",
+                                                          alert_detail="Wazuh Indexer disconnected; alert measurements unavailable.")
     if removed and category.lower() in ("siem", "edr", "wazuh"):
         store.has_real_siem_sync = False
         store.telemetry_source = "none"
@@ -2889,6 +2982,11 @@ def trigger_sync_all():
         job_results["wazuh"] = w_res.get("status")
     except Exception as e:
         job_results["wazuh"] = f"error: {e}"
+
+    try:
+        job_results["wazuh_indexer"] = sync_wazuh_indexer().get("status")
+    except HTTPException as e:
+        job_results["wazuh_indexer"] = f"error: {e.detail}"
 
     try:
         i_res = sync_iam_telemetry(simulate=False)

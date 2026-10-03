@@ -1499,12 +1499,12 @@ export default function DataIngestionHub({ onDataUpdated }) {
                 )}
                 {anomalyData?.source && (
                   <span
-                    className={`badge ${anomalyData.source === 'Wazuh Live API' ? 'badge-real' : anomalyData.source === 'Wazuh Telemetry Mock' ? 'badge-simulated' : ''}`}
+                    className={`badge ${['Wazuh Live API', 'Wazuh Indexer API'].includes(anomalyData.source) ? 'badge-real' : anomalyData.source === 'Wazuh Telemetry Mock' ? 'badge-simulated' : ''}`}
                     style={{
                       fontSize: 10,
-                      background: anomalyData.source === 'Wazuh Live API' ? undefined : 'rgba(255, 255, 255, 0.05)',
+                      background: ['Wazuh Live API', 'Wazuh Indexer API'].includes(anomalyData.source) ? undefined : 'rgba(255, 255, 255, 0.05)',
                       border: '1px solid var(--border-color)',
-                      color: anomalyData.source === 'Wazuh Live API' ? 'var(--accent-green)' : 'var(--text-dim)',
+                      color: ['Wazuh Live API', 'Wazuh Indexer API'].includes(anomalyData.source) ? 'var(--accent-green)' : 'var(--text-dim)',
                       padding: '2px 8px'
                     }}
                   >
@@ -1513,8 +1513,8 @@ export default function DataIngestionHub({ onDataUpdated }) {
                 )}
               </div>
               <p style={{ margin: '4px 0 0 0', fontSize: 12, color: 'var(--text-dim)', maxWidth: 700 }}>
-                Scikit-learn IsolationForest trained over per-agent SIEM telemetry features: <strong>Event Volume</strong>, <strong>Auth Failure Rate</strong>, and <strong>Alert Severity Mix</strong>.
-                Signals emerging threats before signatures or CVEs exist.
+                Scikit-learn IsolationForest analyzes per-agent telemetry features: <strong>Indexed Alert Volume</strong>, <strong>Auth Failure Rate</strong>, and <strong>Alert Severity Mix</strong>.
+                Unusual activity requires investigation; a statistical anomaly does not confirm an attack.
               </p>
               <div style={{ marginTop: 8 }}>
                 <span className="badge badge-amber" style={{ fontSize: 11 }}>
@@ -1553,7 +1553,7 @@ export default function DataIngestionHub({ onDataUpdated }) {
             <div className="glass-panel" style={{ padding: 24, textAlign: 'center', background: 'rgba(255,255,255,0.02)', border: '1px dashed var(--border-color)' }}>
               <Activity size={36} color="var(--text-dim)" style={{ marginBottom: 10 }} />
               <h4 style={{ margin: 0, fontSize: 15, color: 'var(--text-main)' }}>
-                {anomalyData?.message?.startsWith('Building baseline:') ? anomalyData.message : 'insufficient baseline data'}
+                {anomalyData?.message || 'Insufficient baseline data'}
               </h4>
               <p style={{ margin: '8px auto', fontSize: 12, color: 'var(--text-muted)', maxWidth: 500 }}>
                 Currently {anomalyData.history_windows_count || anomalyData.total_windows || 0} observation windows recorded (minimum {anomalyData.min_required_windows || anomalyData.required_windows || 5} required).

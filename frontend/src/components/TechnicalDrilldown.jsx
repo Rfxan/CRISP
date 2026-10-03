@@ -48,12 +48,12 @@ export default function TechnicalDrilldown({ summary, driversData, entitiesData,
                 )}
                 {anomalyInfo?.source && (
                   <span
-                    className={`badge ${anomalyInfo.source === 'Wazuh Live API' ? 'badge-real' : anomalyInfo.source === 'Wazuh Telemetry Mock' ? 'badge-simulated' : ''}`}
+                    className={`badge ${['Wazuh Live API', 'Wazuh Indexer API'].includes(anomalyInfo.source) ? 'badge-real' : anomalyInfo.source === 'Wazuh Telemetry Mock' ? 'badge-simulated' : ''}`}
                     style={{
                       fontSize: 10,
-                      background: anomalyInfo.source === 'Wazuh Live API' ? undefined : 'rgba(255, 255, 255, 0.05)',
+                      background: ['Wazuh Live API', 'Wazuh Indexer API'].includes(anomalyInfo.source) ? undefined : 'rgba(255, 255, 255, 0.05)',
                       border: '1px solid var(--border-color)',
-                      color: anomalyInfo.source === 'Wazuh Live API' ? 'var(--accent-green)' : 'var(--text-dim)',
+                      color: ['Wazuh Live API', 'Wazuh Indexer API'].includes(anomalyInfo.source) ? 'var(--accent-green)' : 'var(--text-dim)',
                       padding: '2px 8px'
                     }}
                   >
@@ -62,7 +62,7 @@ export default function TechnicalDrilldown({ summary, driversData, entitiesData,
                 )}
               </div>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
-                Unsupervised anomaly detection over per-agent telemetry (event volume, auth-failure rate, alert severity mix)
+                Unsupervised anomaly detection over per-agent telemetry (indexed alert volume, auth-failure rate, alert severity mix)
               </p>
             </div>
           </div>
@@ -73,16 +73,16 @@ export default function TechnicalDrilldown({ summary, driversData, entitiesData,
 
         {/* Cold Start vs Active Anomalies vs Nominal */}
         {anomalyInfo?.status === 'insufficient_baseline_data' ? (
-          (anomalyInfo?.source === 'Wazuh Live API' || anomalyInfo?.message?.includes('Building baseline')) ? (
+          (['Wazuh Live API', 'Wazuh Indexer API'].includes(anomalyInfo?.source) || anomalyInfo?.message?.includes('Building baseline')) ? (
             <div style={{ padding: '14px 18px', background: 'rgba(56, 189, 248, 0.05)', border: '1px solid rgba(56, 189, 248, 0.25)', borderRadius: 8, fontSize: 12, color: 'var(--text-dim)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
                 <Activity size={16} color="var(--primary)" />
                 <strong style={{ color: 'var(--text-main)', fontSize: 13 }}>
-                  Building baseline: {anomalyInfo?.total_windows ?? 0}/5 windows · Source: Wazuh Live API
+                  {anomalyInfo?.message || `Building baseline: ${anomalyInfo?.total_windows ?? 0}/5 hourly windows`}
                 </strong>
               </div>
               <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                Insufficient data: accumulating live observation windows from real Wazuh sync. Minimum 5 windows required for Isolation Forest baseline.
+                Anomaly scoring requires at least five distinct completed hourly alert windows. Connect the Wazuh Indexer and refresh; repeated refreshes do not create new windows.
               </div>
               <div style={{ marginTop: 10, background: 'rgba(255, 255, 255, 0.08)', borderRadius: 4, height: 6, width: '100%', maxWidth: 320, overflow: 'hidden' }}>
                 <div
