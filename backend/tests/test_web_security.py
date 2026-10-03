@@ -134,15 +134,19 @@ def test_invalid_inputs_do_not_echo_secrets(secured):
         assert client.post('/api/simulate',json={'actions':[],'seed':2**80}).status_code == 422
 
 
-def test_integration_origin_allowlist_and_tls(secured, monkeypatch):
-    with pytest.raises(ValueError,match='allowlist'):
-        validate_outbound_url('https://unconfigured.invalid/api')
+def test_public_integration_validation_and_tls(secured, monkeypatch):
     with pytest.raises(ValueError,match='HTTPS'):
         validate_outbound_url('http://unconfigured.invalid/api')
     with pytest.raises(ValueError):
         validate_outbound_url('https://test-user@example.invalid')
-    monkeypatch.setenv('CRISP_OUTBOUND_ORIGINS','https://integration.example:55000')
-    with patch('socket.getaddrinfo',return_value=[(2,1,6,'',('8.8.8.8',55000))]), patch('requests.post') as send:
+    monkeypatch.delenv('CRISP_OUTBOUND_ORIGINS', raising=False)
+    from requests import Response
+    response = Response()
+    response.status_code = 200
+    response._content = b'{}'
+    response._content_consumed = True
+    with patch('socket.getaddrinfo',return_value=[(2,1,6,'',('8.8.8.8',55000))]), patch('requests.Session.request', return_value=response) as send:
+        assert validate_outbound_url('https://integration.example:55000/api')
         integration_request('post','https://integration.example:55000/api',auth=('user','secret'))
         assert send.call_args.kwargs['verify'] is True
         assert send.call_args.kwargs['allow_redirects'] is False

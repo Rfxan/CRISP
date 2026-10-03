@@ -111,7 +111,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
       ...prev,
       [category]: {
         ...prev[category],
-        base_url: conn.base_url || (category === 'siem' ? 'https://localhost:55000' : 'http://localhost:8080'),
+        base_url: conn.base_url || '',
         username: conn.username || (category === 'siem' ? 'wazuh-wui' : 'admin'),
         password: '',
         editing: true
@@ -428,10 +428,13 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
               <input
                 type="text"
                 style={{ width: '100%', fontFamily: 'monospace', fontSize: 13, padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: 8, background: 'var(--bg-card)' }}
-                placeholder={category === 'siem' ? 'https://192.168.1.100:55000' : 'http://localhost:8080'}
+                placeholder={category === 'siem' ? 'https://wazuh.your-domain.com:55000' : 'https://identity.your-domain.com'}
                 value={form.base_url}
                 onChange={(e) => handleInputChange(category, 'base_url', e.target.value)}
               />
+              <p style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--text-dim)' }}>
+                Use a public HTTPS endpoint with a trusted certificate. No site-owner approval is required. Localhost and private network addresses cannot be reached by the hosted platform.
+              </p>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
@@ -624,7 +627,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
           <p style={{ margin: '6px 0 0 0', fontSize: 13, color: 'var(--text-dim)', maxWidth: 800 }}>
             Configure your SIEM/EDR and IAM connections. Refresh Status checks saved endpoints and updates telemetry now.
             {guestWorkspace
-              ? 'Use Refresh Status to sync your workspace. Hosted connections require a reachable HTTPS endpoint approved by the site owner.'
+              ? 'Use Refresh Status to sync your workspace. Connect your own public HTTPS endpoint directly; no site-owner approval is required.'
               : 'Automatic telemetry updates run approximately every 30 seconds while the synchronization worker is running.'}
           </p>
         </div>
@@ -665,7 +668,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
         {renderCard(
           'siem',
           'SIEM & EDR (Wazuh)',
-          'Syncs active endpoint agents, threat alert volumes, and coverage for CTRL-EDR-01',
+          'Syncs registered-agent activity and coverage for CTRL-EDR-01. Alert counts require a separate indexer integration.',
           <Cpu size={24} />
         )}
 
@@ -690,10 +693,10 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
         <strong style={{ color: 'var(--text-main)' }}>Continuous Telemetry Synchronization Architecture:</strong>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginTop: 10 }}>
           <div>
-            <span style={{ color: 'var(--primary)' }}>1. Zero Hardcoding:</span> All server endpoints and credentials are saved via <code style={{ color: 'var(--text-main)' }}>connections.json</code> and encrypted with Fernet symmetric keys.
+            <span style={{ color: 'var(--primary)' }}>1. Your connections:</span> Enter your endpoint and API credentials here. Passwords are encrypted in storage and never returned by the API.
           </div>
           <div>
-            <span style={{ color: 'var(--primary)' }}>2. Isolated Scheduler:</span> APScheduler checks each connection every 30s. If any category is unconfigured, it skips silently without halting other integrations.
+            <span style={{ color: 'var(--primary)' }}>2. Telemetry refresh:</span> {guestWorkspace ? 'Use Refresh Status to update your isolated workspace. Guest connections do not run on the background schedule.' : 'Automatic updates require a running synchronization worker. Refresh Status also updates connected systems on demand.'}
           </div>
           <div>
             <span style={{ color: 'var(--primary)' }}>3. Dynamic FAIR Recalibration:</span> Live agent coverage updates <code style={{ color: 'var(--text-main)' }}>CTRL-EDR-01</code> and privileged account MFA updates <code style={{ color: 'var(--text-main)' }}>CTRL-MFA-01</code>, recalculating Expected Annual Loss (EAL).

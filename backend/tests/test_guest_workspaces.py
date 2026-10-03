@@ -109,13 +109,13 @@ def test_connection_policy_error_is_actionable_without_echoing_secrets(guest, mo
     from unittest.mock import patch
     from app.main import app
     monkeypatch.delenv('CRISP_OUTBOUND_ORIGINS', raising=False)
-    with TestClient(app, base_url='https://testserver') as client, patch('requests.post') as outbound:
+    with TestClient(app, base_url='https://testserver') as client, patch('requests.Session.request') as outbound:
         client.get('/api/security/capabilities')
         response = client.post('/api/connections/siem/test', json={
-            'base_url':'https://unapproved.invalid:55000',
+            'base_url':'https://127.0.0.1:55000',
             'username':'wazuh-wui', 'password':'submitted-secret'})
         assert response.status_code == 200
         assert response.json()['success'] is False
-        assert 'allowlist' in response.json()['detail']
+        assert 'forbidden' in response.json()['detail']
         assert 'submitted-secret' not in response.text
         outbound.assert_not_called()

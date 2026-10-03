@@ -59,21 +59,26 @@ limits, not hard CPU execution deadlines for numerical models.
 ## Integration security
 
 Credential-bearing Wazuh/Keycloak and LLM requests verify TLS certificates and
-do not follow redirects. Production requires HTTPS and an exact server-managed
-origin allowlist for custom integrations:
+do not follow redirects. Visitors can connect supported Wazuh/Keycloak services
+at any public HTTPS endpoint through the UI without administrator approval.
+All resolved addresses must be public. Private, loopback, link-local/metadata,
+shared Tailscale address space, multicast, reserved and unspecified addresses
+are rejected, including mixed public/private DNS responses. IPv6 transition
+addresses and Azure's platform-service address are rejected. There is no private
+address override in production.
 
-```text
-CRISP_OUTBOUND_ORIGINS=https://YOUR-WAZUH-HOST:55000,https://YOUR-IAM-HOST
-```
+Integration connections are pinned to a validated address while retaining the
+original hostname for TLS verification, SNI and the Host header. Environment
+proxies and netrc credentials are ignored. Redirects are disabled and decoded
+response bodies are capped at 8 MiB. DNS is checked again for each request.
 
-Known LLM provider origins are allowed for visitor-configured provider calls.
-Private integration addresses additionally require
-`CRISP_ALLOW_PRIVATE_OUTBOUND=1`. Loopback, link-local/metadata, multicast,
-reserved, and unspecified addresses remain forbidden. Self-signed integrations
+AI providers remain limited to known provider origins and any administrator-set
+`CRISP_OUTBOUND_ORIGINS` additions; this variable no longer gates SIEM/IAM hosts.
+Self-signed integrations
 must use `CRISP_INTEGRATION_CA_BUNDLE` pointing to a trusted CA file installed on
 the server. Certificate checks are never disabled. Laptop localhost URLs cannot
-be used by the deployed service. A network egress firewall is recommended as an
-additional boundary, especially against DNS changes after validation.
+be used by the deployed service. A public HTTPS reverse proxy such as Tailscale
+Funnel can provide reachability and a trusted certificate for a demo.
 
 ## Additional safeguards
 
@@ -107,7 +112,7 @@ compatibility; production API docs remain disabled.
 
 Tests cover default-deny administration, read-only persistence, concurrent shared
 quotas, spoofed forwarding headers, global quotas, fail-closed protection,
-streaming upload limits, error redaction, integration allowlisting/TLS/redirects,
+streaming upload limits, error redaction, public integration validation/TLS/redirects,
 XML entity rejection, and spreadsheet export safety. PostgreSQL integration
 tests require an isolated `CRISP_TEST_DATABASE_URL` and skip without one.
 
