@@ -116,9 +116,9 @@ h6:not(.crisp-add-asset-modal *):not(.crisp-benchmark-panel *) { color: var(--te
 }
 
 .workspace-notice {
-  font-family: var(--font-sans);
+  font-family: var(--font-rounded);
   font-size: 13px;
-  font-weight: 400;
+  font-weight: 600;
   line-height: 1.6;
 }
 
