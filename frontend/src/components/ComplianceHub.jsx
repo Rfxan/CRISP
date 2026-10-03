@@ -5,6 +5,7 @@ import {
 import { formatINR } from '../utils/formatters';
 import { api } from '../services/api';
 import GovernanceEvidence from './GovernanceEvidence';
+import ComplianceOverview from './ComplianceOverview';
 import EmptyState from './EmptyState';
 import { useAccess } from '../AccessContext';
 
@@ -97,11 +98,7 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       
       {exportError && <p role="alert">{exportError}</p>}
-      <div className="glass-panel" style={{ padding: 20 }}>
-        <p>{evalData?.scope}</p>
-        <p>Observed control coverage: {evalData?.observed_control_coverage_pct == null ? 'Unknown' : `${evalData.observed_control_coverage_pct}%`} · Evidence completeness: {evalData?.evidence_completeness_pct ?? 'Unknown'}% · Assessed compliant controls: {evalData?.assessed_compliance_pct ?? 'Unknown'}%</p>
-        <p>Mapping coverage describes this curated subset. It does not establish compliance with an entire framework.</p>
-      </div>
+      <ComplianceOverview data={evalData} />
       {canEdit && <GovernanceEvidence controls={evalData?.controls} onSaved={() => { loadCompliance(selectedFramework); loadSummaries(); }} />}
       {/* Framework Selector Tabs with Honest Mapping Badges */}
       <div className="glass-panel" style={{ padding: 20, borderTop: '3px solid var(--accent-green)' }}>

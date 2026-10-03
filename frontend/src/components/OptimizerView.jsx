@@ -6,6 +6,7 @@ import { Target, TrendingUp, Award, CheckCircle2, Shield, DollarSign, Sliders, A
 import { formatINR, formatINRFull } from '../utils/formatters';
 import { api } from '../services/api';
 import EmptyState from './EmptyState';
+import PortfolioBenefit from './PortfolioBenefit';
 
 export default function OptimizerView({ baseEal, status, onNavigateToIngestion }) {
   const [budget, setBudget] = useState(10_000_000); // ₹1 Crore default
@@ -86,19 +87,10 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       
       {error && <p role="alert">{error}</p>}
-      {plan && <div className="glass-panel" style={{ padding: 20 }}>
-        <h3>Simulated portfolio benefit</h3>
-        <p>Residual EAL: {formatINR(plan.remaining_eal)} · Annual reduction: {formatINR(plan.total_reduction)}</p>
-        <p>Approximate selection objective: {formatINR(plan.objective_estimate)}. {plan.selection_method}.</p>
-        <p>Benefits below are evaluated through the same simulator. Action selection estimates can overlap and must not be added as realized savings.</p>
-        <p>Seed {plan.evaluation?.seed} · {plan.evaluation?.trials} trials · {plan.evaluation?.model_version}</p>
-        <details><summary>Benchmark reproduction details</summary><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(benchmark?.reproducibility, null, 2)}</pre></details>
-        <button className="btn-primary" onClick={async () => {
+      {plan && <PortfolioBenefit plan={plan} reproducibility={benchmark?.reproducibility} replay={replay} onReplay={async () => {
           try { setReplay(await api.simulate(plan.actions, plan.evaluation.seed)); setError(''); }
           catch (e) { setError(e.message); }
-        }}>Replay portfolio in simulator</button>
-        {replay && <p role="status">Simulator residual EAL: {formatINR(replay.post_intervention?.eal)} — {replay.snapshot_hash !== plan.evaluation.snapshot_hash ? 'Snapshot changed; run optimization again.' : replay.post_intervention?.eal === plan.remaining_eal ? 'Matches optimizer exactly.' : 'Mismatch; verify model configuration.'}</p>}
-      </div>}
+        }} />}
       {/* Interactive Budget Control Bar */}
       <div className="glass-panel" style={{ padding: 22, borderTop: '3px solid var(--primary)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>

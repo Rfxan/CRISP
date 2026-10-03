@@ -1,0 +1,68 @@
+.portfolio-benefit { padding: 26px; border-top: 3px solid var(--accent-green); }
+.portfolio-header { display: flex; align-items: center; gap: 15px; }
+.portfolio-icon { padding: 12px; display: flex; border-radius: 15px; background: rgba(126,143,129,.12); color: var(--accent-green); }
+.portfolio-title { flex: 1; min-width: 0; }
+.portfolio-title h3 { font-size: 18px; margin: 0 0 4px; }
+.portfolio-title p { font-size: 12px; color: var(--text-dim); line-height: 1.6; margin: 0; }
+.portfolio-header .badge { white-space: nowrap; font-size: 10px; }
+.portfolio-metrics { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; margin-top: 24px; }
+.portfolio-metrics > div { padding: 20px; border-radius: 16px; background: rgba(232,229,220,.35); display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.portfolio-metrics span { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim); }
+.portfolio-metrics strong { font-size: 28px; font-family: var(--font-rounded); color: var(--text-main); overflow-wrap: anywhere; }
+.portfolio-metrics small { font-size: 11px; color: var(--text-dim); }
+.portfolio-metrics .portfolio-savings { background: rgba(126,143,129,.1); }
+.portfolio-savings strong { color: var(--accent-green); }
+.portfolio-method { display: flex; align-items: flex-start; gap: 11px; padding: 16px 18px; margin: 18px 0; border-radius: 13px; background: rgba(183,140,102,.07); }
+.portfolio-method > svg { flex-shrink: 0; color: var(--primary); margin-top: 2px; }
+.portfolio-method strong { font-size: 12px; color: var(--text-muted); }
+.portfolio-method strong span { margin-left: 8px; color: var(--primary); }
+.portfolio-method p { margin: 4px 0 0; color: var(--text-dim); font-size: 12px; line-height: 1.7; max-width: 980px; }
+.portfolio-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+.portfolio-run-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+.portfolio-run-tags > span { padding: 6px 10px; border-radius: 8px; background: rgba(232,229,220,.4); font-size: 11px; color: var(--text-dim); }
+.portfolio-run-tags strong { color: var(--text-muted); margin-left: 3px; }
+.portfolio-benefit button:disabled { opacity: .65; cursor: wait; }
+.portfolio-replay-result { display: flex; align-items: flex-start; gap: 12px; padding: 15px 17px; margin-top: 18px; border-radius: 13px; }
+.portfolio-replay-result > svg { flex-shrink: 0; margin-top: 2px; }
+.portfolio-replay-result strong { font-size: 13px; }
+.portfolio-replay-result p { margin: 3px 0 0; font-size: 12px; color: var(--text-muted); }
+.portfolio-match { background: rgba(126,143,129,.12); color: var(--accent-green); }
+.portfolio-warning { background: rgba(209,184,121,.12); color: var(--text-muted); }
+.portfolio-details { border-top: 1px solid rgba(122,118,112,.14); margin-top: 22px; padding-top: 17px; }
+.portfolio-details > summary { display: flex; align-items: center; gap: 11px; cursor: pointer; list-style: none; color: var(--primary); }
+.portfolio-details > summary::-webkit-details-marker, .portfolio-assumptions > summary::-webkit-details-marker { display: none; }
+.portfolio-details > summary > span { flex: 1; font-size: 13px; font-weight: 600; color: var(--text-muted); }
+.portfolio-details small { display: block; font-size: 11px; font-weight: 400; margin-top: 3px; color: var(--text-dim); }
+.portfolio-chevron { transition: transform .15s ease; }
+.portfolio-details[open] > summary .portfolio-chevron { transform: rotate(180deg); }
+.portfolio-details-body { padding-top: 20px; }
+.portfolio-evidence-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; }
+.portfolio-evidence-grid > div { padding: 14px; border-radius: 12px; background: rgba(232,229,220,.3); display: flex; flex-direction: column; gap: 5px; }
+.portfolio-evidence-grid span { font-size: 11px; color: var(--text-dim); }
+.portfolio-evidence-grid strong { font-size: 12px; color: var(--text-muted); overflow-wrap: anywhere; }
+.portfolio-identifiers { margin: 18px 0; font-size: 11px; }
+.portfolio-identifiers > div { display: grid; grid-template-columns: 135px minmax(0,1fr); gap: 10px; padding: 6px 0; }
+.portfolio-identifiers dt { color: var(--text-dim); }
+.portfolio-identifiers dd { margin: 0; color: var(--text-muted); overflow-wrap: anywhere; }
+.portfolio-assumptions { border: 1px solid rgba(122,118,112,.15); border-radius: 12px; padding: 13px 15px; }
+.portfolio-assumptions > summary { display: flex; justify-content: space-between; gap: 10px; list-style: none; cursor: pointer; font-size: 12px; color: var(--text-muted); }
+.portfolio-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px 20px; margin: 15px 0 0; }
+.portfolio-fields > div { padding: 8px 0; border-bottom: 1px solid rgba(122,118,112,.1); min-width: 0; }
+.portfolio-fields dt { font-size: 11px; color: var(--text-dim); text-transform: capitalize; }
+.portfolio-fields dd { margin: 5px 0 0; font-size: 12px; color: var(--text-main); overflow-wrap: anywhere; }
+.portfolio-fields .portfolio-fields { grid-template-columns: 1fr; margin-top: 4px; gap: 0; padding-left: 10px; }
+.portfolio-muted { color: var(--text-dim); }
+.portfolio-export { margin-top: 18px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px; }
+.portfolio-export > span { display: flex; align-items: center; gap: 8px; color: var(--text-dim); font-size: 11px; }
+.portfolio-benefit summary:focus-visible, .portfolio-benefit button:focus-visible { outline: 2px solid var(--primary); outline-offset: 5px; border-radius: 8px; }
+@media (max-width: 850px) { .portfolio-evidence-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width: 600px) {
+  .portfolio-benefit { padding: 18px; }
+  .portfolio-header { flex-wrap: wrap; gap: 11px; }
+  .portfolio-title { flex-basis: calc(100% - 70px); }
+  .portfolio-header .badge { margin-left: 60px; }
+  .portfolio-metrics, .portfolio-evidence-grid, .portfolio-fields { grid-template-columns: 1fr; }
+  .portfolio-metrics > div { padding: 16px; }
+  .portfolio-replay { width: 100%; }
+  .portfolio-identifiers > div { grid-template-columns: 1fr; gap: 3px; }
+}

@@ -17,6 +17,7 @@ export default function RiskExplanation({ summary }) {
   if (!summary) return null;
   const available = summary.org?.eal != null;
   const excluded = summary.excluded_assets || [];
+  const sectionLabels = { monte_carlo_standard_error_eal: 'Simulation sampling error (EAL)', parameter_uncertainty: 'Uncertainty in assumptions', likelihood_inputs: 'Incident likelihood inputs' };
   const sections = Object.entries({ 'Loss components (INR/year)': summary.loss_breakdown, 'Excluded assets': excluded, ...summary.explanation });
   return <details className="glass-panel risk-explanation">
     <summary className="risk-explanation-heading">
@@ -49,7 +50,7 @@ export default function RiskExplanation({ summary }) {
           <span>Snapshot <code>{summary.snapshot_hash || 'Not recorded'}</code></span>
         </div>
         <div className="risk-explanation-sections">{sections.map(([key, value]) =>
-          <details key={key} className="risk-explanation-section"><summary>{key.replaceAll('_', ' ')}</summary><Fields value={value} /></details>)}</div>
+          <details key={key} className="risk-explanation-section"><summary><span>{sectionLabels[key] || key.replaceAll('_', ' ')}</span><ChevronDown size={15} /></summary><Fields value={value} /></details>)}</div>
       </>}
     </div>
   </details>;

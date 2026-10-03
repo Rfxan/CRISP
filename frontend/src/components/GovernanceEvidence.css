@@ -1,0 +1,46 @@
+.compliance-overview, .governance-evidence { padding: 24px; border-top: 3px solid var(--primary); }
+.governance-heading { display: flex; align-items: center; gap: 14px; }
+.governance-heading > div, .governance-title { flex: 1; min-width: 0; }
+.governance-icon { display: flex; padding: 12px; color: var(--primary); border-radius: 15px; background: rgba(183,140,102,.09); flex-shrink: 0; }
+.governance-heading h3, .governance-title > strong { margin: 0; font-size: 17px; color: var(--text-main); }
+.governance-heading p, .governance-title > span { display: block; margin: 4px 0 0; font-size: 12px; color: var(--text-dim); line-height: 1.6; }
+.governance-heading .badge { font-size: 10px; white-space: nowrap; }
+.compliance-evidence-metrics { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; margin: 22px 0 16px; }
+.compliance-evidence-metrics > div { padding: 18px; display: flex; flex-direction: column; gap: 7px; border-radius: 15px; background: rgba(232,229,220,.35); }
+.compliance-evidence-metrics span { color: var(--text-dim); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.compliance-evidence-metrics strong { font-size: 27px; font-family: var(--font-rounded); color: var(--primary); }
+.compliance-evidence-metrics small { color: var(--text-dim); font-size: 11px; }
+.governance-note { display: flex; align-items: flex-start; gap: 10px; color: var(--text-muted); font-size: 12px; line-height: 1.7; }
+.governance-note > svg { flex-shrink: 0; color: var(--primary); margin-top: 2px; }
+.governance-note p { margin: 0; }
+.governance-evidence > summary { list-style: none; cursor: pointer; }
+.governance-evidence > summary::-webkit-details-marker { display: none; }
+.governance-chevron { flex-shrink: 0; color: var(--text-dim); transition: transform .15s ease; }
+.governance-evidence[open] > summary .governance-chevron { transform: rotate(180deg); }
+.governance-body { margin-top: 20px; padding-top: 20px; border-top: 1px solid rgba(122,118,112,.14); }
+.governance-section { margin-top: 22px; padding: 20px; border: 1px solid rgba(122,118,112,.14); border-radius: 16px; }
+.governance-section h4 { display: flex; align-items: center; gap: 9px; margin: 0; font-size: 14px; }
+.governance-section h4 svg { color: var(--primary); }
+.governance-section > p { font-size: 12px; color: var(--text-dim); margin: 5px 0 20px; }
+.governance-form { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px; }
+.governance-form > label { display: flex; flex-direction: column; gap: 8px; min-width: 0; color: var(--text-muted); font-size: 12px; font-weight: 600; }
+.governance-form .governance-wide, .governance-form-footer { grid-column: 1/-1; }
+.governance-form input, .governance-form select, .governance-form textarea { width: 100%; min-width: 0; max-width: 100%; padding: 12px 14px; font: 13px var(--font-sans); color: var(--text-main); background: rgba(232,229,220,.3); border: 1px solid rgba(122,118,112,.19); border-radius: 11px; }
+.governance-form textarea { resize: vertical; }
+.governance-form input::placeholder, .governance-form textarea::placeholder { color: var(--text-dim); font-weight: 400; }
+.governance-form input:focus, .governance-form select:focus, .governance-form textarea:focus { outline: 2px solid var(--primary); outline-offset: 2px; }
+.governance-form-footer { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; padding-top: 5px; }
+.governance-form-footer > span { font-size: 11px; color: var(--text-dim); }
+.governance-form button:disabled { opacity: .65; cursor: wait; }
+.governance-message { display: flex; align-items: center; gap: 10px; padding: 13px 15px; margin-top: 18px; font-size: 12px; border-radius: 12px; }
+.governance-message-success { background: rgba(126,143,129,.12); color: var(--accent-green); }
+.governance-message-error { background: rgba(201,114,114,.1); color: var(--accent-red); }
+.governance-evidence > summary:focus-visible, .governance-evidence button:focus-visible { outline: 2px solid var(--primary); outline-offset: 5px; border-radius: 9px; }
+@media (max-width: 600px) {
+  .compliance-overview, .governance-evidence { padding: 18px; }
+  .compliance-evidence-metrics, .governance-form { grid-template-columns: 1fr; }
+  .governance-heading { flex-wrap: wrap; gap: 10px; }
+  .governance-heading .badge { margin-left: 60px; }
+  .governance-section { padding: 15px; }
+  .governance-form-footer .btn { width: 100%; }
+}

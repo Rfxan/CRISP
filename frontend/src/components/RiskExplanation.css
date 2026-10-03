@@ -4,7 +4,7 @@
 .risk-explanation-heading:focus-visible { outline: 2px solid var(--primary); outline-offset: 6px; border-radius: 6px; }
 .risk-explanation-icon { display: flex; padding: 10px; border-radius: 14px; color: var(--primary); background: rgba(183, 140, 102, .09); }
 .risk-explanation-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
-.risk-explanation-title strong { font-size: 15px; font-weight: 700; color: var(--text-main); }
+.risk-explanation-title strong { font-size: 17px; font-weight: 700; color: var(--text-main); }
 .risk-explanation-title > span { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
 .risk-explanation-heading .badge { font-size: 10px; white-space: nowrap; }
 .risk-explanation-chevron { flex-shrink: 0; color: var(--text-dim); transition: transform .15s ease; }
@@ -18,7 +18,7 @@
 .risk-explanation-metrics > div { display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 16px; border-radius: 14px; background: rgba(232, 229, 220, .28); }
 .risk-explanation-metrics span { color: var(--text-dim); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
 .risk-explanation-metrics strong { font-size: 15px; color: var(--text-main); }
-.risk-explanation-metrics .risk-explanation-eal { font-size: 23px; color: var(--primary); }
+.risk-explanation-metrics .risk-explanation-eal { font-size: 28px; color: var(--primary); font-family: var(--font-rounded); }
 .risk-explanation-note { display: flex; align-items: flex-start; gap: 10px; margin: 16px 0; color: var(--text-muted); }
 .risk-explanation-note svg { flex-shrink: 0; margin-top: 2px; color: var(--primary); }
 .risk-explanation-note p { margin: 0; }
@@ -26,8 +26,11 @@
 .risk-explanation-identifiers code { margin-left: 8px; overflow-wrap: anywhere; color: var(--text-muted); }
 .risk-explanation-sections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: start; }
 .risk-explanation-section { padding: 12px 14px; border: 1px solid rgba(122, 118, 112, .13); border-radius: 12px; min-width: 0; }
-.risk-explanation-section > summary { cursor: pointer; color: var(--text-muted); font-size: 12px; font-weight: 600; text-transform: capitalize; }
-.risk-explanation-section > summary span { margin-left: 8px; color: var(--primary); }
+.risk-explanation-section > summary { cursor: pointer; color: var(--text-muted); font-size: 12px; font-weight: 600; text-transform: capitalize; list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.risk-explanation-section > summary::-webkit-details-marker { display: none; }
+.risk-explanation-section > summary svg { color: var(--text-dim); flex-shrink: 0; transition: transform .15s ease; }
+.risk-explanation-section[open] > summary svg { transform: rotate(180deg); }
+.risk-explanation-section > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; border-radius: 5px; }
 .risk-explanation-fields { margin: 12px 0 0; }
 .risk-explanation-fields > div { padding: 7px 0; border-bottom: 1px solid rgba(122, 118, 112, .08); }
 .risk-explanation-fields dt { font-size: 11px; color: var(--text-dim); text-transform: capitalize; }
