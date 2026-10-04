@@ -3,6 +3,7 @@ import json
 import numpy as np
 import pytest
 from app.core.config import DATA_DIR
+from app.core.graph import DependencyGraph
 from app.engine.fair_engine import FAIREngine
 from app.engine.whatif import WhatIfSimulator, apply_actions
 from app.engine.model import finding_key
@@ -110,6 +111,38 @@ def test_service_results_preserve_configured_recovery_objective(snapshot):
     service_id = snapshot['services'][0]['id']
     service = next(s for s in result['services'] if s['service_id'] == service_id)
     assert service['rto_hours'] == 8.0
+
+
+@pytest.mark.parametrize('declared_service_revenue', [0, 30000])
+def test_service_revenue_exposure_includes_linked_assets_without_changing_inputs(snapshot, declared_service_revenue):
+    sid = snapshot['services'][0]['id']
+    snapshot['services'] = [dict(snapshot['services'][0], depends_on=[])]
+    snapshot['services'][0]['revenue_per_hour'] = declared_service_revenue
+    snapshot['assets'] = [dict(snapshot['assets'][0], id=aid, business_service_id=service_id,
+                               revenue_per_hour=revenue, has_business_context=context)
+                          for aid, service_id, revenue, context in [
+                              ('LOGSRV', sid, 100000, True),
+                              ('WEB', sid, 25000, True),
+                              ('UNRELATED', 'OTHER', 500000, True),
+                              ('UNASSESSED', sid, 900000, False)]]
+    snapshot['findings'] = []
+    snapshot['assessment_state'] = {'status': 'completed'}
+    original = copy.deepcopy(snapshot)
+    engine = FAIREngine(trials=1000)
+    result = engine.run(snapshot, {'calculate_drivers': False})
+    service = next(s for s in result['services'] if s['service_id'] == sid)
+    assert service['revenue_per_hour'] == declared_service_revenue
+    assert service['linked_asset_revenue_per_hour'] == 125000
+    assert service['revenue_exposure_per_hour'] == 125000 + declared_service_revenue
+    # Reporting must not copy the aggregate back into service inputs: the graph
+    # already adds declared service revenue to each affected asset's own exposure.
+    assert snapshot == original
+    graph = DependencyGraph(snapshot['services'], snapshot['assets'])
+    assert graph.compute_asset_effective_revenue_impact('LOGSRV') == 100000 + declared_service_revenue
+    assert engine.run(snapshot, {'calculate_drivers': False})['org'] == result['org']
+    scoped = engine.run(snapshot, {'calculate_drivers': False, 'asset_scope': 'LOGSRV'})
+    scoped_service = next(s for s in scoped['services'] if s['service_id'] == sid)
+    assert scoped_service['revenue_exposure_per_hour'] == 100000 + declared_service_revenue
 
 
 def test_shared_variation_changes_tail_without_changing_expected_intensity(snapshot):

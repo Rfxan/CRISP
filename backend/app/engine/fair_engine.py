@@ -74,6 +74,14 @@ class FAIREngine:
         systemic = rng.lognormal(-sigma*sigma/2, sigma, trials)
         asset_losses = {(a.get("id") or a.get("asset_id")): np.zeros(trials) for a in assets}
         service_losses = {(s.get("id") or s.get("service_id")): np.zeros(trials) for s in services}
+        # Reporting only: retain separate service inputs so the dependency graph
+        # does not add linked-asset revenue a second time during loss simulation.
+        linked_asset_revenue = {sid: 0.0 for sid in service_losses}
+        for asset in assets:
+            sid = asset.get("business_service_id")
+            aid = asset.get("id") or asset.get("asset_id")
+            if sid in linked_asset_revenue and aid not in excluded_ids:
+                linked_asset_revenue[sid] += float(asset.get("revenue_per_hour") or 0)
         scenario_losses = {s["id"]: np.zeros(trials) for s in scenarios}
         breakdown = {k: 0. for k in ("downtime", "incident_response", "data_breach", "regulatory_penalty", "reputational")}
         by_asset = {}
@@ -178,6 +186,8 @@ class FAIREngine:
                         "has_business_context": (a.get("id") or a.get("asset_id")) not in excluded_ids, "is_real_lab_asset": a.get("is_real_lab_asset",False)} for a in assets],
             "services": [{"service_id": s.get("id") or s.get("service_id"), "name": s["name"], "business_unit": s.get("business_unit"),
                           "revenue_per_hour": s.get("revenue_per_hour") or 0, "rto_hours": s.get("rto_hours"),
+                          "linked_asset_revenue_per_hour": linked_asset_revenue[s.get("id") or s.get("service_id")],
+                          "revenue_exposure_per_hour": float(s.get("revenue_per_hour") or 0) + linked_asset_revenue[s.get("id") or s.get("service_id")],
                           "eal": round(float(service_losses[s.get("id") or s.get("service_id")].mean()),2),
                           "var95": round(float(np.percentile(service_losses[s.get("id") or s.get("service_id")],95)),2)} for s in services],
             "choke_points": graph.identify_choke_points(5), "excluded_assets": excluded, "excluded_assets_count": len(excluded),

@@ -96,7 +96,17 @@ def test_risk_summary_exposes_linked_service_results(isolated_app):
     assert service["eal"] == summary["org"]["eal"]
     assert service["var95"] == summary["org"]["var95"]
     assert service["eal"] > 0
-    assert "revenue_per_hour" in service
+    assert service["revenue_per_hour"] == 0  # Separately declared service revenue.
+    assert service["linked_asset_revenue_per_hour"] == 100000
+    assert service["revenue_exposure_per_hour"] == 100000
+    snapshot = c.get("/api/data/snapshot").json()
+    assert snapshot["services"][0].get("revenue_per_hour", 0) == 0
+    edited = c.put("/api/assets/LOGSRV", json={"revenue_per_hour": 200000})
+    assert edited.status_code == 200, edited.text
+    updated = c.get("/api/risk/summary").json()["services"][0]
+    assert updated["linked_asset_revenue_per_hour"] == 200000
+    assert updated["revenue_exposure_per_hour"] == 200000
+    assert updated["revenue_per_hour"] == 0
     cleared = c.delete("/api/assets")
     assert cleared.status_code == 200, cleared.text
     assert c.get("/api/risk/summary").json()["services"] == []

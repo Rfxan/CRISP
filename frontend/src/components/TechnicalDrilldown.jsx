@@ -307,7 +307,7 @@ export default function TechnicalDrilldown({ summary, driversData, entitiesData,
           <div>
             <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-main)' }}>Business Services Financial Exposure</h3>
             <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>
-              Service level EAL aggregated across dependent asset graphs and RTO tolerances
+              Service EAL and recovery targets. Hourly exposure includes assessed linked assets and separately declared service revenue.
             </p>
           </div>
           <span className="badge badge-simulated">Business services</span>
@@ -318,7 +318,7 @@ export default function TechnicalDrilldown({ summary, driversData, entitiesData,
             <thead>
               <tr>
                 <th>Service Name</th>
-                <th>Hourly Revenue</th>
+                <th>Hourly Revenue Exposure</th>
                 <th>Recovery Time Objective (RTO)</th>
                 <th>Aggregated Service EAL</th>
                 <th>VaR 95 (1-in-20 Yr)</th>
@@ -339,7 +339,7 @@ export default function TechnicalDrilldown({ summary, driversData, entitiesData,
                     <div className="mono" style={{ fontSize: 11, color: 'var(--text-dim)' }}>{svc.service_id}</div>
                   </td>
                   <td className="mono" style={{ color: '#38bdf8' }}>
-                    {formatINR(svc.revenue_per_hour)}/hr
+                    {formatINR(svc.revenue_exposure_per_hour ?? svc.revenue_per_hour)}/hr
                   </td>
                   <td>
                     <span className="badge" style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text-main)' }}>
