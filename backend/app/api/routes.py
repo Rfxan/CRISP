@@ -2982,6 +2982,8 @@ def delete_connection_endpoint(category: str):
         store.has_real_siem_sync = False
         store.current_snapshot.pop("indexer_telemetry", None)
         store.telemetry_source = "none"
+        sync_state_manager.record_sync(job_name="wazuh_indexer", source="none", counts={},
+                                      status="not_configured", message="Wazuh Indexer connection removed.")
         if store.current_snapshot.get("wazuh_telemetry"):
             store.current_snapshot["wazuh_telemetry"].update(recent_alerts_24h=None, auth_failures_24h=None,
                                                           high_severity_alerts_24h=None, alert_status="unavailable",
@@ -3048,18 +3050,23 @@ def trigger_sync_all(request: Request = None, include_intel: bool = True):
     Records results to sync_state.json and diffs against snapshot state.
     Triggers engine recompute and mints a new run_id ONLY if data changed.
     """
+    from app.core.sync_jobs import job_progress
+    progress = job_progress.get()
     job_results = {}
+    progress("Checking Wazuh Manager agent coverage")
     try:
         w_res = sync_wazuh_telemetry()
         job_results["wazuh"] = w_res.get("status")
     except Exception as e:
         job_results["wazuh"] = f"error: {e}"
 
+    progress("Retrieving Wazuh Indexer alert windows")
     try:
         job_results["wazuh_indexer"] = sync_wazuh_indexer().get("status")
     except HTTPException as e:
         job_results["wazuh_indexer"] = f"error: {e.detail}"
 
+    progress("Checking IAM coverage")
     try:
         i_res = sync_iam_telemetry(simulate=False)
         job_results["iam"] = i_res.get("status")
@@ -3067,6 +3074,7 @@ def trigger_sync_all(request: Request = None, include_intel: bool = True):
         job_results["iam"] = f"error: {e}"
 
     if include_intel:
+        progress("Refreshing EPSS, KEV and NVD threat intelligence")
         try:
             t_res = store.sync_live_threat_intel()
             job_results["threat_intel"] = t_res.get("status")

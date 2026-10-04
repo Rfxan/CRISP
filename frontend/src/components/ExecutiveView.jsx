@@ -61,6 +61,8 @@ export default function ExecutiveView({
     setSyncFeedback(null);
     try {
       const res = await api.syncAll((message, job) => { setActiveSyncId(job.id); setSyncFeedback({ type: 'neutral', text: message }); });
+      setActiveSyncId(null);
+      setSyncFeedback({ type: 'neutral', text: 'Telemetry checked · Updating analytics' });
       if (onRefresh) {
         await onRefresh();
       }
@@ -85,7 +87,6 @@ export default function ExecutiveView({
       });
     } finally {
       setSyncing(false); setActiveSyncId(null);
-      setTimeout(() => setSyncFeedback(null), 8000);
     }
   };
 
@@ -153,11 +154,11 @@ export default function ExecutiveView({
   // Telemetry freshness metadata
   const freshness = summary.freshness || {};
   const wazuh = freshness.wazuh || {};
+  const indexer = freshness.wazuh_indexer || {};
   const iam = freshness.iam || {};
   const runMeta = summary.run_metadata || {};
 
-  // Formulate primary freshness string matching telemetry status:
-  // e.g. "Wazuh synced 4 min ago · 6/6 agents · Run RUN-42-95725" or "Wazuh not connected · No agents connected"
+  // Manager measures agent coverage; Indexer independently supplies alert data.
   const isWazuhConnected = Boolean(
     wazuh &&
     wazuh.status === 'ok' &&
@@ -166,11 +167,17 @@ export default function ExecutiveView({
   );
   const wazuhRelative = formatRelativeTime(wazuh.last_sync_at);
   const wazuhText = isWazuhConnected
-    ? `Wazuh synced ${wazuhRelative}` 
-    : (wazuh.status === 'error' ? 'Wazuh sync error' : (wazuh.last_sync_at ? 'Wazuh not connected' : 'Wazuh awaiting initial sync'));
+    ? `Manager synced ${wazuhRelative}`
+    : (wazuh.status === 'error' ? 'Manager sync error' : (wazuh.status === 'not_configured' ? 'Manager not configured' : 'Manager awaiting initial sync'));
   const agentsTotal = wazuh.agents_total ?? wazuh.agents_active ?? 0;
   const agentsActive = wazuh.agents_active ?? 0;
-  const agentsText = isWazuhConnected ? `${agentsActive}/${agentsTotal} agents` : 'No agents connected';
+  const agentsText = isWazuhConnected ? `${agentsActive}/${agentsTotal} agents active` : 'Agent coverage unavailable';
+  const isIndexerConnected = indexer.status === 'ok' && Boolean(indexer.last_sync_at);
+  const indexerText = isIndexerConnected
+    ? `Indexer synced ${formatRelativeTime(indexer.last_sync_at)}`
+    : (indexer.status === 'error' ? 'Indexer sync error' : (indexer.status === 'not_configured' ? 'Indexer not configured' : 'Indexer awaiting initial sync'));
+  const hasFreshSource = [wazuh, indexer].some(source => source.status === 'ok' && Date.now() - Date.parse(source.last_sync_at) <= 120000);
+  const hasSourceError = [wazuh, indexer].some(source => source.status === 'error');
   const currentRunId = summary.run_id || runMeta.run_id || 'RUN-INIT';
 
   return (
@@ -203,8 +210,8 @@ export default function ExecutiveView({
                 width: 10,
                 height: 10,
                 borderRadius: '50%',
-                backgroundColor: wazuh.status === 'ok' ? '#10b981' : (wazuh.status === 'error' ? 'var(--accent-red)' : 'var(--accent-amber)'),
-                boxShadow: wazuh.status === 'ok' ? '0 0 10px rgba(16, 185, 129, 0.6)' : 'none',
+                backgroundColor: hasSourceError ? 'var(--accent-red)' : (hasFreshSource ? '#10b981' : 'var(--accent-amber)'),
+                boxShadow: hasFreshSource && !hasSourceError ? '0 0 10px rgba(16, 185, 129, 0.6)' : 'none',
                 display: 'inline-block'
               }}
             />
@@ -215,8 +222,12 @@ export default function ExecutiveView({
 
           <div style={{ width: 1, height: 18, background: 'var(--border-color)' }} />
 
-          {/* Main prompt format: "Wazuh synced 4 min ago · 6/6 agents · Run RUN-42-95725" */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+            <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{indexerText}</span>
+            {isIndexerConnected && Number.isFinite(indexer.alerts) && (
+              <span>{indexer.alerts.toLocaleString()} alerts · {indexer.windows ?? '—'} completed hourly windows</span>
+            )}
+            <span>·</span>
             <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>
               {wazuhText}
             </span>
@@ -260,7 +271,7 @@ export default function ExecutiveView({
           )}
 
           {/* Mini IAM indicator */}
-          {iam.last_sync_at && (
+          {iam.status === 'ok' && iam.last_sync_at && (
             <span style={{ fontSize: 11, color: 'var(--text-dim)', display: 'flex', alignItems: 'center', gap: 4 }}>
               <ShieldCheck size={12} color="var(--accent-green)" />
               IAM: {iam.mfa_coverage_pct || 0}% MFA ({formatRelativeTime(iam.last_sync_at)})
@@ -272,7 +283,7 @@ export default function ExecutiveView({
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {activeSyncId && <button type="button" className="btn btn-outline" onClick={() => api.cancelSyncJob(activeSyncId).catch(e => setSyncFeedback({type: 'error', text:e.message}))}>Cancel sync</button>}
           {syncFeedback && (
-            <span style={{
+            <span role={syncFeedback.type === 'error' ? 'alert' : 'status'} style={{
               fontSize: 12,
               padding: '4px 10px',
               borderRadius: 8,

@@ -172,6 +172,8 @@ def test_ui_api_save_refresh_disconnect_lifecycle(isolated):
         assert client.delete("/api/connections/indexer").json()["status"] == "REMOVED"
         assert local.telemetry_history == []
         assert "indexer_telemetry" not in local.current_snapshot
+        from app.core.sync_state import sync_state_manager
+        assert sync_state_manager.get_freshness_summary()["wazuh_indexer"]["status"] == "not_configured"
 
 
 def test_worker_executes_indexer_job_without_simulate_parameter(monkeypatch, tmp_path):

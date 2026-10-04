@@ -41,3 +41,11 @@ Snapshot and credential comparisons before commit protect concurrent user edits.
 The loss engine version is now `crisp-risk-2.1`, which invalidates cached calculations from the earlier formulas. Financial outputs remain planning estimates with configurable assumptions, not empirically calibrated forecasts.
 
 Successful authentication against real SIEM/IAM services and paid model providers was not retested using personal credentials. Upstream failure and lock/concurrency checks used controlled responses. These fixes resolve the reproduced audit findings; they do not establish that every possible security flaw or operating condition has been eliminated.
+
+## Follow-up: Indexer-only telemetry and refresh continuity
+
+Screenshots after deployment exposed an Overview display that ignored a successful Indexer connection and a forced analytics refresh that unmounted the active view. Freshness output now exposes the Indexer independently, with measured alert and completed-window counts. Manager agent coverage and Indexer alert telemetry have separate labels; unconfigured Manager/IAM connections do not imply zero agents or measured zero MFA. Disconnecting the Indexer clears its successful status.
+
+The current assessment stays mounted during refresh, with a visible refresh notice. Sync phases identify Manager, Indexer, IAM and threat-intelligence retrieval. Completion or partial-failure feedback survives the analytics refresh and remains visible until the next sync. A forced refresh requested during an existing fetch runs afterwards so a mutation cannot silently retain an earlier summary.
+
+Validation: 31 relevant backend tests passed, including independent Indexer freshness and disconnect lifecycle checks; four frontend request tests and the production build passed. Chrome DOM checks used controlled Indexer-only and partial-feed-failure fixtures, paused the summary response during refresh, verified that the Overview and feedback remained visible, and checked a 390-pixel viewport. No browser page errors occurred. Personal connector credentials were not used.

@@ -36,7 +36,11 @@ export default function App() {
 
   const loadingRequest = useRef(null);
   const loadData = (forceRefresh = false) => {
-    if (loadingRequest.current) return loadingRequest.current;
+    if (loadingRequest.current) {
+      // A mutation may finish after the current summary request. Fetch again
+      // after that batch so its older response cannot hide the new state.
+      return forceRefresh ? loadingRequest.current.then(() => loadData(true)) : loadingRequest.current;
+    }
     const task = performLoad(forceRefresh);
     loadingRequest.current = task;
     task.finally(() => { loadingRequest.current = null; });
@@ -237,8 +241,15 @@ export default function App() {
           </div>
         )}
 
-        {/* Global Loading Spinner */}
-        {loading ? (
+        {loading && summary && (
+          <div className="glass-panel" role="status" style={{ padding: '12px 18px', marginBottom: 20, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <RefreshCw size={14} className="spin-anim" />
+            Refreshing analytics · Showing the last completed assessment.
+          </div>
+        )}
+
+        {/* Initial load only; subsequent refreshes retain the mounted views. */}
+        {loading && !summary ? (
           <div style={{ 
             height: '60vh', 
             display: 'flex', 

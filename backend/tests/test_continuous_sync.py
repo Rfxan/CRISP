@@ -114,3 +114,25 @@ def test_sync_all_endpoint_and_freshness(client, monkeypatch):
     state_data = state_res.json()
     assert "freshness" in state_data
     assert "sync_state" in state_data
+
+
+def test_indexer_freshness_is_independent_of_manager(monkeypatch):
+    monkeypatch.setattr(sync_state_manager, "get_state", lambda: {
+        "wazuh": {"status": "not_configured", "source": "none"},
+        "wazuh_indexer": {"status": "ok", "source": "Wazuh Indexer API",
+                          "last_sync_at": "2026-10-04T05:45:00Z",
+                          "counts": {"alerts": 3105, "windows": 16}}
+    })
+    freshness = sync_state_manager.get_freshness_summary()
+    assert freshness["wazuh"]["status"] == "not_configured"
+    assert freshness["wazuh_indexer"]["status"] == "ok"
+    assert freshness["wazuh_indexer"]["alerts"] == 3105
+    assert freshness["wazuh_indexer"]["windows"] == 16
+
+
+def test_absent_indexer_does_not_claim_measured_zero(monkeypatch):
+    monkeypatch.setattr(sync_state_manager, "get_state", lambda: {})
+    indexer = sync_state_manager.get_freshness_summary()["wazuh_indexer"]
+    assert indexer["status"] == "pending"
+    assert indexer["alerts"] is None
+    assert indexer["windows"] is None

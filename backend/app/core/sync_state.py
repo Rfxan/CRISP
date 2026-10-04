@@ -184,10 +184,12 @@ class SyncStateManager:
         """
         state = self.get_state()
         wazuh = state.get("wazuh", {})
+        indexer = state.get("wazuh_indexer", {})
         iam = state.get("iam", {})
         intel = state.get("threat_intel", {})
 
         wazuh_counts = wazuh.get("counts", {})
+        indexer_counts = indexer.get("counts", {})
         iam_counts = iam.get("counts", {})
 
         return {
@@ -199,6 +201,15 @@ class SyncStateManager:
                 "agents_active": wazuh_counts.get("active_agents") or wazuh.get("agents_active", 0),
                 "agents_total": wazuh_counts.get("total_agents") or wazuh.get("agents_total", 0),
                 "coverage_pct": wazuh.get("agent_coverage_pct", 0.0)
+            },
+            "wazuh_indexer": {
+                "source": indexer.get("source", "Wazuh Indexer API"),
+                "last_sync_at": indexer.get("last_sync_at"),
+                "last_attempt_at": indexer.get("last_attempt_at"),
+                "status": indexer.get("status", "pending"),
+                "message": indexer.get("message", "Awaiting initial sync"),
+                "alerts": indexer_counts.get("alerts"),
+                "windows": indexer_counts.get("windows")
             },
             "iam": {
                 "source": iam.get("source", "Keycloak IAM"),
