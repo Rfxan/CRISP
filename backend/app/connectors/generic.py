@@ -173,10 +173,14 @@ class GenericVendorConnector(BaseConnector):
             severity_str = str(raw_sev).strip().capitalize()
             severity_map = {
                 "Critical": "Critical", "High": "High", "Medium": "Medium",
-                "Low": "Low", "Info": "Info", "Informational": "Info", "Log": "Info", "Moderate": "Medium",
+                "Low": "Low", "Info": "Info", "Information": "Info", "Informational": "Info", "Log": "Info", "Moderate": "Medium",
                 "4": "Critical", "3": "High", "2": "Medium", "1": "Low", "0": "Info"
             }
-            severity = severity_map.get(severity_str, severity_str)
+            severity = severity_map.get(severity_str)
+            if severity is None:
+                skipped += 1
+                skip_reasons.append(f"Record #{record_num}: unrecognized severity at path '{self.field_mapping.get('severity')}'")
+                continue
 
             # 3. CVE ID (Optional if issue_type is present)
             raw_cve = extract_field_value(rec, self.field_mapping.get("cve_id"))
@@ -199,7 +203,8 @@ class GenericVendorConnector(BaseConnector):
             cvss = None
             if raw_cvss is not None and str(raw_cvss).strip():
                 try:
-                    cvss = float(str(raw_cvss).strip())
+                    numeric_cvss = float(str(raw_cvss).strip())
+                    cvss = numeric_cvss if 0 <= numeric_cvss <= 10 else None
                 except ValueError:
                     cvss = None
 

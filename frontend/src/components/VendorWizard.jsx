@@ -4,6 +4,7 @@ import {
   FileText, Settings2, Sparkles, Eye, Save, RefreshCw, Layers, ShieldCheck, HelpCircle
 } from 'lucide-react';
 import { api } from '../services/api';
+import LLMSettingsModal from './LLMSettingsModal';
 
 export default function VendorWizard({ onVendorSaved, onCancel }) {
   const [currentStep, setCurrentStep] = useState(1);
@@ -28,6 +29,10 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
   const [previewResult, setPreviewResult] = useState(null);
   const [mappingError, setMappingError] = useState(null);
   const [suggestionMessage, setSuggestionMessage] = useState('');
+  const [aiSuggesting, setAiSuggesting] = useState(false);
+  const [aiSuggestion, setAiSuggestion] = useState(null);
+  const [showAISettings, setShowAISettings] = useState(false);
+  const mappingBusy = previewing || aiSuggesting;
 
   // Step 3 State (Save)
   const [vendorName, setVendorName] = useState('');
@@ -40,6 +45,7 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
     setPreviewResult(null);
     setMappingError(null);
     setSuggestionMessage('');
+    setAiSuggestion(null);
   };
 
   // The inspector ranks names and actual values from the detected finding records.
@@ -52,9 +58,34 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
     setIsNonCve(nonCve);
     setPreviewResult(null);
     setMappingError(null);
+    setAiSuggestion(result?.source === 'llm' ? result : null);
+    const source = result?.source === 'llm'
+      ? `AI suggestions applied using ${result.provider.toUpperCase()} (${result.model})`
+      : 'Field matches applied';
     setSuggestionMessage(missing.length
-      ? `Auto-Suggest applied ${Object.values(suggested).filter(Boolean).length} field matches. Select ${missing.join(', ')} manually, then preview the findings.`
-      : `Auto-Suggest applied. Required fields are mapped${nonCve ? '; configuration scanner mode selected' : ''}. Review the selections, then preview the findings.`);
+      ? `${source}. Select ${missing.join(', ')} manually, then preview the findings.`
+      : `${source}. Required fields are mapped${nonCve ? '; findings without CVEs use issue identifiers' : ''}. Review the selections, then preview the findings.`);
+  };
+
+  const handleAISuggest = async () => {
+    setAiSuggesting(true);
+    setMappingError(null);
+    setPreviewResult(null);
+    setSuggestionMessage('');
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+    try {
+      const result = await api.suggestVendorMappingWithAI(formData);
+      if (result.source !== 'llm' || result.status !== 'AI_SUGGESTED') throw new Error('No validated AI suggestion was returned.');
+      autoSuggestMapping(result);
+    } catch (error) {
+      setMappingError(error.status === 502
+        ? 'AI suggestions could not be validated or the provider could not respond. Your field selections are unchanged. Check AI Model Settings, retry, or use field matches.'
+        : error.message);
+      if (error.status === 409 && error.message.startsWith('Configure')) setShowAISettings(true);
+    } finally {
+      setAiSuggesting(false);
+    }
   };
 
   // Step 1: Upload & Inspect
@@ -67,6 +98,7 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
     setPreviewResult(null);
     setMappingError(null);
     setSuggestionMessage('');
+    setAiSuggestion(null);
     setSaveSuccess(null);
     setSaveError(null);
     setStep1Error(null);
@@ -369,25 +401,43 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
       {/* ======================================================== */}
       {currentStep === 2 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ flex: 1, minWidth: 220 }}>
               <h4 style={{ margin: 0, fontSize: 15, color: 'var(--text-main)' }}>Step 2: Map Fields to CRISP Standard Canonical Model</h4>
               <p style={{ margin: '4px 0 0 0', fontSize: 12, color: 'var(--text-dim)' }}>
-                Select which field in the vendor file corresponds to each CRISP property. Heuristics have suggested matches below.
+                Review the field matches, or ask your connected AI model to suggest a mapping. Verify the extracted preview before saving.
               </p>
             </div>
 
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             <button
               onClick={() => autoSuggestMapping(inspectResult)}
-              disabled={previewing}
+              disabled={mappingBusy}
               className="btn btn-secondary"
               style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, padding: '5px 10px' }}
               title="Apply the suggested fields and replace current selections"
             >
               <Sparkles size={13} color="var(--primary)" />
-              <span>Auto-Suggest</span>
+              <span>Use field matches</span>
             </button>
+            <button onClick={handleAISuggest} disabled={mappingBusy} className="btn btn-primary"
+              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '7px 12px' }}>
+              {aiSuggesting ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
+              <span>{aiSuggesting ? 'AI is mapping...' : 'Suggest with AI'}</span>
+            </button>
+            <button onClick={() => setShowAISettings(true)} disabled={mappingBusy} className="btn btn-secondary"
+              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, padding: '5px 10px' }}>
+              <Settings2 size={13} /> AI Model Settings
+            </button>
+            </div>
           </div>
+
+          <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+            AI uses the model saved in your workspace. Only field names, types and coverage counts are sent to that provider.
+          </div>
+          {aiSuggestion && <span className="badge badge-cyan" style={{ alignSelf: 'flex-start' }}>
+            AI: {aiSuggestion.provider.toUpperCase()} · {aiSuggestion.model}
+          </span>}
 
           {suggestionMessage && (
             <div role="status" aria-live="polite" style={{ padding: '10px 14px', borderRadius: 8,
@@ -406,14 +456,14 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
               type="checkbox"
               id="nonCveToggle"
               checked={isNonCve}
-              disabled={previewing}
-              onChange={(e) => { setIsNonCve(e.target.checked); setPreviewResult(null); setMappingError(null); setSuggestionMessage(''); }}
+              disabled={mappingBusy}
+              onChange={(e) => { setIsNonCve(e.target.checked); setPreviewResult(null); setMappingError(null); setSuggestionMessage(''); setAiSuggestion(null); }}
               style={{ cursor: 'pointer', width: 16, height: 16 }}
             />
             <label htmlFor="nonCveToggle" style={{ fontSize: 12, color: 'var(--text-main)', cursor: 'pointer', userSelect: 'none' }}>
-              <strong>N/A — This is a Configuration / Misconfiguration / CSPM Scanner</strong>
+              <strong>This export has findings without a CVE identifier</strong>
               <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
-                Bypasses CVE requirement and maps an Issue/Check Type instead (e.g. S3 Public Access, Root MFA Disabled).
+                Use an Issue/Check ID for application, configuration or posture findings that have no CVE.
               </div>
             </label>
           </div>
@@ -431,7 +481,7 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
               <p style={{ margin: '0 0 8px 0', fontSize: 11, color: 'var(--text-dim)' }}>Host IP, hostname, or Cloud Resource ARN</p>
               <select
                 aria-label="Target Asset ID"
-                disabled={previewing}
+                disabled={mappingBusy}
                 value={mapping.asset_id}
                 onChange={(e) => updateMapping({ asset_id: e.target.value })}
                 style={{ width: '100%', padding: '8px 10px', borderRadius: 6, background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontSize: 12 }}
@@ -454,7 +504,7 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
               <p style={{ margin: '0 0 8px 0', fontSize: 11, color: 'var(--text-dim)' }}>Critical, High, Medium, Low, or numeric 0-4</p>
               <select
                 aria-label="Severity"
-                disabled={previewing}
+                disabled={mappingBusy}
                 value={mapping.severity}
                 onChange={(e) => updateMapping({ severity: e.target.value })}
                 style={{ width: '100%', padding: '8px 10px', borderRadius: 6, background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontSize: 12 }}
@@ -478,7 +528,7 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
                 <p style={{ margin: '0 0 8px 0', fontSize: 11, color: 'var(--text-dim)' }}>CVE-YYYY-NNNN format for EPSS/KEV enrichment</p>
                 <select
                   aria-label="CVE Identifier"
-                  disabled={previewing}
+                  disabled={mappingBusy}
                   value={mapping.cve_id}
                   onChange={(e) => updateMapping({ cve_id: e.target.value })}
                   style={{ width: '100%', padding: '8px 10px', borderRadius: 6, background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontSize: 12 }}
@@ -497,12 +547,12 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
                   <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent-purple)' }}>
                     Issue / Check ID {isNonCve && <span style={{ color: 'var(--accent-red)' }}>*</span>}
                   </label>
-                  <span className="badge" style={{ background: 'rgba(154, 150, 179, 0.2)', color: 'var(--accent-purple)', fontSize: 9 }}>{isNonCve ? 'Required for CSPM' : 'Optional'}</span>
+                  <span className="badge" style={{ background: 'rgba(154, 150, 179, 0.2)', color: 'var(--accent-purple)', fontSize: 9 }}>{isNonCve ? 'Required without CVE' : 'Optional'}</span>
                 </div>
                 <p style={{ margin: '0 0 8px 0', fontSize: 11, color: 'var(--text-dim)' }}>Check rule ID or title (e.g. s3_public_access)</p>
                 <select
                   aria-label="Issue / Check ID"
-                  disabled={previewing}
+                  disabled={mappingBusy}
                   value={mapping.issue_type}
                   onChange={(e) => updateMapping({ issue_type: e.target.value })}
                   style={{ width: '100%', padding: '8px 10px', borderRadius: 6, background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontSize: 12 }}
@@ -523,7 +573,7 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
               <p style={{ margin: '0 0 8px 0', fontSize: 11, color: 'var(--text-dim)' }}>Base CVSS score numeric value</p>
               <select
                 aria-label="CVSS Score"
-                disabled={previewing}
+                disabled={mappingBusy}
                 value={mapping.cvss}
                 onChange={(e) => updateMapping({ cvss: e.target.value })}
                 style={{ width: '100%', padding: '8px 10px', borderRadius: 6, background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontSize: 12 }}
@@ -544,7 +594,7 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
               <p style={{ margin: '0 0 8px 0', fontSize: 11, color: 'var(--text-dim)' }}>Port number or service string (e.g. 443/tcp)</p>
               <select
                 aria-label="Network Port / Service"
-                disabled={previewing}
+                disabled={mappingBusy}
                 value={mapping.port}
                 onChange={(e) => updateMapping({ port: e.target.value })}
                 style={{ width: '100%', padding: '8px 10px', borderRadius: 6, background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontSize: 12 }}
@@ -561,7 +611,7 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
             <button
               onClick={() => setCurrentStep(1)}
-              disabled={previewing}
+              disabled={mappingBusy}
               className="btn btn-secondary"
               style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}
             >
@@ -570,7 +620,7 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
 
             <button
               onClick={handlePreview}
-              disabled={previewing}
+              disabled={mappingBusy}
               className="btn btn-primary"
               style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', fontSize: 13, background: 'linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%)' }}
             >
@@ -791,6 +841,12 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
           )}
         </div>
       )}
+      <LLMSettingsModal isOpen={showAISettings} onClose={() => setShowAISettings(false)}
+        onConfigSaved={() => {
+          setMappingError(null);
+          setAiSuggestion(null);
+          setSuggestionMessage('AI model saved. Click Suggest with AI to request a mapping.');
+        }} />
     </div>
   );
 }

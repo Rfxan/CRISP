@@ -45,6 +45,8 @@ from app.core.sync_state import sync_state_manager
 from app.core.run_history import run_history_manager
 from app.ai.llm_config_store import llm_config_store
 from app.ai.llm_service import llm_service
+from app.ai.vendor_mapping import suggest_mapping_with_ai, MappingAIUnavailable
+from starlette.concurrency import run_in_threadpool
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -2121,6 +2123,24 @@ async def inspect_vendor_file(file: UploadFile = File(...)):
     if "error" in res:
         raise HTTPException(status_code=400, detail=res["error"])
     return res
+
+
+@router.post("/vendors/suggest-ai")
+async def suggest_vendor_fields_with_ai(file: UploadFile = File(...)):
+    content = await file.read()
+    filename = file.filename or ""
+    ext = filename.rsplit(".", 1)[-1] if "." in filename else ""
+    inspection = detect_structure(content, ext)
+    if "error" in inspection:
+        raise HTTPException(status_code=400, detail=inspection["error"])
+    try:
+        return await run_in_threadpool(suggest_mapping_with_ai, inspection)
+    except MappingAIUnavailable as error:
+        raise HTTPException(status_code=409, detail=str(error)) from None
+    except Exception as error:
+        # Provider errors may contain credentials or request data; do not echo them.
+        logger.warning("Vendor AI suggestion failed (%s)", type(error).__name__)
+        raise HTTPException(status_code=502, detail="AI field suggestions are unavailable; review AI Model Settings or use field matches.") from None
 
 
 @router.post("/vendors/preview")

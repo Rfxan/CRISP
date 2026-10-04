@@ -33,6 +33,41 @@ def _scalar_values(value: Any) -> List[Any]:
     return [] if value is None or isinstance(value, dict) else [value]
 
 
+def describe_field_values(fields: List[str], records: List[Any]) -> Dict[str, Any]:
+    """Summarize types and coverage without exposing scan values to a model."""
+    profiles = {}
+    severity_names = {"critical", "high", "medium", "moderate", "low", "info", "information", "informational", "log"}
+    for field in fields:
+        profile = {"types": set(), "records_with_value": 0, "cve_matches": 0,
+                   "severity_matches": 0, "numeric_0_to_10": 0, "cvss_vectors": 0}
+        for record in records[:20]:
+            raw = extract_field_value(record, field)
+            kind = "null" if raw is None else "boolean" if isinstance(raw, bool) else (
+                "number" if isinstance(raw, (float, int)) else "array" if isinstance(raw, list) else
+                "object" if isinstance(raw, dict) else "string")
+            profile["types"].add(kind)
+            values = [value for value in _scalar_values(raw) if str(value).strip()]
+            if values:
+                profile["records_with_value"] += 1
+            if any(re.search(r"\bCVE-\d{4}-\d{4,}\b", str(value), re.I) for value in values):
+                profile["cve_matches"] += 1
+            if any(str(value).strip().lower() in severity_names or re.fullmatch(r"[0-4]", str(value).strip()) for value in values):
+                profile["severity_matches"] += 1
+            numeric = []
+            for value in values:
+                try:
+                    numeric.append(not isinstance(value, bool) and 0 <= float(value) <= 10)
+                except (TypeError, ValueError):
+                    continue
+            if any(numeric):
+                profile["numeric_0_to_10"] += 1
+            if any(str(value).startswith(("CVSS:", "AV:")) for value in values):
+                profile["cvss_vectors"] += 1
+        profile["types"] = sorted(profile["types"])
+        profiles[field] = profile
+    return profiles
+
+
 def suggest_field_mapping(fields: List[str], records: Optional[List[Any]] = None) -> Dict[str, str]:
     """Rank whole field names and sample values; never substring-match 'ip' in 'description'."""
     samples = records or []
@@ -60,7 +95,7 @@ def suggest_field_mapping(fields: List[str], records: Optional[List[Any]] = None
                 elif score and observed and not has_cve:
                     score = 0
             if canonical == "severity" and score and observed:
-                descriptive = {"critical", "high", "medium", "moderate", "low", "info", "informational", "log"}
+                descriptive = {"critical", "high", "medium", "moderate", "low", "info", "information", "informational", "log"}
                 if any(str(v).strip().lower() in descriptive for v in observed):
                     score += 30
                 # Numeric severity may represent a CVSS score, not a 0-4 rating.
@@ -284,7 +319,8 @@ def detect_structure(file_content: bytes, file_extension: str = "") -> Dict[str,
                 "detected_record_path": best_path,
                 "record_count_sample": best_count,
                 "available_fields": available_fields,
-                "suggested_mapping": suggest_field_mapping(available_fields, sample_records)
+                "suggested_mapping": suggest_field_mapping(available_fields, sample_records),
+                "field_profiles": describe_field_values(available_fields, sample_records)
             }
         except ET.ParseError as e:
             if ext == "xml":
@@ -338,7 +374,8 @@ def detect_structure(file_content: bytes, file_extension: str = "") -> Dict[str,
                 "detected_record_path": detected_record_path,
                 "record_count_sample": len(records),
                 "available_fields": available_fields,
-                "suggested_mapping": suggest_field_mapping(available_fields, records)
+                "suggested_mapping": suggest_field_mapping(available_fields, records),
+                "field_profiles": describe_field_values(available_fields, records)
             }
         except Exception as e:
             if ext == "json":
@@ -374,7 +411,8 @@ def detect_structure(file_content: bytes, file_extension: str = "") -> Dict[str,
                     "detected_record_path": "row",
                     "record_count_sample": row_count,
                     "available_fields": headers,
-                    "suggested_mapping": suggest_field_mapping(headers, sample_records)
+                    "suggested_mapping": suggest_field_mapping(headers, sample_records),
+                    "field_profiles": describe_field_values(headers, sample_records)
                 }
     except Exception as e:
         if ext == "csv":

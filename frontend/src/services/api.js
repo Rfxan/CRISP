@@ -374,6 +374,11 @@ export const api = {
     return res.json();
   },
 
+  async suggestVendorMappingWithAI(formData) {
+    const res = await request(`${API_BASE}/vendors/suggest-ai`, { method: 'POST', body: formData });
+    return res.json();
+  },
+
   async saveVendorConfig(configData) {
     const res = await request(`${API_BASE}/vendors/save`, {
       method: 'POST',
