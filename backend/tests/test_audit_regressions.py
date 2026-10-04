@@ -155,6 +155,32 @@ def test_feed_failure_is_not_fresh_success():
     assert result["feeds"]["epss"]["unavailable"] == 1
 
 
+def test_copilot_reporting_answers_follow_saved_exercises_without_financial_data(isolated_app):
+    from datetime import datetime, timedelta, timezone
+    c = isolated_app
+    question = {'question': 'Are we compliant with SEBI 6-hour reporting?'}
+    with patch('app.ai.decision_support.llm_config_store.get_config', return_value={'enabled': False}), \
+         patch.object(SnapshotStore, 'get_optimizer', side_effect=AssertionError('Reporting must not invoke investment optimization')):
+        response = c.post('/api/ask', json=question)
+        assert response.status_code == 200, response.text
+        assert 'NOT VERIFIED' in response.json()['answer']
+        assert response.json()['tool_used'] == 'reporting_readiness'
+        incident = datetime.now(timezone.utc) - timedelta(hours=12)
+        exercise = {'id': 'exercise-1', 'incident_at': incident.isoformat(),
+                    'detected_at': (incident + timedelta(minutes=10)).isoformat(),
+                    'escalated_at': (incident + timedelta(minutes=20)).isoformat(),
+                    'reported_at': (incident + timedelta(hours=3)).isoformat(),
+                    'evidence_ref': 'Recorded drill evidence'}
+        saved = c.post('/api/governance/exercises', json=exercise)
+        assert saved.status_code == 200, saved.text
+        assert 'READY' in c.post('/api/ask', json=question).json()['answer']
+        exercise['reported_at'] = (incident + timedelta(hours=8)).isoformat()
+        assert c.post('/api/governance/exercises', json=exercise).status_code == 200
+        answer = c.post('/api/ask', json=question).json()['answer']
+        assert 'AT RISK' in answer
+        assert 'Expected annual loss' not in answer
+
+
 def test_scan_merge_retains_distinct_non_cve_findings_and_unique_ids():
     from app.connectors.openvas import OpenVASConnector
     local = SnapshotStore()

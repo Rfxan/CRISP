@@ -1221,6 +1221,12 @@ def get_compliance_report(framework: str):
 def ask_ai(payload: AskRequest):
     """POST /ask -> {question} -> answer + run_id + sources (Grounded, dynamic values)"""
     summary = store.get_summary()
+    # Compliance evidence is available independently of monetary quantification.
+    # Do not run an unrelated investment optimizer for a reporting question.
+    if store.ai.question_intent(payload.question) != 'financial':
+        comp = store.framework_engine.evaluate_framework("sebi", store.current_snapshot["control_state"],
+            store.current_snapshot.get("compliance_assessments"), store.current_snapshot.get("reporting_exercises"))
+        return store.ai.ask(payload.question, summary, compliance_eval=comp)
     if store._is_empty_state(summary):
         return {
             "answer": f"No data has been loaded yet ({summary.get('status')}). Please upload assets and vulnerability scan results via the Data Ingestion Hub before asking analytical questions.",
