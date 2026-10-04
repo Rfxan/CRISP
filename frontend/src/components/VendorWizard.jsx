@@ -27,6 +27,7 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
   const [previewing, setPreviewing] = useState(false);
   const [previewResult, setPreviewResult] = useState(null);
   const [mappingError, setMappingError] = useState(null);
+  const [suggestionMessage, setSuggestionMessage] = useState('');
 
   // Step 3 State (Save)
   const [vendorName, setVendorName] = useState('');
@@ -34,36 +35,26 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
   const [saveSuccess, setSaveSuccess] = useState(null);
   const [saveError, setSaveError] = useState(null);
 
-  // Intelligent heuristic auto-suggestion based on available field names
-  const autoSuggestMapping = (fields, format) => {
-    const suggested = {
-      asset_id: '',
-      cve_id: '',
-      cvss: '',
-      severity: '',
-      port: '',
-      issue_type: ''
-    };
+  const updateMapping = (changes) => {
+    setMapping(previous => ({ ...previous, ...changes }));
+    setPreviewResult(null);
+    setMappingError(null);
+    setSuggestionMessage('');
+  };
 
-    const findMatch = (patterns) => {
-      for (const p of patterns) {
-        const found = fields.find(f => {
-          const lower = f.toLowerCase().replace(/[@._-]/g, ' ');
-          return lower.includes(p) || f.toLowerCase() === p;
-        });
-        if (found) return found;
-      }
-      return '';
-    };
-
-    suggested.asset_id = findMatch(['host ip', 'ip', 'host', 'asset', 'resource arn', 'resource', 'target', 'node']);
-    suggested.cve_id = findMatch(['cve id', 'cve', 'cve_name', 'vulnerability id']);
-    suggested.cvss = findMatch(['cvss base', 'cvss', 'score', 'base score', 'cvss_score', 'cvss v3']);
-    suggested.severity = findMatch(['severity', 'threat', 'risk', 'level', 'crit']);
-    suggested.port = findMatch(['port', 'service port', 'protocol port']);
-    suggested.issue_type = findMatch(['checkid', 'check id', 'check', 'rule', 'issue', 'title', 'plugin name']);
-
+  // The inspector ranks names and actual values from the detected finding records.
+  const autoSuggestMapping = (result) => {
+    const suggested = Object.fromEntries(Object.keys(mapping).map(key => [key, result?.suggested_mapping?.[key] || '']));
+    const nonCve = !suggested.cve_id && Boolean(suggested.issue_type);
+    const missing = [!suggested.asset_id && 'Target Asset ID', !suggested.severity && 'Severity',
+      !(suggested.cve_id || suggested.issue_type) && 'CVE Identifier or Issue / Check ID'].filter(Boolean);
     setMapping(suggested);
+    setIsNonCve(nonCve);
+    setPreviewResult(null);
+    setMappingError(null);
+    setSuggestionMessage(missing.length
+      ? `Auto-Suggest applied ${Object.values(suggested).filter(Boolean).length} field matches. Select ${missing.join(', ')} manually, then preview the findings.`
+      : `Auto-Suggest applied. Required fields are mapped${nonCve ? '; configuration scanner mode selected' : ''}. Review the selections, then preview the findings.`);
   };
 
   // Step 1: Upload & Inspect
@@ -72,6 +63,12 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
     if (!file) return;
 
     setSelectedFile(file);
+    setInspectResult(null);
+    setPreviewResult(null);
+    setMappingError(null);
+    setSuggestionMessage('');
+    setSaveSuccess(null);
+    setSaveError(null);
     setStep1Error(null);
     setInspecting(true);
 
@@ -81,7 +78,7 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
     try {
       const res = await api.inspectVendorFile(formData);
       setInspectResult(res);
-      autoSuggestMapping(res.available_fields || [], res.format);
+      autoSuggestMapping(res);
       
       // Auto-populate vendor name guess from filename
       const baseName = file.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ");
@@ -381,15 +378,23 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
             </div>
 
             <button
-              onClick={() => autoSuggestMapping(availableFields, inspectResult?.format)}
+              onClick={() => autoSuggestMapping(inspectResult)}
+              disabled={previewing}
               className="btn btn-secondary"
               style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, padding: '5px 10px' }}
-              title="Re-run auto-suggest heuristics"
+              title="Apply the suggested fields and replace current selections"
             >
               <Sparkles size={13} color="var(--primary)" />
               <span>Auto-Suggest</span>
             </button>
           </div>
+
+          {suggestionMessage && (
+            <div role="status" aria-live="polite" style={{ padding: '10px 14px', borderRadius: 8,
+              background: 'var(--bg-card)', border: '1px solid var(--border-color)', fontSize: 12, color: 'var(--text-main)' }}>
+              {suggestionMessage}
+            </div>
+          )}
 
           {/* Toggle for non-CVE / CSPM scanners */}
           <div style={{
@@ -401,7 +406,8 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
               type="checkbox"
               id="nonCveToggle"
               checked={isNonCve}
-              onChange={(e) => setIsNonCve(e.target.checked)}
+              disabled={previewing}
+              onChange={(e) => { setIsNonCve(e.target.checked); setPreviewResult(null); setMappingError(null); setSuggestionMessage(''); }}
               style={{ cursor: 'pointer', width: 16, height: 16 }}
             />
             <label htmlFor="nonCveToggle" style={{ fontSize: 12, color: 'var(--text-main)', cursor: 'pointer', userSelect: 'none' }}>
@@ -424,8 +430,10 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
               </div>
               <p style={{ margin: '0 0 8px 0', fontSize: 11, color: 'var(--text-dim)' }}>Host IP, hostname, or Cloud Resource ARN</p>
               <select
+                aria-label="Target Asset ID"
+                disabled={previewing}
                 value={mapping.asset_id}
-                onChange={(e) => setMapping(m => ({ ...m, asset_id: e.target.value }))}
+                onChange={(e) => updateMapping({ asset_id: e.target.value })}
                 style={{ width: '100%', padding: '8px 10px', borderRadius: 6, background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontSize: 12 }}
               >
                 <option value="">-- Select Field --</option>
@@ -445,8 +453,10 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
               </div>
               <p style={{ margin: '0 0 8px 0', fontSize: 11, color: 'var(--text-dim)' }}>Critical, High, Medium, Low, or numeric 0-4</p>
               <select
+                aria-label="Severity"
+                disabled={previewing}
                 value={mapping.severity}
-                onChange={(e) => setMapping(m => ({ ...m, severity: e.target.value }))}
+                onChange={(e) => updateMapping({ severity: e.target.value })}
                 style={{ width: '100%', padding: '8px 10px', borderRadius: 6, background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontSize: 12 }}
               >
                 <option value="">-- Select Field --</option>
@@ -467,8 +477,10 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
                 </div>
                 <p style={{ margin: '0 0 8px 0', fontSize: 11, color: 'var(--text-dim)' }}>CVE-YYYY-NNNN format for EPSS/KEV enrichment</p>
                 <select
+                  aria-label="CVE Identifier"
+                  disabled={previewing}
                   value={mapping.cve_id}
-                  onChange={(e) => setMapping(m => ({ ...m, cve_id: e.target.value }))}
+                  onChange={(e) => updateMapping({ cve_id: e.target.value })}
                   style={{ width: '100%', padding: '8px 10px', borderRadius: 6, background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontSize: 12 }}
                 >
                   <option value="">-- Select Field --</option>
@@ -479,19 +491,20 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
               </div>
             )}
 
-            {/* 4. Issue Type (Shown when isNonCve or optional) */}
-            {isNonCve && (
+            {/* 4. Issue Type also preserves findings without a CVE in mixed reports. */}
               <div className="glass-panel" style={{ padding: 14, border: '1px solid var(--accent-purple)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                   <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent-purple)' }}>
-                    Issue / Check ID <span style={{ color: 'var(--accent-red)' }}>*</span>
+                    Issue / Check ID {isNonCve && <span style={{ color: 'var(--accent-red)' }}>*</span>}
                   </label>
-                  <span className="badge" style={{ background: 'rgba(154, 150, 179, 0.2)', color: 'var(--accent-purple)', fontSize: 9 }}>Required for CSPM</span>
+                  <span className="badge" style={{ background: 'rgba(154, 150, 179, 0.2)', color: 'var(--accent-purple)', fontSize: 9 }}>{isNonCve ? 'Required for CSPM' : 'Optional'}</span>
                 </div>
                 <p style={{ margin: '0 0 8px 0', fontSize: 11, color: 'var(--text-dim)' }}>Check rule ID or title (e.g. s3_public_access)</p>
                 <select
+                  aria-label="Issue / Check ID"
+                  disabled={previewing}
                   value={mapping.issue_type}
-                  onChange={(e) => setMapping(m => ({ ...m, issue_type: e.target.value }))}
+                  onChange={(e) => updateMapping({ issue_type: e.target.value })}
                   style={{ width: '100%', padding: '8px 10px', borderRadius: 6, background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontSize: 12 }}
                 >
                   <option value="">-- Select Field --</option>
@@ -500,7 +513,6 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
                   ))}
                 </select>
               </div>
-            )}
 
             {/* 5. CVSS Score (Optional) */}
             <div className="glass-panel" style={{ padding: 14 }}>
@@ -510,8 +522,10 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
               </div>
               <p style={{ margin: '0 0 8px 0', fontSize: 11, color: 'var(--text-dim)' }}>Base CVSS score numeric value</p>
               <select
+                aria-label="CVSS Score"
+                disabled={previewing}
                 value={mapping.cvss}
-                onChange={(e) => setMapping(m => ({ ...m, cvss: e.target.value }))}
+                onChange={(e) => updateMapping({ cvss: e.target.value })}
                 style={{ width: '100%', padding: '8px 10px', borderRadius: 6, background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontSize: 12 }}
               >
                 <option value="">-- None / N/A --</option>
@@ -529,8 +543,10 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
               </div>
               <p style={{ margin: '0 0 8px 0', fontSize: 11, color: 'var(--text-dim)' }}>Port number or service string (e.g. 443/tcp)</p>
               <select
+                aria-label="Network Port / Service"
+                disabled={previewing}
                 value={mapping.port}
-                onChange={(e) => setMapping(m => ({ ...m, port: e.target.value }))}
+                onChange={(e) => updateMapping({ port: e.target.value })}
                 style={{ width: '100%', padding: '8px 10px', borderRadius: 6, background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontSize: 12 }}
               >
                 <option value="">-- None / N/A --</option>
@@ -545,6 +561,7 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
             <button
               onClick={() => setCurrentStep(1)}
+              disabled={previewing}
               className="btn btn-secondary"
               style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}
             >

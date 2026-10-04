@@ -13,7 +13,7 @@ import json
 import logging
 import re
 from app.connectors.base import BaseConnector
-from app.connectors.sniffer import extract_field_value
+from app.connectors.sniffer import extract_field_value, _xml_nodes_for_path, _scalar_values
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,6 @@ class GenericVendorConnector(BaseConnector):
 
         # Path might be "report.results.result" -> search by tag or subpath
         leaf_tag = self.record_path.split(".")[-1]
-        xml_path = self.record_path.replace(".", "/")
 
         # Try relative search from root
         # If root tag is first part of record_path, strip it
@@ -68,16 +67,16 @@ class GenericVendorConnector(BaseConnector):
         root_tag = root.tag.split("}")[-1]
         if parts and parts[0] == root_tag:
             subpath = "/".join(parts[1:])
-            records = root.findall(f"./{subpath}") if subpath else [root]
+            records = _xml_nodes_for_path(root, parts[1:]) if subpath else [root]
             if records:
                 return records
 
-        records = root.findall(f".//{leaf_tag}")
+        records = [node for node in root.iter() if node.tag.split("}")[-1] == leaf_tag]
         return records
 
     def _extract_records_from_json(self, content: bytes) -> List[Dict[str, Any]]:
         """Finds all record dicts matching the configured record path."""
-        text = content.decode("utf-8", errors="ignore").strip()
+        text = content.decode("utf-8-sig", errors="ignore").strip()
         data = json.loads(text)
 
         if not self.record_path or self.record_path in ["root", "$"]:
@@ -99,7 +98,7 @@ class GenericVendorConnector(BaseConnector):
 
     def _extract_records_from_csv(self, content: bytes) -> List[Dict[str, Any]]:
         """Parses CSV into list of row dictionaries."""
-        text = content.decode("utf-8", errors="ignore").strip()
+        text = content.decode("utf-8-sig", errors="ignore").strip()
         f_io = io.StringIO(text)
         first_line = f_io.readline()
         f_io.seek(0)
@@ -110,6 +109,8 @@ class GenericVendorConnector(BaseConnector):
             delimiter = ";"
 
         reader = csv.DictReader(f_io, delimiter=delimiter)
+        if reader.fieldnames:
+            reader.fieldnames = [name.strip() for name in reader.fieldnames]
         return list(reader)
 
     def parse(self, file_content: bytes, finding_id_offset: int = 0) -> Dict[str, Any]:
@@ -164,7 +165,7 @@ class GenericVendorConnector(BaseConnector):
 
             # 2. Severity (Required)
             raw_sev = extract_field_value(rec, self.field_mapping.get("severity"))
-            if not raw_sev or not str(raw_sev).strip():
+            if raw_sev is None or not str(raw_sev).strip():
                 reason = f"Record #{record_num} on asset {asset_id}: missing required field 'severity' at path '{self.field_mapping.get('severity')}'"
                 skipped += 1
                 skip_reasons.append(reason)
@@ -172,24 +173,22 @@ class GenericVendorConnector(BaseConnector):
             severity_str = str(raw_sev).strip().capitalize()
             severity_map = {
                 "Critical": "Critical", "High": "High", "Medium": "Medium",
-                "Low": "Low", "Info": "Info", "Informational": "Info",
+                "Low": "Low", "Info": "Info", "Informational": "Info", "Log": "Info", "Moderate": "Medium",
                 "4": "Critical", "3": "High", "2": "Medium", "1": "Low", "0": "Info"
             }
             severity = severity_map.get(severity_str, severity_str)
 
             # 3. CVE ID (Optional if issue_type is present)
             raw_cve = extract_field_value(rec, self.field_mapping.get("cve_id"))
-            cve_id = None
-            if raw_cve and str(raw_cve).strip():
-                cve_match = re.search(r"CVE-\d{4}-\d{4,7}", str(raw_cve).strip(), re.IGNORECASE)
-                cve_id = cve_match.group(0).upper() if cve_match else str(raw_cve).strip().upper()
+            cve_ids = list(dict.fromkeys(match.upper() for value in _scalar_values(raw_cve)
+                                        for match in re.findall(r"\bCVE-\d{4}-\d{4,}\b", str(value), re.IGNORECASE)))
 
             # 4. Issue Type (Optional / used for non-CVE findings)
             raw_issue = extract_field_value(rec, self.field_mapping.get("issue_type"))
             issue_type = str(raw_issue).strip() if raw_issue and str(raw_issue).strip() else None
 
             # Must have at least cve_id OR issue_type
-            if not cve_id and not issue_type:
+            if not cve_ids and not issue_type:
                 reason = f"Record #{record_num} on asset {asset_id}: missing both 'cve_id' and 'issue_type'"
                 skipped += 1
                 skip_reasons.append(reason)
@@ -216,19 +215,20 @@ class GenericVendorConnector(BaseConnector):
                     except ValueError:
                         port = None
 
-            finding_id = f"FND-{prefix}-{finding_id_offset + len(findings) + 1:03d}"
-            findings.append({
-                "id": finding_id,
-                "asset_id": asset_id,
-                "cve_id": cve_id,
-                "cvss": cvss,
-                "severity": severity,
-                "port": port,
-                "issue_type": issue_type,
-                "first_seen": now_iso,
-                "last_seen": now_iso,
-                "source": self.vendor_name
-            })
+            for cve_id in cve_ids or [None]:
+                finding_id = f"FND-{prefix}-{finding_id_offset + len(findings) + 1:03d}"
+                findings.append({
+                    "id": finding_id,
+                    "asset_id": asset_id,
+                    "cve_id": cve_id,
+                    "cvss": cvss,
+                    "severity": severity,
+                    "port": port,
+                    "issue_type": issue_type,
+                    "first_seen": now_iso,
+                    "last_seen": now_iso,
+                    "source": self.vendor_name
+                })
 
         return {
             "findings": findings,

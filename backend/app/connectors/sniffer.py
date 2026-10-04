@@ -12,6 +12,85 @@ import json
 import re
 
 
+FIELD_ALIASES = {
+    "asset_id": ("host ip", "ip address", "asset id", "resource arn", "resource id", "host", "hostname", "ip", "target", "asset", "resource", "node"),
+    "cve_id": ("cve id", "cve ids", "cve", "cves", "cve name", "vulnerability id"),
+    "cvss": ("cvss v3 base score", "cvss3 base score", "cvss v3 score", "cvss3 score", "cvss v3", "cvss3", "cvss base", "cvss base score", "cvss score", "cvss", "base score"),
+    "severity": ("severity", "threat", "risk factor", "risk rating", "severity level", "risk level", "risk", "level", "criticality"),
+    "port": ("port", "service port", "protocol port", "target port"),
+    "issue_type": ("check id", "rule id", "issue type", "plugin name", "check", "rule", "issue", "title", "name"),
+}
+
+
+def _field_words(value: str) -> str:
+    value = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", value)
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
+def _scalar_values(value: Any) -> List[Any]:
+    if isinstance(value, list):
+        return [item for child in value for item in _scalar_values(child)]
+    return [] if value is None or isinstance(value, dict) else [value]
+
+
+def suggest_field_mapping(fields: List[str], records: Optional[List[Any]] = None) -> Dict[str, str]:
+    """Rank whole field names and sample values; never substring-match 'ip' in 'description'."""
+    samples = records or []
+    values = {field: [value for rec in samples[:20]
+                      for value in _scalar_values(extract_field_value(rec, field))] for field in fields}
+    suggested = {}
+    for canonical, aliases in FIELD_ALIASES.items():
+        candidates = []
+        for field in fields:
+            leaf = _field_words(field.split(".")[-1])
+            whole = _field_words(field)
+            ranks = [len(aliases) - index for index, alias in enumerate(aliases)
+                     if _field_words(alias) in (leaf, whole)]
+            score = max(ranks, default=0)
+            observed = values[field]
+            if score and samples and not observed and any(isinstance(extract_field_value(rec, field), (dict, list)) for rec in samples[:20]):
+                score = 0
+            if canonical == "cve_id":
+                # OpenVAS puts CVEs in repeated <ref type="cve" id="CVE-..."/> attributes.
+                has_cve = any(re.search(r"\bCVE-\d{4}-\d{4,}\b", str(v), re.I) for v in observed)
+                cve_context = any(_field_words(part) in {"ref", "refs", "reference", "references", "cve", "cves"}
+                                  for part in field.split(".")[:-1])
+                if leaf == "id" and cve_context and has_cve:
+                    score = len(aliases) + 1
+                elif score and observed and not has_cve:
+                    score = 0
+            if canonical == "severity" and score and observed:
+                descriptive = {"critical", "high", "medium", "moderate", "low", "info", "informational", "log"}
+                if any(str(v).strip().lower() in descriptive for v in observed):
+                    score += 30
+                # Numeric severity may represent a CVSS score, not a 0-4 rating.
+                elif any(not re.fullmatch(r"[0-4]", str(v).strip()) for v in observed):
+                    score = 0
+            if canonical == "issue_type" and leaf == "name" and field.lower().startswith(("nvt.", "plugin.")):
+                score += 2
+            if canonical == "cvss" and score and observed:
+                numeric = []
+                for value in observed:
+                    try:
+                        numeric.append(0 <= float(value) <= 10)
+                    except (TypeError, ValueError):
+                        continue
+                if not any(numeric):
+                    score = 0
+            if score:
+                # Prefer a direct scalar over a similarly named nested container.
+                candidates.append((score, bool(observed), -field.count("."), field))
+        suggested[canonical] = max(candidates)[-1] if candidates else ""
+    return suggested
+
+
+def _xml_nodes_for_path(root: Element, parts: List[str]) -> List[Element]:
+    nodes = [root]
+    for part in parts:
+        nodes = [child for node in nodes for child in node if child.tag.split("}")[-1] == part]
+    return nodes
+
+
 def _extract_xml_fields(elem: Element, prefix: str = "") -> Set[str]:
     """Recursively extract tag and attribute paths from an XML element."""
     fields = set()
@@ -19,9 +98,7 @@ def _extract_xml_fields(elem: Element, prefix: str = "") -> Set[str]:
     for attr in elem.attrib.keys():
         fields.add(f"@{attr}" if not prefix else f"{prefix}.@{attr}")
 
-    has_children = False
     for child in elem:
-        has_children = True
         tag = child.tag
         # Strip XML namespace if present
         if "}" in tag:
@@ -86,15 +163,16 @@ def extract_field_value(record: Any, field_path: Optional[str]) -> Optional[Any]
             child_subpath = parts[0].rstrip(".").replace(".", "/")
             attr_name = parts[1]
             if child_subpath:
-                child = record.find(child_subpath)
-                return child.get(attr_name) if child is not None else None
+                children = _xml_nodes_for_path(record, parts[0].rstrip(".").split("."))
+                values = [child.get(attr_name) for child in children if child.get(attr_name) is not None]
+                return values[0] if len(values) == 1 else (values or None)
             return record.get(attr_name)
 
         # Subelement text: e.g. "nvt.cve" -> search "nvt/cve" or ".//cve"
-        xml_slash_path = path_str.replace(".", "/")
-        target = record.find(xml_slash_path)
-        if target is not None and target.text:
-            return target.text.strip()
+        targets = _xml_nodes_for_path(record, path_str.split("."))
+        values = [target.text.strip() for target in targets if target.text and target.text.strip()]
+        if values:
+            return values[0] if len(values) == 1 else values
 
         # Fallback to direct attribute with same name
         if path_str in record.attrib:
@@ -102,8 +180,9 @@ def extract_field_value(record: Any, field_path: Optional[str]) -> Optional[Any]
 
         # Deep search fallback
         leaf_tag = path_str.split(".")[-1]
-        deep_target = record.find(f".//{leaf_tag}")
-        if deep_target is not None and deep_target.text:
+        deep_target = next((node for node in record.iter() if node.tag.split("}")[-1] == leaf_tag
+                            and node.text and node.text.strip()), None)
+        if deep_target is not None:
             return deep_target.text.strip()
 
         return None
@@ -116,13 +195,15 @@ def extract_field_value(record: Any, field_path: Optional[str]) -> Optional[Any]
 
         # Dot-path traversal for nested dicts
         parts = path_str.split(".")
-        curr = record
-        for part in parts:
-            if isinstance(curr, dict) and part in curr:
-                curr = curr[part]
-            else:
-                return None
-        return curr
+        def walk(curr, remaining):
+            if not remaining:
+                return curr
+            if isinstance(curr, list):
+                return [value for child in curr for value in _scalar_values(walk(child, remaining))]
+            if isinstance(curr, dict) and remaining[0] in curr:
+                return walk(curr[remaining[0]], remaining[1:])
+            return None
+        return walk(record, parts)
 
     return None
 
@@ -168,31 +249,26 @@ def detect_structure(file_content: bytes, file_extension: str = "") -> Dict[str,
             if not path_counts:
                 return {"error": "XML document contains no child records"}
 
-            # Choose the most frequent non-leaf element path with children/attributes
-            # Sort by frequency descending, then by number of available fields descending
-            sorted_candidates = sorted(
-                path_counts.items(),
-                key=lambda item: (item[1], len(_extract_xml_fields(nodes_by_path[item[0]][0]))),
-                reverse=True
-            )
-
-            # Filter candidates: prioritize elements with multiple fields
-            best_path = None
-            best_count = 0
-            for path, count in sorted_candidates:
-                sample_node = nodes_by_path[path][0]
-                fields = _extract_xml_fields(sample_node)
-                # Check attributes on candidate node itself as well
-                for a in sample_node.attrib.keys():
-                    fields.add(f"@{a}")
-                if fields:
-                    best_path = path
-                    best_count = count
-                    break
-
-            if not best_path:
-                best_path = sorted_candidates[0][0]
-                best_count = sorted_candidates[0][1]
+            # A reference list can be longer than the findings it belongs to.
+            # Prefer complete finding records, using frequency only as a tie-breaker.
+            record_names = {"result", "finding", "vulnerability", "alert", "record", "item", "reportitem", "issue", "detection", "entry", "check"}
+            candidates = []
+            for path, count in path_counts.items():
+                sample_records = nodes_by_path[path][:20]
+                fields = sorted(set().union(*(_extract_xml_fields(rec) for rec in sample_records)))
+                if not fields:
+                    continue
+                mapping = suggest_field_mapping(fields, sample_records)
+                required = sum(bool(mapping[key]) for key in ("asset_id", "severity"))
+                identity = bool(mapping["cve_id"] or mapping["issue_type"])
+                depth = sum(value.count(".") for key, value in mapping.items() if value and key in ("asset_id", "severity", "cve_id", "issue_type"))
+                rank = (required == 2 and identity, required + identity,
+                        path.split(".")[-1].lower() in record_names, -depth, count, len(fields))
+                candidates.append((rank, path))
+            if not candidates:
+                return {"error": "XML document contains no mappable record fields"}
+            best_path = max(candidates)[1]
+            best_count = path_counts[best_path]
 
             # Aggregate fields across multiple samples of this record (up to 20 samples)
             available_fields_set = set()
@@ -202,11 +278,13 @@ def detect_structure(file_content: bytes, file_extension: str = "") -> Dict[str,
                 for a in rec.attrib.keys():
                     available_fields_set.add(f"@{a}")
 
+            available_fields = sorted(available_fields_set)
             return {
                 "format": "xml",
                 "detected_record_path": best_path,
                 "record_count_sample": best_count,
-                "available_fields": sorted(list(available_fields_set))
+                "available_fields": available_fields,
+                "suggested_mapping": suggest_field_mapping(available_fields, sample_records)
             }
         except ET.ParseError as e:
             if ext == "xml":
@@ -217,7 +295,7 @@ def detect_structure(file_content: bytes, file_extension: str = "") -> Dict[str,
     is_json_likely = ext == "json" or content_head.startswith(b"{") or content_head.startswith(b"[")
     if is_json_likely:
         try:
-            text = file_content.decode("utf-8", errors="ignore").strip()
+            text = file_content.decode("utf-8-sig", errors="ignore").strip()
             data = json.loads(text)
 
             detected_record_path = ""
@@ -227,13 +305,23 @@ def detect_structure(file_content: bytes, file_extension: str = "") -> Dict[str,
                 records = [r for r in data if isinstance(r, dict)]
                 detected_record_path = "root"
             elif isinstance(data, dict):
-                # Search for list-valued keys
-                list_keys = [(k, v) for k, v in data.items() if isinstance(v, list) and v and isinstance(v[0], dict)]
+                # Search nested envelopes such as data.findings as well as top-level arrays.
+                list_keys = []
+                def collect_arrays(obj, prefix="", depth=0):
+                    if depth > 8 or not isinstance(obj, dict):
+                        return
+                    for key, value in obj.items():
+                        path = f"{prefix}.{key}" if prefix else key
+                        if isinstance(value, list) and value and all(isinstance(item, dict) for item in value):
+                            fields = sorted(set().union(*(_extract_json_fields(rec) for rec in value[:30])))
+                            mapping = suggest_field_mapping(fields, value)
+                            required = sum(bool(mapping[name]) for name in ("asset_id", "severity"))
+                            list_keys.append(((required, bool(mapping["cve_id"] or mapping["issue_type"]), len(value)), path, value))
+                        elif isinstance(value, dict):
+                            collect_arrays(value, path, depth + 1)
+                collect_arrays(data)
                 if list_keys:
-                    # Choose list with the highest record count
-                    list_keys.sort(key=lambda item: len(item[1]), reverse=True)
-                    detected_record_path = list_keys[0][0]
-                    records = list_keys[0][1]
+                    _, detected_record_path, records = max(list_keys, key=lambda item: item[0])
                 else:
                     return {"error": "JSON document does not contain an array of finding records"}
 
@@ -244,11 +332,13 @@ def detect_structure(file_content: bytes, file_extension: str = "") -> Dict[str,
             for rec in records[:30]:
                 available_fields_set.update(_extract_json_fields(rec))
 
+            available_fields = sorted(available_fields_set)
             return {
                 "format": "json",
                 "detected_record_path": detected_record_path,
                 "record_count_sample": len(records),
-                "available_fields": sorted(list(available_fields_set))
+                "available_fields": available_fields,
+                "suggested_mapping": suggest_field_mapping(available_fields, records)
             }
         except Exception as e:
             if ext == "json":
@@ -256,7 +346,7 @@ def detect_structure(file_content: bytes, file_extension: str = "") -> Dict[str,
 
     # Try CSV
     try:
-        text = file_content.decode("utf-8", errors="ignore").strip()
+        text = file_content.decode("utf-8-sig", errors="ignore").strip()
         f_io = io.StringIO(text)
         # Check first line for CSV delimiters
         first_line = f_io.readline()
@@ -270,15 +360,21 @@ def detect_structure(file_content: bytes, file_extension: str = "") -> Dict[str,
         reader = csv.reader(f_io, delimiter=delimiter)
         headers = next(reader, None)
         if headers:
-            headers = [h.strip() for h in headers if h and h.strip()]
+            fieldnames = [h.strip() for h in headers]
+            headers = [h for h in fieldnames if h]
             # Count remaining rows
             row_count = sum(1 for row in reader if any(row))
             if headers and (row_count > 0 or ext == "csv"):
+                sample_reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
+                _ = sample_reader.fieldnames  # Consume the original header before setting trimmed names.
+                sample_reader.fieldnames = fieldnames
+                sample_records = [row for _, row in zip(range(20), sample_reader)]
                 return {
                     "format": "csv",
                     "detected_record_path": "row",
                     "record_count_sample": row_count,
-                    "available_fields": headers
+                    "available_fields": headers,
+                    "suggested_mapping": suggest_field_mapping(headers, sample_records)
                 }
     except Exception as e:
         if ext == "csv":
