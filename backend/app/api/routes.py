@@ -1223,7 +1223,10 @@ def ask_ai(payload: AskRequest):
     summary = store.get_summary()
     # Compliance evidence is available independently of monetary quantification.
     # Do not run an unrelated investment optimizer for a reporting question.
-    if store.ai.question_intent(payload.question) != 'financial':
+    intent = store.ai.question_intent(payload.question)
+    if intent == 'var95':
+        return store.ai.ask(payload.question, summary)
+    if intent in ('reporting', 'compliance'):
         comp = store.framework_engine.evaluate_framework("sebi", store.current_snapshot["control_state"],
             store.current_snapshot.get("compliance_assessments"), store.current_snapshot.get("reporting_exercises"))
         return store.ai.ask(payload.question, summary, compliance_eval=comp)

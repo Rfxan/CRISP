@@ -181,6 +181,31 @@ def test_copilot_reporting_answers_follow_saved_exercises_without_financial_data
         assert 'Expected annual loss' not in answer
 
 
+def test_copilot_var_explanation_uses_current_assessment_without_optimizer(isolated_app):
+    from app.ai.decision_support import _format_inr
+    c = isolated_app
+    question = {'question': 'Explain our Value at Risk (VaR 95) for the Board of Directors'}
+    with patch('app.ai.decision_support.llm_config_store.get_config', return_value={'enabled': False}), \
+         patch.object(SnapshotStore, 'get_optimizer', side_effect=AssertionError('VaR explanation must not invoke investment optimization')):
+        empty = c.post('/api/ask', json=question)
+        assert empty.status_code == 200, empty.text
+        assert 'unknown' in empty.json()['answer'].lower()
+        asset = {'id': 'VAR-HOST', 'name': 'Board assessment host', 'business_service_id': 'SVC-NETBANK',
+                 'criticality_1_5': 4, 'records_count': 600, 'revenue_per_hour': 100000}
+        assert c.post('/api/assets/add', json=asset).status_code == 200
+        scan = b'IP,CVEs,CVSS,Severity,NVT Name,Port\nVAR-HOST,,4.0,Medium,TLS configuration,9200\n'
+        assert c.post('/api/ingest/scan', files={'file': ('report.csv', scan, 'text/csv')}).status_code == 200
+        summary = c.get('/api/risk/summary').json()
+        response = c.post('/api/ask', json=question)
+        assert response.status_code == 200, response.text
+        result = response.json()
+        assert result['tool_used'] == 'var95_explanation'
+        assert result['run_id'] == summary['run_id']
+        assert _format_inr(summary['org']['var95']) in result['answer']
+        assert '95%' in result['answer'] and 'maximum' in result['answer']
+        assert next(f for f in result['claims'] if f['metric_id'] == 'org.var95')['value'] == summary['org']['var95']
+
+
 def test_scan_merge_retains_distinct_non_cve_findings_and_unique_ids():
     from app.connectors.openvas import OpenVASConnector
     local = SnapshotStore()

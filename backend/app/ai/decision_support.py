@@ -23,6 +23,8 @@ class DecisionSupportAI:
             return 'reporting'
         if any(term in q for term in ('compliance', 'compliant', 'sebi', 'evidence completeness')):
             return 'compliance'
+        if any(term in q for term in ('var95', 'var 95', '95th percentile')) or ('value at risk' in q and '99' not in q):
+            return 'var95'
         return 'financial'
 
     def facts(self, summary, optimizer=None, compliance=None, simulation=None):
@@ -73,7 +75,41 @@ class DecisionSupportAI:
                 "Return ONLY JSON in this shape: " + json.dumps(example) + '. '
                 "Copy values exactly, including null. Do not generate prose or additional numbers. "
                 "The server validates each claim and renders its own labels. Facts:\n" + json.dumps(facts)
-                + ('\nEvidence context:\n' + json.dumps(evidence_context) if metric_prefix else ''))
+                + ('\nEvidence context:\n' + json.dumps(evidence_context) if metric_prefix and metric_prefix.startswith('compliance.') else ''))
+
+    @staticmethod
+    def var95_explanation(summary):
+        org = summary.get('org') or {}
+        var95 = org.get('var95')
+        if var95 is None:
+            return ('Your annual VaR95 is currently **unknown** because the assessment has insufficient quantified evidence. '
+                    'Complete scan evidence and declared business context before interpreting annual-loss percentiles.')
+        paragraphs = [
+            f"Your modeled annual **VaR95 is {_format_inr(var95)}**. This is the 95th percentile of modeled annual losses: "
+            'approximately **95%** of simulated annual outcomes have losses at or below this amount, '
+            'while about **5%** exceed it.',
+            'For the board, this is a severe-loss planning threshold. It is not the maximum possible loss, '
+            'a guaranteed limit, or a confidence interval on the model assumptions.'
+        ]
+        if org.get('eal') is not None:
+            paragraphs.append(f"The **expected annual loss (EAL) is {_format_inr(org['eal'])}**, the average across simulated annual outcomes. "
+                              'EAL describes the average; VaR95 describes a percentile of annual outcomes.')
+        appetite = org.get('appetite')
+        if appetite is None:
+            paragraphs.append('No risk-appetite comparison is available because a board-approved limit has not been declared.')
+        else:
+            comparison = 'falls within the declared limit' if var95 <= appetite else 'exceeds the declared limit'
+            text = f"Against the declared **VaR95 risk appetite of {_format_inr(appetite)}**, this modeled threshold {comparison}."
+            headroom = org.get('headroom')
+            if headroom is not None:
+                text += (f" The remaining headroom is **{_format_inr(headroom)}**." if headroom >= 0 else
+                         f" It exceeds the appetite by **{_format_inr(abs(headroom))}**.")
+            paragraphs.append(text)
+        if var95 == 0:
+            paragraphs.append('A zero VaR95 can occur when losses are concentrated in the rare tail; it does not establish zero cyber risk.')
+        paragraphs.append('These are planning estimates based on the recorded business inputs and model assumptions, '
+                          'not empirically calibrated forecasts. Review the assumptions and larger tail losses before making a board decision.')
+        return '\n\n'.join(paragraphs)
 
     @staticmethod
     def reporting_intro(compliance):
@@ -117,7 +153,8 @@ class DecisionSupportAI:
 
     def ask(self, question, risk_summary, optimizer_result=None, compliance_eval=None, simulation_result=None):
         intent = self.question_intent(question)
-        if intent != 'financial' and compliance_eval is None:
+        is_compliance = intent in ('reporting', 'compliance')
+        if is_compliance and compliance_eval is None:
             compliance_eval = {}
         facts = self.facts(risk_summary, optimizer_result, compliance_eval, simulation_result)
         run_id = risk_summary.get("run_id")
@@ -129,6 +166,8 @@ class DecisionSupportAI:
             prefix = 'compliance.reporting.'
         elif intent == 'compliance':
             prefix = 'compliance.'
+        elif intent == 'var95':
+            prefix = 'org.'
         elif any(w in q for w in ('budget', 'invest', 'spend')):
             prefix = 'portfolio.'
         elif simulation_result and any(w in q for w in ('what if', 'simulate', 'mfa')):
@@ -149,7 +188,7 @@ class DecisionSupportAI:
                 model_selected = self.validate_claims(response["answer"],relevant_facts)
                 # Always include the measured reporting evidence, even if a model
                 # selects only one metric. The server owns the readiness conclusion.
-                if intent != 'reporting':
+                if intent not in ('reporting', 'var95'):
                     selected = model_selected
                 is_llm = True
             except Exception:
@@ -166,20 +205,27 @@ class DecisionSupportAI:
             else:
                 value = f"{item['value']:g}" + (' minutes' if item['unit'] == 'minutes' else '')
             lines.append(f"- {item['label']}: **{value}**")
-        intro = self.reporting_intro(compliance_eval) if intent == 'reporting' else (
-                'This assessment covers a curated subset of ' + str(compliance_eval.get('framework_name') or 'framework') +
-                ' requirements. Compliance requires current qualifying evidence and valid reviewer decisions; '
-                'mapping or telemetry coverage alone does not establish compliance.' if intent == 'compliance' else '')
+        if intent == 'var95':
+            intro = self.var95_explanation(risk_summary)
+        elif intent == 'reporting':
+            intro = self.reporting_intro(compliance_eval)
+        elif intent == 'compliance':
+            intro = ('This assessment covers a curated subset of ' + str(compliance_eval.get('framework_name') or 'framework') +
+                     ' requirements. Compliance requires current qualifying evidence and valid reviewer decisions; '
+                     'mapping or telemetry coverage alone does not establish compliance.')
+        else:
+            intro = ''
         footer = ('Evidence reflects recorded assessments and exercises; it is not a regulatory certification.'
-                  if intent != 'financial' else 'Values are model estimates, subject to the recorded assumptions.')
+                  if is_compliance else 'Values are model estimates, subject to the recorded assumptions.')
         sources = ['Compliance framework engine', 'Recorded reporting exercises'] if intent == 'reporting' else (
                   ['Compliance framework engine', 'Control evidence and reviewer assessments'] if intent == 'compliance' else
                   ['Shared risk engine', 'Versioned assumptions'])
-        return {"query":question,"answer":(intro+'\n\n' if intro else '')+"\n".join(lines)+f"\n\nRun: {run_id or 'No financial run available'}. {footer}",
+        body = intro if intent == 'var95' else (intro+'\n\n' if intro else '')+'\n'.join(lines)
+        return {"query":question,"answer":body+f"\n\nRun: {run_id or 'No financial run available'}. {footer}",
                 "run_id":run_id,"assumptions_version":risk_summary.get("assumptions_version"),
                 "claims":[{"metric_id":key,**facts[key]} for key in selected],
                 "claim_validation":"Server-validated metric references and values; server-rendered numerical statements",
                 "is_llm":is_llm,"llm_provider":cfg.get("provider") if is_llm else "deterministic",
                 "llm_model":cfg.get("model") if is_llm else "Validated facts",
-                "fallback_reason":fallback,"tool_used":'reporting_readiness' if intent == 'reporting' else (
-                    'compliance_assessment' if intent == 'compliance' else 'validated_fact_selection'),"sources":sources}
+                "fallback_reason":fallback,"tool_used":{'reporting': 'reporting_readiness', 'compliance': 'compliance_assessment',
+                    'var95': 'var95_explanation'}.get(intent, 'validated_fact_selection'),"sources":sources}
