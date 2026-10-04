@@ -104,6 +104,14 @@ def test_model_inputs_change_results_and_metadata(snapshot):
     assert sum(changed['loss_breakdown'].values()) == pytest.approx(changed['org']['eal'], abs=.1)
 
 
+def test_service_results_preserve_configured_recovery_objective(snapshot):
+    snapshot['services'][0]['rto_hours'] = 8.0
+    result = FAIREngine(trials=1000).run(snapshot, {'calculate_drivers': False})
+    service_id = snapshot['services'][0]['id']
+    service = next(s for s in result['services'] if s['service_id'] == service_id)
+    assert service['rto_hours'] == 8.0
+
+
 def test_shared_variation_changes_tail_without_changing_expected_intensity(snapshot):
     engine = FAIREngine(trials=20000)
     snapshot['assets'] = snapshot['assets'][:10]

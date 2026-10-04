@@ -325,6 +325,13 @@ export default function TechnicalDrilldown({ summary, driversData, entitiesData,
               </tr>
             </thead>
             <tbody>
+              {services.length === 0 && (
+                <tr>
+                  <td colSpan={5} style={{ color: 'var(--text-muted)' }}>
+                    No business-service results are available for this assessment.
+                  </td>
+                </tr>
+              )}
               {services.map((svc, idx) => (
                 <tr key={idx}>
                   <td>
@@ -336,7 +343,7 @@ export default function TechnicalDrilldown({ summary, driversData, entitiesData,
                   </td>
                   <td>
                     <span className="badge" style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text-main)' }}>
-                      {svc.rto_hours || 4} Hours Max Outage
+                      {svc.rto_hours == null ? 'Unknown' : `${svc.rto_hours} hours target`}
                     </span>
                   </td>
                   <td>

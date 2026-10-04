@@ -74,6 +74,34 @@ def test_seed_inventory_csv_and_asset_crud_preserve_services(isolated_app):
     assert c.get("/api/data/snapshot").json()["services"] == before["services"]
 
 
+def test_risk_summary_exposes_linked_service_results(isolated_app):
+    c = isolated_app
+    assert c.get("/api/risk/summary").json().get("services", []) == []
+    asset = {"id": "LOGSRV", "name": "Log server", "business_service_id": "SVC-NETBANK",
+             "criticality_1_5": 4, "records_count": 600, "revenue_per_hour": 100000}
+    added = c.post("/api/assets/add", json=asset)
+    assert added.status_code == 200, added.text
+    scan = b'IP,CVEs,CVSS,Severity,NVT Name,Port\nLOGSRV,,4.0,Medium,TLS configuration,9200\n'
+    imported = c.post("/api/ingest/scan", files={"file": ("report.csv", scan, "text/csv")})
+    assert imported.status_code == 200, imported.text
+    response = c.get("/api/risk/summary")
+    assert response.status_code == 200, response.text
+    summary = response.json()
+    entities = c.get("/api/risk/entities?level=service").json()["entities"]
+    assert summary["services"] == entities
+    assert len(summary["services"]) == 1
+    service = summary["services"][0]
+    assert service["service_id"] == "SVC-NETBANK"
+    assert service["rto_hours"] == 4.0
+    assert service["eal"] == summary["org"]["eal"]
+    assert service["var95"] == summary["org"]["var95"]
+    assert service["eal"] > 0
+    assert "revenue_per_hour" in service
+    cleared = c.delete("/api/assets")
+    assert cleared.status_code == 200, cleared.text
+    assert c.get("/api/risk/summary").json()["services"] == []
+
+
 def test_feed_failure_is_not_fresh_success():
     local = SnapshotStore()
     local.current_snapshot["findings"] = [{"id": "F", "asset_id": "A", "cve_id": "CVE-2021-44228"}]
