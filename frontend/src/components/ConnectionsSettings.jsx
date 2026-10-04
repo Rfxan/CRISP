@@ -30,6 +30,12 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
   const [testResults, setTestResults] = useState({ siem: null, indexer: null, iam: null });
   const [saving, setSaving] = useState({ siem: false, indexer: false, iam: false });
   const [statusMessage, setStatusMessage] = useState(null);
+  const [wazuhWorking, setWazuhWorking] = useState(false);
+  const wazuhCategories = ['siem', 'indexer'];
+  const wazuhEditing = wazuhCategories.some(category => forms[category].editing);
+  const wazuhBusy = refreshing || wazuhWorking || wazuhCategories.some(category => testing[category] || saving[category]);
+  const wazuhConfigured = wazuhCategories.some(category => connections[category]?.base_url);
+  const connectionName = category => ({ siem: 'Wazuh Manager', indexer: 'Wazuh Indexer', iam: 'Keycloak' }[category]);
 
   const fetchConnections = async () => {
     try {
@@ -123,6 +129,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
         base_url: conn.base_url || '',
         username: conn.username || (category === 'siem' ? 'wazuh-wui' : ''),
         password: '',
+        showPassword: false,
         editing: true
       }
     }));
@@ -135,7 +142,8 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
       [category]: {
         ...prev[category],
         editing: false,
-        password: ''
+        password: '',
+        showPassword: false
       }
     }));
     setTestResults(prev => ({ ...prev, [category]: null }));
@@ -174,7 +182,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
     }
   };
 
-  const handleSave = async (category) => {
+  const handleSave = async (category, { grouped = false } = {}) => {
     const f = forms[category];
     if (!f.base_url) return;
 
@@ -188,7 +196,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
         password: f.password
       });
 
-      setStatusMessage({
+      if (!grouped) setStatusMessage({
         type: 'success',
         text: `Saved ${category.toUpperCase()} connection. ${res.connection.last_test_detail || 'Use Refresh Status to synchronize.'}`
       });
@@ -198,20 +206,91 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
         [category]: {
           ...prev[category],
           editing: false,
-          password: ''
+          password: '',
+          showPassword: false
         }
       }));
 
-      await fetchConnections();
-      if (onConnectionChanged) onConnectionChanged();
+      if (!grouped) {
+        await fetchConnections();
+        if (onConnectionChanged) onConnectionChanged();
+      }
+      return { success: true, detail: res.connection.last_test_detail };
     } catch (err) {
-      setStatusMessage({
+      if (!grouped) setStatusMessage({
         type: 'error',
         text: `Failed to save connection: ${err.message}`
       });
+      return { success: false, detail: err.message };
     } finally {
       setSaving(prev => ({ ...prev, [category]: false }));
-      setTimeout(() => setStatusMessage(null), 7000);
+      if (!grouped) setTimeout(() => setStatusMessage(null), 7000);
+    }
+  };
+
+  const configuredWazuhForms = () => wazuhCategories.filter(category => forms[category].base_url.trim());
+
+  const testWazuh = async () => {
+    // Each service authenticates separately; keep feedback beside its settings.
+    setWazuhWorking(true);
+    try {
+      await Promise.all(configuredWazuhForms().map(category => handleTest(category)));
+    } finally {
+      setWazuhWorking(false);
+    }
+  };
+
+  const saveWazuh = async () => {
+    const categories = configuredWazuhForms().filter(category => forms[category].editing);
+    const cleared = wazuhCategories.filter(category => connections[category]?.base_url && !forms[category].base_url.trim());
+    if (cleared.length) {
+      setStatusMessage({ type: 'error', text: 'A saved endpoint cannot be cleared here. Restore its URL, or use Disconnect Wazuh to remove the integration.' });
+      return;
+    }
+    const results = [];
+    // Saves update the same credential store, so perform them sequentially.
+    setWazuhWorking(true);
+    setSaving(prev => ({ ...prev, siem: true, indexer: true }));
+    try {
+      for (const category of categories) {
+        const result = await handleSave(category, { grouped: true });
+        results.push({ category, ...result });
+      }
+      const successful = results.filter(result => result.success);
+      const failed = results.filter(result => !result.success);
+      if (!failed.length) wazuhCategories.forEach(cancelEditing);
+      await fetchConnections();
+      if (successful.length && onConnectionChanged) onConnectionChanged();
+      setStatusMessage({
+        type: failed.length ? 'error' : 'success',
+        text: results.map(result => `${connectionName(result.category)}: ${result.success ? 'settings saved. ' : 'could not save. '}${result.detail || ''}`).join(' · ')
+      });
+    } finally {
+      setSaving(prev => ({ ...prev, siem: false, indexer: false }));
+      setWazuhWorking(false);
+    }
+  };
+
+  const disconnectWazuh = async () => {
+    if (!window.confirm('Disconnect Wazuh? Saved Manager and Indexer credentials will be removed and their telemetry sync will stop.')) return;
+    setWazuhWorking(true);
+    setSaving(prev => ({ ...prev, siem: true, indexer: true }));
+    const results = [];
+    try {
+      for (const category of wazuhCategories.filter(category => connections[category]?.base_url)) {
+        try {
+          await api.removeConnection(category);
+          results.push(`${connectionName(category)} disconnected.`);
+        } catch (err) {
+          results.push(`${connectionName(category)} could not disconnect: ${err.message}`);
+        }
+      }
+      await fetchConnections();
+      if (onConnectionChanged) onConnectionChanged();
+      setStatusMessage({ type: results.some(result => result.includes('could not')) ? 'error' : 'info', text: results.join(' · ') });
+    } finally {
+      setSaving(prev => ({ ...prev, siem: false, indexer: false }));
+      setWazuhWorking(false);
     }
   };
 
@@ -247,7 +326,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
     return `${hrs}h ago`;
   };
 
-  const renderCard = (category, title, subtitle, icon) => {
+  const renderCard = (category, title, subtitle, icon, embedded = false) => {
     const conn = connections[category] || {};
     const form = forms[category];
     const testResult = testResults[category];
@@ -314,22 +393,24 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
     }
 
     return (
-      <div className="glass-panel" style={{
-        padding: 24,
+      <div className={embedded ? 'wazuh-source' : 'glass-panel'} data-connection={category} style={{
+        minWidth: 0,
+        padding: embedded ? 0 : 24,
         borderRadius: 14,
         background: 'var(--bg-card)',
-        border: conn.connected ? '1px solid var(--primary)' : '1px solid var(--border-color)',
+        border: embedded ? 'none' : conn.connected ? '1px solid var(--primary)' : '1px solid var(--border-color)',
         display: 'flex',
         flexDirection: 'column',
         gap: 20,
-        boxShadow: conn.connected ? '0 8px 32px rgba(183, 140, 102, 0.05)' : 'none'
+        boxShadow: !embedded && conn.connected ? '0 8px 32px rgba(183, 140, 102, 0.05)' : 'none'
       }}>
         {/* Card Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
             <div style={{
               width: 44,
               height: 44,
+              flexShrink: 0,
               borderRadius: 10,
               background: 'linear-gradient(135deg, rgba(183, 140, 102, 0.15) 0%, rgba(79, 70, 229, 0.15) 100%)',
               border: '1px solid rgba(183, 140, 102, 0.25)',
@@ -363,7 +444,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
               <span style={{ color: 'var(--text-dim)' }}>Server Endpoint:</span>
-              <span style={{ color: 'var(--text-main)', fontFamily: 'monospace' }}>
+              <span style={{ color: 'var(--text-main)', fontFamily: 'monospace', overflowWrap: 'anywhere', minWidth: 0, textAlign: 'right' }}>
                 {conn.base_url || '—'}
               </span>
             </div>
@@ -393,7 +474,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
               </div>
             )}
 
-            <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+            {!embedded && <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
               <button
                 className="btn btn-primary"
                 onClick={() => startEditing(category)}
@@ -417,11 +498,13 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
                   <Trash2 size={14} style={{ marginRight: 6 }} /> Disconnect
                 </button>
               )}
-            </div>
+            </div>}
           </div>
         ) : (
           /* Edit Form */
-          <div style={{
+          <fieldset disabled={embedded && wazuhBusy} style={{
+            margin: 0,
+            minWidth: 0,
             background: 'var(--bg-main)',
             borderRadius: 10,
             padding: 20,
@@ -432,7 +515,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
           }}>
             <div>
               <label htmlFor={`${category}-endpoint`} style={{ display: 'block', fontSize: 12, color: 'var(--text-dim)', marginBottom: 6 }}>
-                {category === 'indexer' ? 'Indexer HTTPS URL (separate from Manager API)' : 'Base URL (REST API Host)'}
+                {category === 'indexer' ? 'Indexer HTTPS URL' : category === 'siem' ? 'Manager API HTTPS URL' : 'Base URL (REST API Host)'}
               </label>
               <input
                 id={`${category}-endpoint`}
@@ -447,10 +530,10 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
               </p>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: 14 }}>
               <div>
                 <label htmlFor={`${category}-username`} style={{ display: 'block', fontSize: 12, color: 'var(--text-dim)', marginBottom: 6 }}>
-                  {category === 'indexer' ? 'Indexer Username' : 'API Username / Client ID'}
+                  {category === 'indexer' ? 'Indexer Username' : category === 'siem' ? 'Manager API Username' : 'API Username / Client ID'}
                 </label>
                 <input
                   id={`${category}-username`}
@@ -464,7 +547,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
 
               <div>
                 <label style={{ display: 'block', fontSize: 12, color: 'var(--text-dim)', marginBottom: 6 }}>
-                  {category === 'indexer' ? 'Indexer Password' : 'Password / Bearer Token'}
+                  {category === 'indexer' ? 'Indexer Password' : category === 'siem' ? 'Manager API Password' : 'Password / Bearer Token'}
                 </label>
                 <div style={{ position: 'relative' }}>
                   <input
@@ -523,7 +606,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
             )}
 
             {/* Action Buttons */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 4 }}>
+            {!embedded && <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 4 }}>
               <div style={{ display: 'flex', gap: 10 }}>
                 {/* Test Connection Button */}
                 <button
@@ -590,7 +673,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
               >
                 Cancel
               </button>
-            </div>
+            </div>}
 
             {/* Note on security & behavior */}
             <div style={{ fontSize: 11, color: 'var(--text-dim)', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 8 }}>
@@ -601,7 +684,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
                 </span>
               )}
             </div>
-          </div>
+          </fieldset>
         )}
       </div>
     );
@@ -638,7 +721,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
             </span>
           </div>
           <p style={{ margin: '6px 0 0 0', fontSize: 13, color: 'var(--text-dim)', maxWidth: 800 }}>
-            Configure your SIEM/EDR and IAM connections. Refresh Status checks saved endpoints and updates telemetry now.
+            Configure your SIEM/EDR and IAM connections. Refresh Status checks saved endpoints and updates telemetry now.{' '}
             {guestWorkspace
               ? 'Use Refresh Status to sync your workspace. Connect your own public HTTPS endpoint directly; no site-owner approval is required.'
               : 'Automatic telemetry updates run approximately every 30 seconds while the synchronization worker is running.'}
@@ -648,7 +731,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
         <button
           className="btn btn-outline"
           onClick={handleRefresh}
-          disabled={refreshing}
+          disabled={refreshing || wazuhBusy}
           style={{ padding: '8px 16px', fontSize: 13 }}
         >
           <RefreshCw size={14} className={refreshing ? 'spin' : ''} style={{ marginRight: 6 }} />
@@ -678,20 +761,30 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
       )}
 
       {/* Grid of Connection Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 480px), 1fr))', gap: 24 }}>
-        {renderCard(
-          'siem',
-          'SIEM & EDR (Wazuh)',
-          'Syncs registered-agent activity and coverage for CTRL-EDR-01. Add Alert Telemetry (Wazuh Indexer) below to enable anomaly detection.',
-          <Cpu size={24} />
-        )}
-
-        {renderCard(
-          'indexer',
-          'Alert Telemetry (Wazuh Indexer)',
-          'Reads wazuh-alerts-* using Indexer credentials. Loads per-agent completed hourly alert windows for anomaly detection. Use a read-only Indexer account; Manager API credentials do not apply.',
-          <ShieldAlert size={24} />
-        )}
+      <div className="connections-layout">
+        <section className="glass-panel" aria-label="Wazuh integration" style={{ padding: 24, minWidth: 0, borderRadius: 14, background: 'var(--bg-card)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: 24 }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Wazuh — Agents & Alerts</h3>
+            <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--text-dim)' }}>
+              Manage agent status, endpoint coverage and alert analysis in one integration. Add both services for the complete view, or start with either one.
+            </p>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))', gap: 24 }}>
+            {renderCard('siem', 'Agent status', 'Manager API: registered agents, current status and coverage for CTRL-EDR-01.', <Cpu size={24} />, true)}
+            {renderCard('indexer', 'Alert telemetry', 'Indexer: completed hourly alert windows for anomaly detection. Use an Indexer account with read access to wazuh-alerts-*.', <ShieldAlert size={24} />, true)}
+          </div>
+          {wazuhEditing ? <>
+            <p style={{ margin: 0, fontSize: 12, color: 'var(--text-dim)' }}>Manager and Indexer credentials are separate. Leave an unconfigured service empty to connect only the other. Leave a saved password empty to keep it unchanged.</p>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-outline" onClick={testWazuh} disabled={wazuhBusy || !configuredWazuhForms().length}><Radio size={14} /> {wazuhBusy ? 'Working…' : 'Test Wazuh Connection'}</button>
+              <button type="button" className="btn btn-primary" onClick={saveWazuh} disabled={wazuhBusy || !configuredWazuhForms().length}><Save size={14} /> Save Wazuh Connection</button>
+              <button type="button" className="btn btn-outline" onClick={() => wazuhCategories.forEach(cancelEditing)} disabled={wazuhBusy}>Cancel</button>
+            </div>
+          </> : <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-primary" onClick={() => wazuhCategories.forEach(startEditing)} disabled={wazuhBusy}>{wazuhConfigured ? 'Edit Wazuh Connection' : 'Configure Wazuh'}</button>
+            {wazuhConfigured && <button type="button" className="btn btn-outline" onClick={disconnectWazuh} disabled={wazuhBusy}><Trash2 size={14} /> Disconnect Wazuh</button>}
+          </div>}
+        </section>
 
         {renderCard(
           'iam',

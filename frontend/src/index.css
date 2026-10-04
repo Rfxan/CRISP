@@ -383,3 +383,16 @@ h6:not(.crisp-add-asset-modal *):not(.crisp-benchmark-panel *) { color: var(--te
 .pulse-dot {
   animation: pulseDot 2s ease-in-out infinite;
 }
+
+.connections-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 24px;
+}
+
+@media (max-width: 1100px) {
+  .connections-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
