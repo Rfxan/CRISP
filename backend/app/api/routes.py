@@ -710,7 +710,7 @@ class SnapshotStore:
         queried = 0
         feed_counts = {"epss": {}, "nvd": {}, "kev": {kev_res.get("status", "unavailable"): 1}}
         unique_cves = sorted(unique_cves)
-        cursor = read_document("intel_cursor", {}) if tenant_active() else {}
+        cursor = (read_document("intel_cursor", {}) or {}) if tenant_active() else {}
         signature = digest(unique_cves)
         offset = cursor.get("offset", 0) if cursor.get("signature") == signature else 0
         for cve in unique_cves[offset:offset+25]:
@@ -3079,6 +3079,7 @@ def trigger_sync_all(request: Request = None, include_intel: bool = True):
             t_res = store.sync_live_threat_intel()
             job_results["threat_intel"] = t_res.get("status")
         except Exception:
+            logger.exception("Threat intelligence refresh failed")
             job_results["threat_intel"] = "error: Threat intelligence could not be refreshed"
 
     summary = store.cached_summary

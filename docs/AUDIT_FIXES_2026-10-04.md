@@ -49,3 +49,11 @@ Screenshots after deployment exposed an Overview display that ignored a successf
 The current assessment stays mounted during refresh, with a visible refresh notice. Sync phases identify Manager, Indexer, IAM and threat-intelligence retrieval. Completion or partial-failure feedback survives the analytics refresh and remains visible until the next sync. A forced refresh requested during an existing fetch runs afterwards so a mutation cannot silently retain an earlier summary.
 
 Validation: 31 relevant backend tests passed, including independent Indexer freshness and disconnect lifecycle checks; four frontend request tests and the production build passed. Chrome DOM checks used controlled Indexer-only and partial-feed-failure fixtures, paused the summary response during refresh, verified that the Overview and feedback remained visible, and checked a 390-pixel viewport. No browser page errors occurred. Personal connector credentials were not used.
+
+## Follow-up: first threat-intelligence refresh
+
+A fresh durable workspace has no saved `intel_cursor`. The detached worker staged that missing document as `null`, and enrichment attempted to read its dictionary fields. This caused an `AttributeError` before enrichment and produced the generic threat-intelligence failure during an otherwise successful telemetry sync. A new isolated guest on the deployed backend reproduced the same warning before the fix.
+
+The worker now initializes the missing cursor, and enrichment also tolerates a legacy null cursor. Unexpected enrichment exceptions are logged internally while retaining the safe public error message. Existing connector results and measurements remain independent of the intelligence refresh.
+
+Validation: **34 relevant backend tests passed**. Regression checks use actual background jobs for both intelligence-only and combined sync, verify first and repeated sync in a fresh workspace, and verify continuation through 30 controlled CVEs with an empty or null cursor. External feed unavailability still reports its actual degraded/failed status; this fix does not guarantee upstream availability.

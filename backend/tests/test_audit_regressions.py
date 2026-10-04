@@ -114,12 +114,13 @@ def test_saved_failed_connection_is_retried_and_last_success_is_preserved():
         bound_store.reset(token)
 
 
-def test_intel_batches_continue_instead_of_repeating_first_cves():
+@pytest.mark.parametrize("initial_cursor", [{}, None])
+def test_intel_batches_continue_instead_of_repeating_first_cves(initial_cursor):
     from app.core.tenancy import document_buffer
     local = SnapshotStore()
     local.current_snapshot["findings"] = [{"id": f"F{i}", "asset_id": "A", "cve_id": f"CVE-2024-{1000+i}"} for i in range(30)]
     intel = {"epss": .1, "in_kev": False, "provenance": {k: {"status": "live"} for k in ("epss", "nvd", "kev")}}
-    token = document_buffer.set({"sync_state": {}})
+    token = document_buffer.set({"sync_state": {}, "intel_cursor": initial_cursor})
     try:
         with patch.object(local.threat_intel, "fetch_cisa_kev", return_value={"status": "live"}), \
              patch.object(local.threat_intel, "enrich_cve", return_value=intel) as enrich:
@@ -132,6 +133,31 @@ def test_intel_batches_continue_instead_of_repeating_first_cves():
         assert len({call.args[0] for call in enrich.call_args_list}) == 30
     finally:
         document_buffer.reset(token)
+
+
+@pytest.mark.parametrize("kind", ["intel", "all"])
+def test_first_background_intel_sync_initializes_cursor(isolated_app, kind):
+    from app.connectors.threat_intel import ThreatIntelFeed
+    c = isolated_app
+    with patch.object(ThreatIntelFeed, "fetch_cisa_kev", return_value={"status": "live", "count": 1}):
+        # Use the actual detached worker and enrichment method: a fresh workspace
+        # has no stored intel_cursor, unlike an already initialized batch.
+        for _ in range(2):
+            response = c.post(f"/api/sync/jobs?kind={kind}")
+            assert response.status_code == 202, response.text
+            job_id = response.json()["id"]
+            for _ in range(100):
+                result = c.get(f"/api/sync/jobs/{job_id}").json()
+                if result["status"] not in ("QUEUED", "RUNNING"):
+                    break
+                time.sleep(.05)
+            assert result["status"] == "COMPLETED", result
+            if kind == "all":
+                assert result["job_results"]["threat_intel"] == "SYNCED"
+            else:
+                assert result["result"]["cves_queried"] == 0
+            state = c.get("/api/sync/state").json()["sync_state"]
+            assert state["threat_intel"]["status"] == "ok"
 
 
 @pytest.mark.parametrize("edit_during_sync", [False, True, "cancel"])

@@ -83,6 +83,7 @@ def run_job(identity, job_id):
         staged["connections"] = staged.get("connections") or {}
         staged["sync_state"] = staged.get("sync_state") or {}
         staged["run_history"] = staged.get("run_history") or []
+        staged["intel_cursor"] = staged.get("intel_cursor") or {}
 
         def progress(message):
             with tenant_transaction(identity):
