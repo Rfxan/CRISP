@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query, Response, Body, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, Query, Response, Body, UploadFile, File, Form, Request
 from pydantic import BaseModel, Field
 from typing import Dict, Any, List, Optional
 import json
@@ -15,6 +15,7 @@ from datetime import datetime, timezone, timedelta
 import requests
 
 from app.core.config import DATA_DIR, settings
+from app.core.inventory import normalize_inventory
 from app.core.sync_state import sync_state_manager
 from app.engine.fair_engine import FAIREngine
 from app.engine.model import digest, assumptions, MODEL_VERSION
@@ -47,6 +48,28 @@ from app.ai.llm_service import llm_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+@router.post("/sync/jobs", status_code=202)
+def start_sync_job(request: Request, kind: str = Query("all")):
+    from app.core.sync_jobs import enqueue
+    return enqueue(request, kind)
+
+
+@router.get("/sync/jobs/{job_id}")
+def get_sync_job(job_id: str):
+    from app.core.sync_jobs import job_state
+    return job_state(job_id)
+
+
+@router.delete("/sync/jobs/{job_id}")
+def cancel_sync_job(job_id: str):
+    from app.core.sync_jobs import job_state, TERMINAL
+    job = job_state(job_id)
+    if job["status"] not in TERMINAL:
+        job.update(status="CANCELLED", message="Sync cancelled; retrieved data will not be applied.")
+        write_document("sync_job", job)
+    return job
 
 
 def _is_better_control_state(candidate: Dict[str, Any], current: Dict[str, Any]) -> bool:
@@ -322,7 +345,7 @@ class SnapshotStore:
             return {**result, **metadata}
 
         conn = connections_store.get_connection("siem")
-        has_siem_conn = bool(conn and conn.get("base_url") and conn.get("connected", True))
+        has_siem_conn = bool(conn and conn.get("base_url"))
         has_real_sync = getattr(self, "has_real_siem_sync", False) or (self.current_snapshot.get("wazuh_telemetry", {}).get("source") == "Wazuh Live API")
         is_mock_sync = (self.current_snapshot.get("wazuh_telemetry", {}).get("source") == "Wazuh Telemetry Mock")
 
@@ -497,7 +520,7 @@ class SnapshotStore:
             aid = f.get("asset_id")
             if aid and aid not in known:
                 self.current_snapshot.setdefault("assets", []).append({"id": aid, "name": aid,
-                    "criticality_1_5": None, "has_business_context": False, "is_real_lab_asset": True,
+                    "criticality_1_5": None, "has_business_context": False, "is_real_lab_asset": False, "origin": "uploaded",
                     "records_count": None, "revenue_per_hour": None})
                 known.add(aid)
         self.current_snapshot["assessment_state"] = {"status": "completed",
@@ -516,6 +539,7 @@ class SnapshotStore:
             - Updates run_metadata with recomputed=False and skip_reason
         """
         from app.core.guest_workspace import enforce_limits
+        normalize_inventory(self.current_snapshot)
         enforce_limits(self.current_snapshot)
         self.dedupe_control_state()
         current_sig = self.compute_state_signature()
@@ -628,6 +652,7 @@ class SnapshotStore:
         Surfaces per-finding provenance and KEV exploitability label.
         """
         from app.core.guest_workspace import enforce_limits
+        normalize_inventory(self.current_snapshot)
         enforce_limits(self.current_snapshot)
         enforce_limits({"findings": findings})
         cve_intel = self.current_snapshot.get("cve_intel", {})
@@ -680,11 +705,34 @@ class SnapshotStore:
         kev_res = self.threat_intel.fetch_cisa_kev(force_refresh=True)
 
         # 2. Enrich each unique CVE with EPSS and NVD v2
+        from app.core.sync_jobs import job_deadline, job_progress
         updated = 0
-        for cve in unique_cves:
+        queried = 0
+        feed_counts = {"epss": {}, "nvd": {}, "kev": {kev_res.get("status", "unavailable"): 1}}
+        unique_cves = sorted(unique_cves)
+        cursor = read_document("intel_cursor", {}) if tenant_active() else {}
+        signature = digest(unique_cves)
+        offset = cursor.get("offset", 0) if cursor.get("signature") == signature else 0
+        for cve in unique_cves[offset:offset+25]:
+            if time.monotonic() >= job_deadline.get():
+                break
+            old = copy.deepcopy(cve_intel.get(cve, {}))
             enriched = self.threat_intel.enrich_cve(cve, kev_catalog=kev_res, local_cache=cve_intel)
             cve_intel[cve] = enriched
-            updated += 1
+            queried += 1
+            if enriched != old:
+                updated += 1
+            for feed in ("epss", "nvd"):
+                state = enriched.get("provenance", {}).get(feed, {}).get("status", "unavailable")
+                feed_counts[feed][state] = feed_counts[feed].get(state, 0) + 1
+            job_progress.get()(f"Enriched {queried}/{len(unique_cves)} CVEs")
+        remaining = max(0, len(unique_cves) - offset - queried)
+        if tenant_active():
+            write_document("intel_cursor", {"signature": signature, "offset": offset+queried if remaining else 0})
+        states = [state for counts in feed_counts.values() for state in counts]
+        healthy = all(state in ("live", "cached") for state in states) and not remaining
+        usable = any(state in ("live", "cached", "stale") for state in states)
+        outcome = "SYNCED" if healthy else ("DEGRADED" if usable else "FAILED")
 
         # 3. Propagate to all findings
         for f in findings:
@@ -702,23 +750,25 @@ class SnapshotStore:
             job_name="threat_intel",
             source="CISA KEV / NVD / EPSS",
             counts={
-                "cves_queried": len(unique_cves),
+                "cves_queried": queried,
                 "cves_updated": updated,
                 "kev_catalog_count": kev_res.get("count", 0),
                 "assets": len(self.current_snapshot.get("assets", [])),
                 "findings": len(findings)
             },
-            status="ok",
-            message=f"Enriched {updated} CVEs (KEV catalog: {kev_res.get('count', 0)} entries)"
+            status="ok" if healthy else ("degraded" if usable else "error"),
+            message=f"Queried {queried} CVEs; {updated} records changed; {remaining} pending. Feed status: {outcome}.",
+            extra={"feeds": feed_counts, "cves_pending": remaining}
         )
 
         # 5. Check and recompute only if data changed
         summary = self.check_and_recompute(trigger="sync_live_threat_intel")
 
         return {
-            "status": "SYNCED",
-            "cves_queried": len(unique_cves),
+            "status": outcome,
+            "cves_queried": queried,
             "cves_updated": updated,
+            "cves_pending": remaining, "feeds": feed_counts,
             "kev_catalog_count": kev_res.get("count", 0),
             "kev_status": kev_res.get("status", "unavailable"),
             "synced_at": datetime.now(timezone.utc).isoformat(),
@@ -965,7 +1015,7 @@ def inject_telemetry_anomaly(payload: Optional[InjectAnomalyRequest] = Body(defa
     """POST /threats/anomalies/inject -> Injects a telemetry spike to demonstrate IsolationForest anomaly flagging."""
     req = payload or InjectAnomalyRequest()
     conn = connections_store.get_connection("siem")
-    has_siem_conn = bool(conn and conn.get("base_url") and conn.get("connected", True))
+    has_siem_conn = bool(conn and conn.get("base_url"))
     has_real_sync = getattr(store, "has_real_siem_sync", False) or (store.current_snapshot.get("wazuh_telemetry", {}).get("source") == "Wazuh Live API")
 
     if not store.telemetry_history and not (has_siem_conn or has_real_sync):
@@ -1188,7 +1238,9 @@ def inject_demo_event(payload: InjectEventRequest):
 def get_data_quality():
     """GET /health/data-quality -> freshness, coverage, simulated-vs-real ratio"""
     assets = store.current_snapshot.get("assets", [])
-    real_assets = [a for a in assets if a.get("is_real_lab_asset", False)]
+    origins = {key: sum(a.get("origin", "unknown") == key for a in assets) for key in ("manual", "uploaded", "live_connected", "synthetic", "unknown")}
+    real_assets = []
+    declared_assets = [a for a in assets if a.get("has_business_context") and a.get("criticality_1_5") is not None]
     controls = store.current_snapshot.get("control_state", [])
     findings = store.current_snapshot.get("findings", [])
     wazuh_telemetry = store.current_snapshot.get("wazuh_telemetry") or {}
@@ -1213,7 +1265,7 @@ def get_data_quality():
         data_quality_score = 0.0
     else:
         # Asset real lab ratio (up to 0.3)
-        asset_ratio = len(real_assets) / len(assets)
+        asset_ratio = len(declared_assets) / len(assets)
         # Controls coverage (up to 0.15)
         control_ratio = (len(active_controls) / max(1, len(controls))) if controls else 0.0
         # Telemetry signal boost (0.1 if live wazuh connected)
@@ -1226,7 +1278,8 @@ def get_data_quality():
         "data_quality_score": data_quality_score,
         "assets_total": len(assets),
         "assets_real_lab": len(real_assets),
-        "assets_simulated": len(assets) - len(real_assets),
+        "assets_simulated": origins["synthetic"],
+        "asset_origins": origins, "provenance_label": "Uploaded / declared data; not independently verified",
         "findings_total": len(findings),
         "controls_telemetry_sources": {
             "wazuh_live_endpoints": wazuh_live_endpoints,
@@ -1236,8 +1289,9 @@ def get_data_quality():
             "controls_configured": len(active_controls)
         },
         "real_vs_simulated_ratio": {
-            "real_percentage": round((len(real_assets) / max(1, len(assets))) * 100, 1) if assets else 0.0,
-            "simulated_percentage": round(100 - (len(real_assets) / max(1, len(assets))) * 100, 1) if assets else 0.0
+            "real_percentage": 0.0,
+            "unverified_percentage": round((len(assets)-origins["synthetic"]) / max(1, len(assets)) * 100, 1),
+            "simulated_percentage": round(origins["synthetic"] / max(1, len(assets)) * 100, 1) if assets else 0.0
         },
         "feed_freshness": {
             "cisa_kev_sync": "Live Sync Supported",
@@ -1388,7 +1442,7 @@ def ingest_openvas_scan(file: UploadFile = File(...)):
                     "records_count": None,
                     "revenue_per_hour": None,
                     "criticality_1_5": None,
-                    "is_real_lab_asset": True,
+                    "is_real_lab_asset": False, "origin": "uploaded",
                     "has_business_context": False
                 }
                 store.current_snapshot.setdefault("assets", []).append(new_asset)
@@ -1431,7 +1485,7 @@ def ingest_unified_scan(file: UploadFile = File(...)):
         )
 
     offset = len(store.current_snapshot["findings"])
-    if scan_format == "openvas_xml":
+    if scan_format in ("openvas_xml", "openvas_csv", "openvas_json"):
         connector = OpenVASConnector()
         try:
             result = connector.parse(content, filename, finding_id_offset=offset)
@@ -1475,7 +1529,7 @@ def ingest_unified_scan(file: UploadFile = File(...)):
                     "records_count": None,
                     "revenue_per_hour": None,
                     "criticality_1_5": None,
-                    "is_real_lab_asset": True,
+                    "is_real_lab_asset": False, "origin": "uploaded",
                     "has_business_context": False
                 }
                 store.current_snapshot.setdefault("assets", []).append(new_asset)
@@ -1536,7 +1590,7 @@ def ingest_defender_edr(file: UploadFile = File(...)):
                     "records_count": None,
                     "revenue_per_hour": None,
                     "criticality_1_5": None,
-                    "is_real_lab_asset": True,
+                    "is_real_lab_asset": False, "origin": "uploaded",
                     "has_business_context": False
                 }
                 store.current_snapshot.setdefault("assets", []).append(new_asset)
@@ -1558,14 +1612,17 @@ def ingest_defender_edr(file: UploadFile = File(...)):
 
 
 @router.post("/ingest/wazuh-sync")
-def sync_wazuh_telemetry(simulate: Optional[bool] = False):
+def sync_wazuh_telemetry(simulate: Optional[bool] = False, request: Request = None):
+    if request is not None and tenant_active() and not simulate:
+        from app.core.sync_jobs import enqueue
+        return enqueue(request, "wazuh")
     """
     Syncs live EDR and SIEM telemetry from Wazuh REST API.
     Records sync outcome to backend/data/sync_state.json.
     Diffs against snapshot state and recomputes FAIR risk only if data changed.
     """
     conn = connections_store.get_connection("siem")
-    is_configured = bool(conn and conn.get("base_url") and conn.get("connected", True))
+    is_configured = bool(conn and conn.get("base_url"))
     now_iso = datetime.now(timezone.utc).isoformat()
 
     if simulate:
@@ -1669,6 +1726,8 @@ def sync_wazuh_telemetry(simulate: Optional[bool] = False):
             agent_data = connector.fetch_agent_status()
             alert_data = connector.fetch_alert_summary(hours=24)
         except Exception as e:
+            connections_store.record_connection_result("siem", False, "Wazuh telemetry sync failed. Check credentials and endpoint.")
+            previous = copy.deepcopy(store.current_snapshot.get("wazuh_telemetry", {}))
             sync_state_manager.record_sync(
                 job_name="wazuh",
                 source=source_label,
@@ -1686,7 +1745,9 @@ def sync_wazuh_telemetry(simulate: Optional[bool] = False):
                 "auth_failures_24h": None,
                 "source": "Not Connected",
                 "status": "error",
-                "last_sync": now_iso
+                "last_sync": previous.get("last_sync"),
+                "last_checked": now_iso,
+                "last_successful": previous.get("last_successful") or previous
             }
             target_ids = {"CTRL-EDR-01", "CTRL-SIEM-01"}
             for ctrl in store.current_snapshot.get("control_state", []):
@@ -1698,6 +1759,8 @@ def sync_wazuh_telemetry(simulate: Optional[bool] = False):
                     ctrl["is_user_assumed"] = False
             raise HTTPException(status_code=502, detail=f"Wazuh API sync failed: {str(e)}")
 
+    if not is_sim:
+        connections_store.record_connection_result("siem", True, "Agent telemetry synchronized.")
     total_agents = agent_data["total_agents"]
     active_agents = agent_data["active_agents"]
     agent_cov = agent_data["agent_coverage_pct"]
@@ -1840,7 +1903,10 @@ def sync_wazuh_telemetry(simulate: Optional[bool] = False):
 
 
 @router.post("/ingest/iam-sync")
-def sync_iam_telemetry(simulate: Optional[bool] = False):
+def sync_iam_telemetry(simulate: Optional[bool] = False, request: Request = None):
+    if request is not None and tenant_active() and not simulate:
+        from app.core.sync_jobs import enqueue
+        return enqueue(request, "iam")
     """
     Syncs privileged account MFA telemetry from Keycloak Admin REST API.
     Uses saved connection from ConnectionsStore if available, otherwise default settings.
@@ -1849,7 +1915,7 @@ def sync_iam_telemetry(simulate: Optional[bool] = False):
     Diffs against snapshot state and recomputes FAIR risk only if data changed.
     """
     conn = connections_store.get_connection("iam")
-    is_configured = bool(conn and conn.get("base_url") and conn.get("connected", True))
+    is_configured = bool(conn and conn.get("base_url"))
     now_iso = datetime.now(timezone.utc).isoformat()
 
     if simulate:
@@ -1915,6 +1981,7 @@ def sync_iam_telemetry(simulate: Optional[bool] = False):
             mfa_cnt = mfa_data.get("mfa_enabled_count", 0)
             evidence_ref = f"Keycloak Live ({mfa_cnt}/{total_priv} accounts)"
         except Exception as e:
+            connections_store.record_connection_result("iam", False, "IAM sync failed. Check credentials and endpoint.")
             sync_state_manager.record_sync(
                 job_name="iam",
                 source="error",
@@ -1930,6 +1997,8 @@ def sync_iam_telemetry(simulate: Optional[bool] = False):
                     ctrl["is_simulated"] = False
             raise HTTPException(status_code=502, detail=f"Keycloak API sync failed: {str(e)}")
 
+    if not is_simulated:
+        connections_store.record_connection_result("iam", True, "MFA telemetry synchronized.")
     cov_pct = mfa_data["mfa_coverage_pct"]
 
     # Update CTRL-MFA-01 control state
@@ -2372,7 +2441,7 @@ def ingest_assets_file(file: UploadFile = File(...)):
                 "records_count": records,
                 "revenue_per_hour": rev,
                 "criticality_1_5": crit,
-                "is_real_lab_asset": True,
+                "is_real_lab_asset": False, "origin": "uploaded",
                 "has_business_context": has_biz
             })
 
@@ -2388,7 +2457,7 @@ def ingest_assets_file(file: UploadFile = File(...)):
                     "risk_appetite_var95": settings.DEFAULT_RISK_APPETITE
                 }
             svc_ids = {a["business_service_id"] for a in new_assets if a["business_service_id"]}
-            existing_svcs = {s["service_id"] for s in store.current_snapshot.get("services", [])}
+            existing_svcs = {(s.get("id") or s.get("service_id")) for s in store.current_snapshot.get("services", [])}
             for sid in svc_ids:
                 if sid not in existing_svcs:
                     store.current_snapshot.setdefault("services", []).append({
@@ -2463,7 +2532,7 @@ def add_single_asset(payload: AddAssetRequest):
         "records_count": rec,
         "revenue_per_hour": rev,
         "criticality_1_5": crit,
-        "is_real_lab_asset": True,
+        "is_real_lab_asset": False, "origin": "manual",
         "has_business_context": True
     }
 
@@ -2479,7 +2548,7 @@ def add_single_asset(payload: AddAssetRequest):
 
     # Register service if not existing
     if svc:
-        existing_svcs = {s.get("service_id") for s in store.current_snapshot.get("services", [])}
+        existing_svcs = {(s.get("id") or s.get("service_id")) for s in store.current_snapshot.get("services", [])}
         if svc not in existing_svcs:
             store.current_snapshot.setdefault("services", []).append({
                 "service_id": svc,
@@ -2566,7 +2635,7 @@ def update_single_asset(asset_id: str, payload: UpdateAssetRequest):
     if svc:
         target_asset["business_service_id"] = svc
         # Register service if not existing
-        existing_svcs = {s.get("service_id") for s in store.current_snapshot.get("services", [])}
+        existing_svcs = {(s.get("id") or s.get("service_id")) for s in store.current_snapshot.get("services", [])}
         if svc not in existing_svcs:
             store.current_snapshot.setdefault("services", []).append({
                 "service_id": svc,
@@ -2632,17 +2701,8 @@ def delete_single_asset(asset_id: str):
         if str(f.get("asset_id") or "").strip() != aid_clean
     ]
 
-    # Clean up orphaned services if no remaining assets reference them
-    remaining_service_ids = {
-        str(a.get("business_service_id") or "").strip()
-        for a in store.current_snapshot["assets"]
-        if a.get("business_service_id")
-    }
-    if "services" in store.current_snapshot:
-        store.current_snapshot["services"] = [
-            s for s in store.current_snapshot["services"]
-            if str(s.get("service_id") or "").strip() in remaining_service_ids
-        ]
+    # Business services are independent inventory records; deleting an asset
+    # must not delete their financial context or dependency graph.
 
     # Force recompute FAIR risk summary
     store.get_summary(force_refresh=True)
@@ -2686,7 +2746,10 @@ def clear_asset_inventory():
 
 
 @router.post("/ingest/sync-live-intel")
-def sync_live_threat_intel():
+def sync_live_threat_intel(request: Request = None):
+    if request is not None and tenant_active():
+        from app.core.sync_jobs import enqueue
+        return enqueue(request, "intel")
     """Synchronizes CISA KEV catalog, FIRST EPSS, and NIST NVD API v2 for all active CVEs."""
     return store.sync_live_threat_intel()
 
@@ -2759,7 +2822,10 @@ def get_connections():
 
 
 @router.post("/ingest/wazuh-indexer-sync")
-def sync_wazuh_indexer():
+def sync_wazuh_indexer(request: Request = None):
+    if request is not None and tenant_active():
+        from app.core.sync_jobs import enqueue
+        return enqueue(request, "indexer")
     """Load real per-agent hourly alert counts; history is durable tenant state."""
     conn = connections_store.get_connection("indexer")
     if not conn or not conn.get("base_url"):
@@ -2804,7 +2870,10 @@ def sync_wazuh_indexer():
 
 
 @router.post("/connections/refresh")
-def refresh_connections():
+def refresh_connections(request: Request = None):
+    if request is not None and tenant_active():
+        from app.core.sync_jobs import enqueue
+        return enqueue(request, "connections")
     """Recheck saved endpoints and synchronize telemetry; report failures per connector."""
     results = {}
     for category, sync in (("siem", sync_wazuh_telemetry), ("indexer", sync_wazuh_indexer), ("iam", sync_iam_telemetry)):
@@ -2966,7 +3035,10 @@ def test_ai_connection(payload: LLMConfigPayload):
 # --- Continuous Telemetry Synchronization Endpoints ---
 
 @router.post("/sync/all")
-def trigger_sync_all():
+def trigger_sync_all(request: Request = None, include_intel: bool = True):
+    if request is not None and tenant_active():
+        from app.core.sync_jobs import enqueue
+        return enqueue(request, "all")
     """
     POST /api/sync/all
     Executes a manual synchronization across all configured telemetry and intelligence sources:
@@ -2994,15 +3066,16 @@ def trigger_sync_all():
     except Exception as e:
         job_results["iam"] = f"error: {e}"
 
-    try:
-        t_res = store.sync_live_threat_intel()
-        job_results["threat_intel"] = t_res.get("status")
-    except Exception as e:
-        job_results["threat_intel"] = f"error: {e}"
+    if include_intel:
+        try:
+            t_res = store.sync_live_threat_intel()
+            job_results["threat_intel"] = t_res.get("status")
+        except Exception:
+            job_results["threat_intel"] = "error: Threat intelligence could not be refreshed"
 
     summary = store.cached_summary
     return {
-        "status": "COMPLETED",
+        "status": "DEGRADED" if any(str(v).startswith("error") or v in ("DEGRADED", "FAILED") for v in job_results.values()) else "COMPLETED",
         "job_results": job_results,
         "run_id": summary.get("run_id") if summary else None,
         "run_metadata": store.run_metadata,

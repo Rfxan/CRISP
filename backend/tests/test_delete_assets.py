@@ -85,9 +85,9 @@ def test_delete_single_asset_success():
     assert len(remaining_findings) == 1
     assert remaining_findings[0]["asset_id"] == "AST-TEST-02"
 
-    # Verify orphaned service was cleaned up
+    # Services retain independent business context and dependencies
     remaining_services = [s["service_id"] for s in store.current_snapshot["services"]]
-    assert "SVC-TEST-01" not in remaining_services
+    assert "SVC-TEST-01" in remaining_services
     assert "SVC-TEST-02" in remaining_services
 
 

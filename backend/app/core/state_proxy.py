@@ -35,4 +35,6 @@ def import_state(store, data):
         if name in ("current_snapshot", "telemetry_history", "has_real_siem_sync", "telemetry_source",
                     "run_metadata", "run_sequence", "snapshot_history", "cached_summary", "last_state_signature"):
             setattr(store,name,value)
+    from app.core.inventory import normalize_inventory
+    normalize_inventory(store.current_snapshot)
     store._optimizer_cache = None

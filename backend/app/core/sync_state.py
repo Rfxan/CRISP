@@ -139,11 +139,15 @@ class SyncStateManager:
         """
         if active():
             self._load()
+        state = read_document("sync_state", {}) if active() else self._state
+        previous = state.get(job_name, {})
         now = _iso_now()
         entry: Dict[str, Any] = {
             "job": job_name,
             "source": source,
-            "last_sync_at": now,
+            "last_sync_at": now if status == "ok" else previous.get("last_sync_at"),
+            "last_attempt_at": now,
+            "last_success_at": now if status == "ok" else previous.get("last_success_at", previous.get("last_sync_at")),
             "status": status,
             "message": message,
             "counts": counts
@@ -151,12 +155,18 @@ class SyncStateManager:
         if extra:
             entry.update(extra)
 
-        self._state[job_name] = entry
-        self._save()
+        state[job_name] = entry
+        if active():
+            write_document("sync_state", state)
+        else:
+            self._state = state
+            self._save()
         return entry
 
     def get_state(self) -> Dict[str, Any]:
         """Returns the full sync state map."""
+        if active():
+            return read_document("sync_state", {})
         # Ensure latest disk state
         self._load()
         return dict(self._state)
@@ -164,7 +174,7 @@ class SyncStateManager:
     def get_job(self, job_name: str) -> Optional[Dict[str, Any]]:
         """Returns sync status for a specific job."""
         if active():
-            self._load()
+            return read_document("sync_state", {}).get(job_name)
         return self._state.get(job_name)
 
     def get_freshness_summary(self) -> Dict[str, Any]:
@@ -172,10 +182,10 @@ class SyncStateManager:
         Returns a high-level summary suitable for displaying in executive headers.
         Extracts primary telemetry stats (Wazuh agents, IAM MFA coverage, last sync timestamps).
         """
-        self._load()
-        wazuh = self._state.get("wazuh", {})
-        iam = self._state.get("iam", {})
-        intel = self._state.get("threat_intel", {})
+        state = self.get_state()
+        wazuh = state.get("wazuh", {})
+        iam = state.get("iam", {})
+        intel = state.get("threat_intel", {})
 
         wazuh_counts = wazuh.get("counts", {})
         iam_counts = iam.get("counts", {})

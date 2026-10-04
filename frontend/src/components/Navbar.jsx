@@ -60,9 +60,7 @@ export default function Navbar({ runId, assumptionsVer, organization, dataQualit
               {dataQuality ? `${Math.round(dataQuality.data_quality_score * 100)}%` : '—'}
             </span>
             <span className="badge badge-real" style={{ fontSize: 9 }}>
-              {dataQuality?.real_vs_simulated_ratio?.real_percentage !== undefined
-                ? `${dataQuality.real_vs_simulated_ratio.real_percentage}% Real Lab`
-                : 'Real Lab'}
+              {dataQuality?.asset_origins?.synthetic ? 'Includes synthetic data' : 'Uploaded / declared data'}
             </span>
           </div>
 

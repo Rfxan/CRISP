@@ -16,6 +16,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
   });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [activeSyncId, setActiveSyncId] = useState(null);
 
   // Form states
   const [forms, setForms] = useState({
@@ -69,9 +70,9 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
     setRefreshing(true);
     setStatusMessage(null);
     try {
-      const data = await api.refreshConnections();
-      setConnections(data.connections);
-      const entries = Object.entries(data.results);
+      const data = await api.refreshConnections((message, job) => { setActiveSyncId(job.id); setStatusMessage({ type: 'pending', text: message }); });
+      setConnections(data.connections || await api.getConnections());
+      const entries = Object.entries(data.results || {});
       const failed = entries.filter(([, result]) => !result.success);
       const warnings = entries.filter(([, result]) => result.warning);
       setStatusMessage({
@@ -87,6 +88,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
       setStatusMessage({ type: 'error', text: err.message });
     } finally {
       setRefreshing(false);
+      setActiveSyncId(null);
     }
   };
 
@@ -429,10 +431,11 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
             gap: 16
           }}>
             <div>
-              <label style={{ display: 'block', fontSize: 12, color: 'var(--text-dim)', marginBottom: 6 }}>
+              <label htmlFor={`${category}-endpoint`} style={{ display: 'block', fontSize: 12, color: 'var(--text-dim)', marginBottom: 6 }}>
                 {category === 'indexer' ? 'Indexer HTTPS URL (separate from Manager API)' : 'Base URL (REST API Host)'}
               </label>
               <input
+                id={`${category}-endpoint`}
                 type="text"
                 style={{ width: '100%', fontFamily: 'monospace', fontSize: 13, padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: 8, background: 'var(--bg-card)' }}
                 placeholder={category === 'indexer' ? 'https://indexer.your-domain.com' : category === 'siem' ? 'https://wazuh.your-domain.com:55000' : 'https://identity.your-domain.com'}
@@ -446,10 +449,11 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
               <div>
-                <label style={{ display: 'block', fontSize: 12, color: 'var(--text-dim)', marginBottom: 6 }}>
+                <label htmlFor={`${category}-username`} style={{ display: 'block', fontSize: 12, color: 'var(--text-dim)', marginBottom: 6 }}>
                   {category === 'indexer' ? 'Indexer Username' : 'API Username / Client ID'}
                 </label>
                 <input
+                  id={`${category}-username`}
                   type="text"
                   style={{ width: '100%', fontSize: 13, padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: 8, background: 'var(--bg-card)' }}
                   placeholder={category === 'siem' ? 'wazuh-wui' : category === 'indexer' ? 'Read-only Indexer account' : 'Client ID'}
@@ -464,6 +468,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
                 </label>
                 <div style={{ position: 'relative' }}>
                   <input
+                    aria-label={`${category} password`}
                     type={form.showPassword ? 'text' : 'password'}
                     style={{ width: '100%', paddingRight: 36, fontSize: 13, padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: 8, background: 'var(--bg-card)' }}
                     placeholder={conn.base_url ? '•••••••• (unchanged)' : 'Enter password'}
@@ -472,6 +477,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
                   />
                   <button
                     type="button"
+                    aria-label={form.showPassword ? 'Hide password' : 'Show password'}
                     onClick={() => togglePasswordVisibility(category)}
                     style={{
                       position: 'absolute',
@@ -650,6 +656,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
         </button>
       </div>
 
+      {activeSyncId && <button type="button" className="btn btn-outline" onClick={() => api.cancelSyncJob(activeSyncId).catch(e => setStatusMessage({ type: 'error', text: e.message }))}>Cancel sync</button>}
       {/* Status Alert Toast */}
       {statusMessage && (
         <div style={{
@@ -705,7 +712,7 @@ export default function ConnectionsSettings({ onConnectionChanged }) {
         lineHeight: 1.6
       }}>
         <strong style={{ color: 'var(--text-main)' }}>Continuous Telemetry Synchronization Architecture:</strong>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginTop: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 16, marginTop: 10 }}>
           <div>
             <span style={{ color: 'var(--primary)' }}>1. Your connections:</span> Enter your endpoint and API credentials here. Passwords are encrypted in storage and never returned by the API.
           </div>

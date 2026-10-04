@@ -16,6 +16,7 @@ from app.core.deployment import requires_hosted_database
 
 principal_context = contextvars.ContextVar("principal", default=None)
 transaction_context = contextvars.ContextVar("transaction", default=None)
+document_buffer = contextvars.ContextVar("detached_documents", default=None)
 _sqlite_schema_lock = threading.Lock()
 _initialized_sqlite = set()
 
@@ -81,6 +82,7 @@ def begin_transaction(db, tenant):
 @contextmanager
 def tenant_transaction(principal):
     db = connect()
+    btoken = document_buffer.set(None)
     ptoken = principal_context.set(principal)
     ttoken = transaction_context.set(db)
     try:
@@ -93,14 +95,19 @@ def tenant_transaction(principal):
     finally:
         transaction_context.reset(ttoken)
         principal_context.reset(ptoken)
+        document_buffer.reset(btoken)
         db.close()
 
 
 def active():
-    return transaction_context.get() is not None
+    return transaction_context.get() is not None or document_buffer.get() is not None
 
 
 def read_document(name, default=None):
+    buffer = document_buffer.get()
+    if buffer is not None:
+        import copy
+        return copy.deepcopy(buffer.get(name, default))
     db = transaction_context.get()
     if db is None:
         raise RuntimeError("Tenant document access requires a transaction")
@@ -110,6 +117,11 @@ def read_document(name, default=None):
 
 
 def write_document(name, value):
+    buffer = document_buffer.get()
+    if buffer is not None:
+        import copy
+        buffer[name] = copy.deepcopy(value)
+        return
     db = transaction_context.get()
     if db is None:
         raise RuntimeError("Tenant document access requires a transaction")

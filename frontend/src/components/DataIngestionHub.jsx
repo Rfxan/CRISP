@@ -49,6 +49,7 @@ export default function DataIngestionHub({ onDataUpdated }) {
   const [loading, setLoading] = useState(true);
   const [activeSection, setActiveSection] = useState('assets');
   const [syncingIntel, setSyncingIntel] = useState(false);
+  const [activeSyncId, setActiveSyncId] = useState(null);
   const [uploadingScan, setUploadingScan] = useState(false);
   const [uploadingDefender, setUploadingDefender] = useState(false);
   const [uploadingAssets, setUploadingAssets] = useState(false);
@@ -193,17 +194,17 @@ export default function DataIngestionHub({ onDataUpdated }) {
     setSyncingIntel(true);
     setStatusMsg(null);
     try {
-      const res = await api.syncLiveIntel();
+      const res = await api.syncLiveIntel((message, job) => { setActiveSyncId(job.id); setStatusMsg({ type: 'pending', text: message }); });
       setStatusMsg({
-        type: 'success',
-        text: `Threat Intel Synchronized: ${res.synced_cves} CVEs enriched via FIRST EPSS API & CISA KEV catalog. Source: ${res.source}`
+        type: res.status === 'DEGRADED' ? 'error' : 'success',
+        text: `Threat intelligence: ${res.status}. Queried ${res.cves_queried || 0} CVEs; ${res.cves_updated || 0} records changed; ${res.cves_pending || 0} pending. ${Object.entries(res.feeds || {}).map(([name, counts]) => `${name.toUpperCase()}: ${Object.entries(counts).map(([state, count]) => `${count} ${state}`).join(', ')}`).join('; ')}`
       });
       await fetchSnapshot();
       notifyUpdated();
     } catch (err) {
       setStatusMsg({ type: 'error', text: 'Failed to sync live intel: ' + err.message });
     } finally {
-      setSyncingIntel(false);
+      setSyncingIntel(false); setActiveSyncId(null);
     }
   };
 
@@ -493,7 +494,7 @@ export default function DataIngestionHub({ onDataUpdated }) {
         </div>
 
         {/* Live Provenance Cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginTop: 18 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 190px), 1fr))', gap: 12, marginTop: 18 }}>
           <div className="glass-panel" style={{ padding: 12, background: 'rgba(255,255,255,0.02)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--text-dim)' }}>
               <Server size={14} color="var(--primary)" /> Active Assets
@@ -610,6 +611,7 @@ export default function DataIngestionHub({ onDataUpdated }) {
           </div>
         </div>
 
+        {activeSyncId && <button type="button" className="btn btn-outline" onClick={() => api.cancelSyncJob(activeSyncId).catch(e => setStatusMsg({type: 'error', text:e.message}))}>Cancel sync</button>}
         {/* Status Message */}
         {statusMsg && (
           <div style={{
@@ -787,7 +789,7 @@ export default function DataIngestionHub({ onDataUpdated }) {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 360px), 1fr))', gap: 16 }}>
             {controlStates.map(cs => {
               const meta = catalog[cs.control_id] || {};
               const capex = meta.implementation_cost || meta.capex || (cs.control_id === 'CTRL-MFA-01' ? 1500000 : (cs.control_id === 'CTRL-EDR-01' ? 2500000 : 0));
@@ -1067,7 +1069,7 @@ export default function DataIngestionHub({ onDataUpdated }) {
             </div>
 
             {/* Ingestion Options Grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: 14 }}>
               {/* Option 1: Built-in Scanners */}
               <div className="glass-panel" style={{ padding: 16, background: 'rgba(183, 140, 102, 0.03)', border: '1px solid rgba(183, 140, 102, 0.3)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                 <div>
@@ -1571,7 +1573,7 @@ export default function DataIngestionHub({ onDataUpdated }) {
           ) : (
             <div>
               {/* Telemetry Windows Overview */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 20 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 12, marginBottom: 20 }}>
                 <div className="glass-panel" style={{ padding: 14, background: 'rgba(255,255,255,0.02)' }}>
                   <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>Baseline Observation Windows</div>
                   <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-main)', marginTop: 4 }}>

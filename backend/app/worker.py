@@ -8,42 +8,31 @@ from app.core.state_proxy import bound_store, import_state, export_state
 
 
 def sync_once(tenant, interval=30):
-    from app.api.routes import SnapshotStore, sync_wazuh_telemetry, sync_wazuh_indexer, sync_iam_telemetry
-    # The due check and external sync stay in one transaction: another worker cannot
-    # claim the same job, including after a lease timeout during a slow connector call.
-    with tenant_transaction({"tenant":tenant,"subject":"sync-worker","role":"admin"}):
-        now = time.time()
+    from types import SimpleNamespace
+    from app.core.sync_jobs import enqueue, run_job, TERMINAL
+    identity = {"tenant": tenant, "subject": "sync-worker", "role": "admin"}
+    request = SimpleNamespace(state=SimpleNamespace())
+    now = time.time()
+    with tenant_transaction(identity):
         last = read_document("sync_schedule", {})
-        if now-last.get("last_completed",0) < interval:
+        current = read_document("sync_job", {})
+        if now-last.get("last_completed", 0) < interval:
             return False
-        local = SnapshotStore()
-        import_state(local, read_document("snapshot"))
-        token = bound_store.set(local)
-        try:
-            failures = []
-            for sync in (sync_wazuh_telemetry, sync_wazuh_indexer, sync_iam_telemetry):
-                try:
-                    if sync is sync_wazuh_indexer:
-                        sync()
-                    else:
-                        sync(simulate=False)
-                except Exception:
-                    failures.append(sync.__name__)
-            if now-last.get("last_intel",0) >= 86400:
-                try:
-                    local.sync_live_threat_intel()
-                    last["last_intel"] = now
-                except Exception:
-                    failures.append("threat_intel")
-            write_document("snapshot",export_state(local))
-            last["last_completed"] = time.time()
-            write_document("sync_schedule",last)
-            last["failed_jobs"] = failures
-            write_document("sync_schedule",last)
-            audit("telemetry_sync",502 if failures else 200)
-            return True
-        finally:
-            bound_store.reset(token)
+        if current.get("status") not in TERMINAL and now-current.get("updated_at", 0) < 300:
+            return False
+        kind = "all" if now-last.get("last_intel", 0) >= 86400 else "telemetry"
+        job = enqueue(request, kind)
+    # The durable claim is committed before network retrieval begins.
+    run_job(identity, job["id"])
+    with tenant_transaction(identity):
+        outcome = read_document("sync_job", {})
+        last["last_completed"] = time.time()
+        if kind == "all" and outcome.get("status") == "COMPLETED":
+            last["last_intel"] = now
+        last["failed_jobs"] = [name for name, status in outcome.get("job_results", {}).items()
+                               if str(status).startswith("error") or status in ("FAILED", "DEGRADED")]
+        write_document("sync_schedule", last)
+    return True
 
 
 def main():

@@ -215,7 +215,7 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
             </div>
           </div>
           <button
-            onClick={onClose}
+            aria-label="Close dialog" onClick={onClose}
             style={{
               background: 'transparent',
               border: 'none',
@@ -254,11 +254,11 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
             <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-main)', marginBottom: 8 }}>
               1. Choose LLM Provider
             </label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 210px), 1fr))', gap: 10 }}>
               {PROVIDER_OPTIONS.map(p => {
                 const isSelected = provider === p.id;
                 return (
-                  <div
+                  <button type="button" aria-pressed={isSelected}
                     key={p.id}
                     onClick={() => handleProviderSelect(p.id)}
                     style={{
@@ -279,7 +279,7 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
                     <p style={{ margin: 0, fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.3 }}>
                       {p.desc}
                     </p>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -306,7 +306,7 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
               <input
                 type="text"
                 placeholder="Type or paste any model ID (e.g. claude-3-7-sonnet-20250219, gemini-2.0-flash, gpt-4o, deepseek-reasoner)"
-                value={model}
+                aria-label="Model identifier" value={model}
                 onChange={(e) => setModel(e.target.value)}
                 style={{
                   width: '100%',
@@ -376,7 +376,7 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
                       ? 'https://api.deepseek.com' 
                       : 'https://api.example.com/v1'
                 }
-                value={baseUrl}
+                aria-label="Provider base URL" value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
                 style={{
                   width: '100%',
@@ -406,7 +406,7 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
                   <input
                     type={showKey ? 'text' : 'password'}
                     placeholder={config?.has_api_key && config?.provider === provider ? '•••••••• (Encrypted key saved - leave blank or paste to replace)' : 'Paste API Key'}
-                    value={apiKey}
+                    aria-label="Provider API key" value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                     style={{
                       width: '100%',
@@ -478,7 +478,7 @@ export default function LLMSettingsModal({ isOpen, onClose, onConfigSaved }) {
             <div style={{ display: 'flex', gap: 10 }}>
               <button
                 type="button"
-                onClick={onClose}
+                aria-label="Close dialog" onClick={onClose}
                 className="btn btn-outline"
                 style={{ fontSize: 12 }}
               >

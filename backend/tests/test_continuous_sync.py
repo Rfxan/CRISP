@@ -93,14 +93,16 @@ def test_diff_and_conditional_recompute(client):
     assert data3["run_metadata"]["changes_detected"] is True
 
 
-def test_sync_all_endpoint_and_freshness(client):
+def test_sync_all_endpoint_and_freshness(client, monkeypatch):
     """
     Tests POST /api/sync/all and GET /api/sync/state
     """
+    monkeypatch.setattr(store._target(), "sync_live_threat_intel", lambda: {"status": "DEGRADED"})
     res = client.post("/api/sync/all")
     assert res.status_code == 200
     payload = res.json()
-    assert payload["status"] == "COMPLETED"
+    assert payload["status"] == "DEGRADED"
+    assert payload["job_results"]["threat_intel"] == "DEGRADED"
     assert "job_results" in payload
     assert "freshness" in payload
     assert "sync_state" in payload

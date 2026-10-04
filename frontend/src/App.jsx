@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import RiskExplanation from './components/RiskExplanation';
 import Navbar from './components/Navbar';
@@ -34,7 +34,15 @@ export default function App() {
   const [failingEndpoints, setFailingEndpoints] = useState([]);
   const [toast, setToast] = useState(null);
 
-  const loadData = async (forceRefresh = false) => {
+  const loadingRequest = useRef(null);
+  const loadData = (forceRefresh = false) => {
+    if (loadingRequest.current) return loadingRequest.current;
+    const task = performLoad(forceRefresh);
+    loadingRequest.current = task;
+    task.finally(() => { loadingRequest.current = null; });
+    return task;
+  };
+  const performLoad = async (forceRefresh = false) => {
     if (forceRefresh) setLoading(true);
     try {
       const results = await Promise.allSettled([
@@ -135,7 +143,7 @@ export default function App() {
   const navigateToIngestion = canEdit ? () => setActiveTab('ingestion') : undefined;
 
   const DashboardLayout = () => (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'row', backgroundColor: 'var(--bg-main)' }}>
+    <div className="dashboard-layout" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'row', backgroundColor: 'var(--bg-main)' }}>
       
       {/* Left Sidebar */}
       <Sidebar tabs={tabs} activeTab={activeTab} setActiveTab={setActiveTab} />
@@ -152,7 +160,7 @@ export default function App() {
       />
 
       {/* Main View Area */}
-      <main style={{ flex: 1, padding: '32px', overflowY: 'auto' }}>
+      <main className="dashboard-main" style={{ flex: 1, padding: '32px', overflowY: 'auto' }}>
         {guestWorkspace && (
           <div className="glass-panel workspace-notice" style={{ padding: '12px 18px', marginBottom: 20, color: 'var(--text-muted)' }}>
             Your workspace · Upload data, configure integrations, and test recommendations. Your changes stay separate from other visitors and expire after 24 hours.

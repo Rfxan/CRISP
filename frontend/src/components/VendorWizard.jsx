@@ -413,7 +413,7 @@ export default function VendorWizard({ onVendorSaved, onCancel }) {
           </div>
 
           {/* Field Mapping Grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 14 }}>
             {/* 1. Asset ID (Required) */}
             <div className="glass-panel" style={{ padding: 14 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>

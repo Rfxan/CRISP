@@ -4,7 +4,7 @@ import hashlib
 import json
 from app.core.config import settings
 
-MODEL_VERSION = "crisp-risk-2.0"
+MODEL_VERSION = "crisp-risk-2.1"
 DEFAULTS = {
     "version": "5.0", "source": "Judgment-based priors; organization calibration required",
     "epss_reference": "https://www.first.org/epss/faq.html",

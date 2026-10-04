@@ -1,0 +1,181 @@
+import copy
+import threading
+import time
+from unittest.mock import patch
+import numpy as np
+import pytest
+from cryptography.fernet import Fernet
+from fastapi.testclient import TestClient
+from app.engine.loss_metrics import expected_shortfall, exceedance_curve
+from app.core.inventory import normalize_inventory
+from app.api.routes import SnapshotStore
+
+
+def test_zero_inflated_tail_and_strict_exceedance():
+    losses = [0.] * 960 + [1000.] * 40
+    assert np.percentile(losses, 95) == 0
+    assert expected_shortfall(losses) == pytest.approx(800)
+    assert exceedance_curve(losses) == [[0., .04], [1000., 0.]]
+
+
+def test_fractional_tail_and_constant_losses():
+    assert expected_shortfall([0, 10, 100], .5) == pytest.approx(70)
+    assert expected_shortfall([7]*17) == pytest.approx(7)
+    assert exceedance_curve([0]*10) == [[0., 0.]]
+    curve = exceedance_curve(np.arange(1000)/3)
+    assert len(curve) <= 100
+    assert len({x for x, _ in curve}) == len(curve)
+    assert all(p == pytest.approx(np.mean(np.arange(1000)/3 > x)) for x, p in curve)
+
+
+def test_service_migration_preserves_financial_context():
+    snapshot = {"services": [{"id": "S", "name": "Payments", "revenue_per_hour": 4000},
+                              {"service_id": "S", "name": "S", "revenue_per_hour": 0}],
+                "assets": [{"id": "A", "is_real_lab_asset": True}]}
+    normalize_inventory(snapshot)
+    assert snapshot["services"] == [{"id": "S", "service_id": "S", "name": "Payments", "revenue_per_hour": 4000}]
+    assert snapshot["assets"][0]["origin"] == "unknown"
+    assert snapshot["assets"][0]["is_real_lab_asset"] is False
+
+
+@pytest.fixture
+def isolated_app(monkeypatch, tmp_path):
+    for name in ("RENDER", "VERCEL", "CRISP_DATABASE_URL"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("CRISP_ENV", "production")
+    monkeypatch.setenv("CRISP_ACCESS_MODE", "public_sandbox")
+    monkeypatch.setenv("CRISP_TESTING", "0")
+    monkeypatch.setenv("CRISP_DATABASE_PATH", str(tmp_path / "audit.sqlite3"))
+    monkeypatch.setenv("CRISP_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    for quota in ("CRISP_RATE_PEER", "CRISP_RATE_GLOBAL", "CRISP_RATE_COMPUTE_PEER", "CRISP_RATE_COMPUTE_GLOBAL"):
+        monkeypatch.setenv(quota, "10000")
+    from app.main import app
+    # No lifespan here: production checks require a real hosted DB at startup.
+    return TestClient(app, base_url="https://testserver")
+
+
+def test_seed_inventory_csv_and_asset_crud_preserve_services(isolated_app):
+    c = isolated_app
+    assert c.post("/api/data/seed").status_code == 200
+    before = c.get("/api/data/snapshot").json()
+    before_eal = c.get("/api/risk/summary").json()["org"]["eal"]
+    sid = before["services"][0]["id"]
+    asset = {"id": "TEMP", "name": "Temporary", "business_service_id": sid,
+             "criticality_1_5": 3, "records_count": 0, "revenue_per_hour": 0}
+    assert c.post("/api/assets/add", json=asset).status_code == 200
+    assert c.put("/api/assets/TEMP", json={"business_service_id": sid}).status_code == 200
+    assert c.delete("/api/assets/TEMP").status_code == 200
+    after = c.get("/api/data/snapshot").json()
+    assert before["services"] == after["services"]
+    assert c.get("/api/risk/summary").json()["org"]["eal"] == before_eal
+    csv = f'Asset ID,Name,Service,Criticality (1-5),Records,RevenuePerHour\nTEMP,Imported,{sid},3,0,0\n'.encode()
+    response = c.post("/api/ingest/assets", files={"file": ("inventory.csv", csv)})
+    assert response.status_code == 200, response.text
+    assert c.get("/api/data/snapshot").json()["services"] == before["services"]
+
+
+def test_feed_failure_is_not_fresh_success():
+    local = SnapshotStore()
+    local.current_snapshot["findings"] = [{"id": "F", "asset_id": "A", "cve_id": "CVE-2021-44228"}]
+    degraded = {"epss": None, "in_kev": None, "provenance": {k: {"status": "unavailable"} for k in ("epss", "nvd", "kev")}}
+    with patch.object(local.threat_intel, "fetch_cisa_kev", return_value={"status": "unavailable"}), \
+         patch.object(local.threat_intel, "enrich_cve", return_value=degraded):
+        result = local.sync_live_threat_intel()
+    assert result["status"] == "FAILED"
+    assert result["sync_record"]["status"] == "error"
+    assert result["feeds"]["epss"]["unavailable"] == 1
+
+
+def test_saved_failed_connection_is_retried_and_last_success_is_preserved():
+    from app.api import routes
+    from app.core.state_proxy import bound_store
+    from app.core.tenancy import document_buffer
+    from fastapi import HTTPException
+    local = SnapshotStore()
+    local.current_snapshot["wazuh_telemetry"] = {"status": "ok", "active_agents": 1, "last_sync": "2026-10-01T00:00:00Z"}
+    token = bound_store.set(local)
+    buffer = document_buffer.set({"sync_state": {}})
+    conn = {"base_url": "https://example.org", "username": "audit", "password": "audit-only", "connected": False}
+    try:
+        with patch.object(routes.connections_store, "get_connection", return_value=conn), \
+             patch.object(routes.connections_store, "record_connection_result") as recorded, \
+             patch.object(routes.WazuhConnector, "fetch_agent_status", side_effect=ConnectionError("Authentication failed")) as fetch:
+            with pytest.raises(HTTPException) as error:
+                routes.sync_wazuh_telemetry()
+            assert error.value.status_code == 502
+            fetch.assert_called_once()
+            assert recorded.call_args.args[1] is False
+            telemetry = local.current_snapshot["wazuh_telemetry"]
+            assert telemetry["status"] == "error"
+            assert telemetry["last_sync"] == "2026-10-01T00:00:00Z"
+            assert telemetry["last_successful"]["active_agents"] == 1
+    finally:
+        document_buffer.reset(buffer)
+        bound_store.reset(token)
+
+
+def test_intel_batches_continue_instead_of_repeating_first_cves():
+    from app.core.tenancy import document_buffer
+    local = SnapshotStore()
+    local.current_snapshot["findings"] = [{"id": f"F{i}", "asset_id": "A", "cve_id": f"CVE-2024-{1000+i}"} for i in range(30)]
+    intel = {"epss": .1, "in_kev": False, "provenance": {k: {"status": "live"} for k in ("epss", "nvd", "kev")}}
+    token = document_buffer.set({"sync_state": {}})
+    try:
+        with patch.object(local.threat_intel, "fetch_cisa_kev", return_value={"status": "live"}), \
+             patch.object(local.threat_intel, "enrich_cve", return_value=intel) as enrich:
+            first = local.sync_live_threat_intel()
+            second = local.sync_live_threat_intel()
+        assert first["cves_queried"] == 25 and first["cves_pending"] == 5
+        assert first["status"] == "DEGRADED"
+        assert second["cves_queried"] == 5 and second["cves_pending"] == 0
+        assert second["status"] == "SYNCED"
+        assert len({call.args[0] for call in enrich.call_args_list}) == 30
+    finally:
+        document_buffer.reset(token)
+
+
+@pytest.mark.parametrize("edit_during_sync", [False, True, "cancel"])
+def test_background_sync_releases_lock_and_preserves_concurrent_edits(isolated_app, edit_during_sync):
+    from app.core.tenancy import write_document
+    c = isolated_app
+    entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+
+    def slow_sync(local):
+        entered.set()
+        assert release.wait(10)
+        local.current_snapshot["organization"] = {"name": "Retrieved"}
+        write_document("sync_state", {"threat_intel": {"status": "ok"}})
+        finished.set()
+        return {"status": "SYNCED", "cves_queried": 0}
+
+    with patch.object(SnapshotStore, "sync_live_threat_intel", slow_sync):
+        response = c.post("/api/sync/jobs?kind=intel")
+        assert response.status_code == 202, response.text
+        job_id = response.json()["id"]
+        assert entered.wait(5)
+        # A normal tenant read and optional mutation complete while the upstream
+        # is blocked, proving that the sync does not hold the database lock.
+        start = time.monotonic()
+        assert c.get("/api/data/snapshot").status_code == 200
+        assert time.monotonic() - start < 2
+        other = TestClient(c.app, base_url="https://testserver")
+        assert other.get(f"/api/sync/jobs/{job_id}").status_code == 404
+        if edit_during_sync == "cancel":
+            assert c.delete(f"/api/sync/jobs/{job_id}").status_code == 200
+        elif edit_during_sync:
+            assert c.post("/api/assets/add", json={"id": "NEW", "name": "Concurrent edit", "criticality_1_5": 3}).status_code == 200
+        release.set()
+        assert finished.wait(5)
+        for _ in range(50):
+            result = c.get(f"/api/sync/jobs/{job_id}").json()
+            if result["status"] not in ("QUEUED", "RUNNING"):
+                break
+            time.sleep(.05)
+        assert result["status"] == ("CANCELLED" if edit_during_sync == "cancel" else "SUPERSEDED" if edit_during_sync else "COMPLETED"), result
+        snapshot = c.get("/api/data/snapshot").json()
+        if edit_during_sync == "cancel":
+            assert c.get("/api/risk/summary").json()["org"]["name"] != "Retrieved"
+        elif edit_during_sync:
+            assert snapshot["assets"][0]["id"] == "NEW"
+        else:
+            assert c.get("/api/risk/summary").json()["org"]["name"] == "Retrieved"

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceDot 
 } from 'recharts';
@@ -15,19 +15,25 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
   const [replay, setReplay] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [paretoError, setParetoError] = useState('');
+  const [resultBudget, setResultBudget] = useState(null);
+  const generation = useRef(0);
 
   const isEmpty = status === 'NO_DATA' || status === 'NO_FINDINGS' || baseEal == null;
 
   const runOptimization = async (b) => {
     if (isEmpty) return;
+    const requestId = ++generation.current;
     setLoading(true);
     try {
       const res = await api.optimize(b);
+      if (requestId !== generation.current) return;
+      setResultBudget(b);
       setOptimizerData(res); setReplay(null); setError('');
     } catch (e) {
-      setError(e.message);
+      if (requestId === generation.current) setError(e.message);
     } finally {
-      setLoading(false);
+      if (requestId === generation.current) setLoading(false);
     }
   };
 
@@ -35,9 +41,9 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
     if (isEmpty) return;
     try {
       const res = await api.getPareto();
-      setParetoData(res);
+      setParetoData(res); setParetoError('');
     } catch (e) {
-      console.error('Pareto error:', e);
+      setParetoError(e.message);
     }
   };
 
@@ -46,6 +52,7 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
       runOptimization(budget);
       loadPareto();
     }
+    return () => { generation.current++; };
   }, [baseEal, status]);
 
   if (isEmpty) {
@@ -58,6 +65,14 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
       />
     );
   }
+
+  if (!optimizerData) return (
+    <section className="glass-panel" aria-busy={loading} style={{ padding: 24 }}>
+      <h3>Investment optimizer</h3>
+      <p role={error ? 'alert' : 'status'}>{error || 'Calculating portfolio and comparison strategies. Results will appear when the calculation finishes.'}</p>
+      {error && <button type="button" className="btn btn-primary" onClick={() => runOptimization(budget)}>Retry optimization</button>}
+    </section>
+  );
 
   const handleSliderChange = (e) => {
     const val = Number(e.target.value);
@@ -84,7 +99,9 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
   const kneePoint = paretoData?.knee_point;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <div aria-busy={loading} style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      {loading && <p role="status">Calculating for {formatINR(budget)}. The displayed result is from the last completed budget of {formatINR(resultBudget)}.</p>}
+      {paretoError && <div role="alert">Investment curve unavailable: {paretoError} <button className="btn btn-outline" onClick={loadPareto}>Retry investment curve</button></div>}
       
       {error && <p role="alert">{error}</p>}
       {plan && <PortfolioBenefit plan={plan} reproducibility={benchmark?.reproducibility} replay={replay} onReplay={async () => {
@@ -112,6 +129,7 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
 
         <div style={{ marginTop: 18 }}>
           <input 
+            aria-label="Security investment budget"
             type="range"
             min="1000000"
             max="50000000"
@@ -120,6 +138,7 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
             onChange={handleSliderChange}
             onMouseUp={handleSliderRelease}
             onTouchEnd={handleSliderRelease}
+            onKeyUp={e => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.key)) handleSliderRelease(); }}
             style={{
               width: '100%',
               accentcolor: 'var(--primary)',
@@ -146,7 +165,7 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
               </h2>
             </div>
             <p className="benchmark-subtitle" style={{ margin: '4px 0 0 0', fontSize: 13, color: '#CBD5E1' }}>
-              Evaluated under the <strong>identical FAIR Monte Carlo model and identical {formatINR(budget)} budget</strong>.
+              Evaluated under the <strong>identical FAIR Monte Carlo model and identical {formatINR(resultBudget)} budget</strong>.
             </p>
           </div>
           {headline && (
@@ -180,7 +199,7 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
         )}
 
         {/* 3 Strategy Comparison Cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, paddingTop: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 16, paddingTop: 16 }}>
           {strategies.map((strat, idx) => {
             const isWinner = strat.type === 'recommended';
             return (
@@ -246,7 +265,7 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
       </div>
 
       {/* Row: Recommended Actions & Pareto Frontier Curve */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(460px, 1fr))', gap: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 460px), 1fr))', gap: 20 }}>
         
         {/* Recommended Actions Portfolio */}
         <div className="glass-panel" style={{ padding: 22 }}>
@@ -362,12 +381,12 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
             <ResponsiveContainer>
               <LineChart data={paretoPoints} margin={{ top: 10, right: 15, left: -5, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                <XAxis dataKey="budgetFormatted" stroke="#64748b" fontSize={11} interval={2} />
+                <XAxis dataKey="budget" type="number" domain={[0, 'dataMax']} tickFormatter={formatINR} stroke="#64748b" fontSize={11} interval={2} />
                 <YAxis stroke="#64748b" fontSize={11} tickFormatter={(v) => formatINR(v)} />
                 <Tooltip 
                   contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--primary)', borderRadius: 8, fontSize: 12 }}
                   formatter={(val, name, item) => [formatINRFull(val), 'EAL Reduction']}
-                  labelFormatter={(lbl, item) => `Budget: ${lbl}`}
+                  labelFormatter={(lbl, item) => `Budget: ${formatINR(lbl)}`}
                 />
                 <Line 
                   type="monotone" 
@@ -379,7 +398,7 @@ export default function OptimizerView({ baseEal, status, onNavigateToIngestion }
                 />
                 {kneePoint && (
                   <ReferenceDot 
-                    x={formatINR(kneePoint.budget)} 
+                    x={kneePoint.budget}
                     y={kneePoint.eal_reduction} 
                     r={7} 
                     fill="var(--accent-green)" 

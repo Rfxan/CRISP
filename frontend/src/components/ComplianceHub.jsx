@@ -132,7 +132,7 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
         </div>
 
         {/* Framework Selector Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 210px), 1fr))', gap: 10 }}>
           {frameworks.map((fw) => {
             const isSelected = selectedFramework === fw.id;
             const summary = frameworkSummaries[fw.id];
@@ -186,7 +186,7 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
       </div>
 
       {/* Honest Coverage & Audit Metrics Strip for Selected Framework */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 14 }}>
         
         {/* Metric 1: Telemetry Mapping Coverage */}
         <div className="glass-panel" style={{ padding: 18, borderLeft: '4px solid var(--accent-green)' }}>
@@ -243,7 +243,7 @@ export default function ComplianceHub({ status, onNavigateToIngestion }) {
       </div>
 
       {/* Special Indian Regulatory Modules: SEBI 6-Hour & DPDP */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))', gap: 20 }}>
         
         {/* SEBI 6-Hour Incident Notification Readiness */}
         {sebi6h && (

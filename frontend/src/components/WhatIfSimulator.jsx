@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend 
 } from 'recharts';
@@ -13,6 +13,9 @@ export default function WhatIfSimulator({ baselineEal, baselineVar95, trials, st
   const [simResult, setSimResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [controls, setControls] = useState([]);
+  const generation = useRef(0);
+  useEffect(() => { api.getSnapshot().then(s => setControls(s.controls_catalog || [])).catch(e => setError(e.message)); return () => { generation.current++; }; }, []);
 
   const isEmpty = status === 'NO_DATA' || status === 'NO_FINDINGS' || baselineEal == null;
 
@@ -58,19 +61,22 @@ export default function WhatIfSimulator({ baselineEal, baselineVar95, trials, st
     const preset = presets.find(p => p.id === presetId);
     if (!preset) return;
 
+    const requestId = ++generation.current;
     setLoading(true);
     try {
       const res = await api.simulate(preset.actions, simulationSeed);
+      if (requestId !== generation.current) return;
       setSimResult(res);
       setError('');
     } catch (e) {
-      setError(e.message);
+      if (requestId === generation.current) setError(e.message);
     } finally {
-      setLoading(false);
+      if (requestId === generation.current) setLoading(false);
     }
   };
 
   const handleRunCustom = async () => {
+    const requestId = ++generation.current;
     setLoading(true);
     const actions = [
       { type: 'increase_control_coverage', target_id: customControl, coverage_pct: Number(customCoverage) }
@@ -80,12 +86,13 @@ export default function WhatIfSimulator({ baselineEal, baselineVar95, trials, st
 
     try {
       const res = await api.simulate(actions, Number(simulationSeed));
+      if (requestId !== generation.current) return;
       setSimResult(res);
       setError('');
     } catch (e) {
-      setError(e.message);
+      if (requestId === generation.current) setError(e.message);
     } finally {
-      setLoading(false);
+      if (requestId === generation.current) setLoading(false);
     }
   };
 
@@ -110,13 +117,14 @@ export default function WhatIfSimulator({ baselineEal, baselineVar95, trials, st
   const costOfDelay = simResult?.cost_of_delay;
 
   // Comparison curve data
-  const curvePoints = new Map();
-  for (const [key, points] of [['Baseline', simResult?.baseline_curve], ['PostIntervention', simResult?.new_curve]]) {
-    for (const [loss, probability] of points || []) {
-      curvePoints.set(loss, { ...curvePoints.get(loss), loss, [key]: Number((probability * 100).toFixed(1)) });
-    }
-  }
-  const comparisonCurve = [...curvePoints.values()].sort((a, b) => a.loss - b.loss);
+  const curves = [simResult?.baseline_curve || [], simResult?.new_curve || []];
+  const thresholds = [...new Set(curves.flatMap(points => points.map(([loss]) => loss)))].sort((a,b) => a-b);
+  const probabilityAt = (points, threshold) => {
+    let probability = null;
+    for (const [loss, value] of points) { if (loss > threshold) break; probability = value; }
+    return probability == null ? null : probability * 100;
+  };
+  const comparisonCurve = thresholds.map(loss => ({ loss, Baseline: probabilityAt(curves[0], loss), PostIntervention: probabilityAt(curves[1], loss) }));
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -166,11 +174,11 @@ export default function WhatIfSimulator({ baselineEal, baselineVar95, trials, st
 
         {/* MODE 1: Preset Cards */}
         {mode === 'presets' && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: 12 }}>
             {presets.map((p) => {
               const isSelected = selectedPreset === p.id;
               return (
-                <div 
+                <button type="button" disabled={loading} aria-pressed={isSelected}
                   key={p.id}
                   onClick={() => handleSimulate(p.id)}
                   className="glass-panel"
@@ -189,7 +197,7 @@ export default function WhatIfSimulator({ baselineEal, baselineVar95, trials, st
                   <p style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 6, lineHeight: 1.4 }}>
                     {p.desc}
                   </p>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -206,11 +214,11 @@ export default function WhatIfSimulator({ baselineEal, baselineVar95, trials, st
             flexDirection: 'column',
             gap: 16
           }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 16 }}>
               {/* Control Picker */}
               <div>
                 <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 6 }}>Target Security Control</label>
-                <select
+                <select aria-label="Target Security Control"
                   value={customControl}
                   onChange={(e) => setCustomControl(e.target.value)}
                   style={{
@@ -223,12 +231,7 @@ export default function WhatIfSimulator({ baselineEal, baselineVar95, trials, st
                     fontSize: 13
                   }}
                 >
-                  <option value="CTRL-MFA-01">CTRL-MFA-01: Multi-Factor Authentication</option>
-                  <option value="CTRL-EDR-01">CTRL-EDR-01: Wazuh Endpoint Detection (EDR)</option>
-                  <option value="CTRL-PATCH-01">CTRL-PATCH-01: Automated Patch Management</option>
-                  <option value="CTRL-WAF-01">CTRL-WAF-01: Web Application Firewall</option>
-                  <option value="CTRL-BACKUP-01">CTRL-BACKUP-01: Immutable Backups</option>
-                  <option value="CTRL-DLP-01">CTRL-DLP-01: Data Loss Prevention</option>
+                  {controls.map(control => <option key={control.id} value={control.id}>{control.id}: {control.name}</option>)}
                 </select>
               </div>
 
@@ -243,7 +246,7 @@ export default function WhatIfSimulator({ baselineEal, baselineVar95, trials, st
                   min="0"
                   max="100"
                   step="5"
-                  value={customCoverage}
+                  aria-label="Target control coverage percentage" value={customCoverage}
                   onChange={(e) => setCustomCoverage(e.target.value)}
                   style={{ width: '100%', accentColor: 'var(--accent-purple)', cursor: 'pointer' }}
                 />
@@ -254,7 +257,7 @@ export default function WhatIfSimulator({ baselineEal, baselineVar95, trials, st
                 <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 6 }}>Deterministic PRNG Seed</label>
                 <input
                   type="number"
-                  value={simulationSeed}
+                  aria-label="Simulation seed" value={simulationSeed}
                   onChange={(e) => setSimulationSeed(Number(e.target.value))}
                   style={{
                     width: '100%',
@@ -308,7 +311,7 @@ export default function WhatIfSimulator({ baselineEal, baselineVar95, trials, st
 
       {/* Delta Results & Cost of Delay Banner */}
       {simResult && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))', gap: 20 }}>
           
           {/* EAL Delta Card */}
           <div className="glass-panel" style={{ padding: 20 }}>
@@ -372,8 +375,8 @@ export default function WhatIfSimulator({ baselineEal, baselineVar95, trials, st
                 formatter={(val, name) => [`${val}% probability`, name === 'Baseline' ? 'Baseline Risk' : 'With Intervention']}
               />
               <Legend verticalAlign="top" height={36} wrapperStyle={{ fontSize: 12 }} />
-              <Area connectNulls type="monotone" dataKey="Baseline" stroke="var(--accent-red)" fill="rgba(201, 114, 114, 0.15)" strokeWidth={2} />
-              <Area connectNulls type="monotone" dataKey="PostIntervention" stroke="var(--accent-green)" fill="rgba(126, 143, 129, 0.2)" strokeWidth={2.5} />
+              <Area connectNulls type="stepAfter" dataKey="Baseline" stroke="var(--accent-red)" fill="rgba(201, 114, 114, 0.15)" strokeWidth={2} />
+              <Area connectNulls type="stepAfter" dataKey="PostIntervention" stroke="var(--accent-green)" fill="rgba(126, 143, 129, 0.2)" strokeWidth={2.5} />
             </AreaChart>
           </ResponsiveContainer>
         </div>

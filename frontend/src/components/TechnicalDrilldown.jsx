@@ -101,7 +101,7 @@ export default function TechnicalDrilldown({ summary, driversData, entitiesData,
             </div>
           )
         ) : emergingThreats.length > 0 ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 12 }}>
             {emergingThreats.map((threat, idx) => (
               <div key={idx} className="glass-panel" style={{ padding: 14, background: 'rgba(201, 114, 114, 0.08)', border: '1px solid rgba(201, 114, 114, 0.3)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
@@ -197,7 +197,7 @@ export default function TechnicalDrilldown({ summary, driversData, entitiesData,
           <span className="badge badge-cyan">Graph Theory / Betweenness</span>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 14 }}>
           {chokePoints.map((cp, idx) => (
             <div key={idx} className="glass-panel" style={{
               padding: 16,

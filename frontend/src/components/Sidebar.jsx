@@ -3,7 +3,7 @@ import { ShieldAlert } from 'lucide-react';
 
 export default function Sidebar({ tabs, activeTab, setActiveTab }) {
   return (
-    <div style={{
+    <nav aria-label="Dashboard sections" className="dashboard-sidebar" style={{
       width: 100,
       minWidth: 100,
       background: 'var(--bg-sidebar)',
@@ -28,13 +28,13 @@ export default function Sidebar({ tabs, activeTab, setActiveTab }) {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', flexDirection: 'column', width: '100%', position: 'relative' }}>
+      <div className="sidebar-tabs" style={{ display: 'flex', flexDirection: 'column', width: '100%', position: 'relative' }}>
         {tabs.map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           
           return (
-            <div 
+            <button type="button" aria-current={isActive ? 'page' : undefined}
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`sidebar-item ${isActive ? 'active' : ''}`}
@@ -60,10 +60,10 @@ export default function Sidebar({ tabs, activeTab, setActiveTab }) {
               }}>
                 {tab.shortLabel || tab.label}
               </span>
-            </div>
+            </button>
           );
         })}
       </div>
-    </div>
+    </nav>
   );
 }

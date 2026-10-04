@@ -2,6 +2,7 @@ import copy
 import math
 import json
 from app.core.config import DATA_DIR
+from app.core.errors import DomainValidationError
 from app.engine.fair_engine import FAIREngine
 from app.engine.model import finding_key, digest
 
@@ -23,9 +24,9 @@ def apply_actions(snapshot, actions):
         if kind == "increase_control_coverage":
             coverage = float(action.get("coverage_pct", 100))
             if not math.isfinite(coverage) or not 0 <= coverage <= 100:
-                raise ValueError("Coverage must be between 0 and 100")
+                raise DomainValidationError("Coverage must be between 0 and 100")
             if target not in catalog_ids:
-                raise ValueError("Unknown control target")
+                raise DomainValidationError("Unknown control target")
             states = result.setdefault("control_state", [])
             state = next((c for c in states if c["control_id"] == target), None)
             if state is None:
@@ -44,13 +45,13 @@ def apply_actions(snapshot, actions):
                 return (f.get("id") == target or f.get("cve_id") == target) and (not action.get("asset_id") or f.get("asset_id") == action["asset_id"])
             selected = [f for f in findings if matches(f)]
             if not selected and kind != "patch_all_kev":
-                raise ValueError("Finding target does not exist in this snapshot")
+                raise DomainValidationError("Finding target does not exist in this snapshot")
             result["findings"] = [f for f in findings if not matches(f)]
             if selected:
                 result["assessment_state"] = {**result.get("assessment_state", {}), "status": "remediated"}
             descriptions.append(f"Remediated {len(selected)} finding(s)")
         else:
-            raise ValueError(f"Unsupported intervention type: {kind}")
+            raise DomainValidationError("Unsupported intervention type")
     return result, descriptions
 
 
@@ -68,7 +69,7 @@ class WhatIfSimulator:
         modified, descriptions = apply_actions(snapshot, actions)
         post = self.engine.run(modified, {"calculate_drivers": False}, seed)
         if post["org"]["eal"] is None:
-            raise ValueError("Intervention cannot be quantified with available business context")
+            raise DomainValidationError("Intervention cannot be quantified with available business context")
         reduction = round(base["org"]["eal"] - post["org"]["eal"], 2)
         var_reduction = round(base["org"]["var95"] - post["org"]["var95"], 2)
         return {"status": post["status"], "applied_actions": descriptions, "actions": copy.deepcopy(actions),

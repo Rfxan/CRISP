@@ -40,6 +40,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
         if before:
             import_state(local, before)
         st = bound_store.set(local)
+        submitted = False
         try:
             response = await call_next(request)
             # Connector failures clear stale coverage; persist that evidence even when
@@ -61,6 +62,11 @@ class TenantMiddleware(BaseHTTPMiddleware):
                 if not identity["tenant"].startswith("guest:") or request.method not in ("GET", "HEAD"):
                     audit(f"{request.method} {request.url.path}",response.status_code,before,after)
                 db.commit()
+                submission = getattr(request.state, "sync_submission", None)
+                if submission:
+                    from app.core.sync_jobs import submit
+                    submit(*submission)
+                    submitted = True
             else:
                 db.rollback()
                 await anyio.to_thread.run_sync(lambda: begin_transaction(db, identity["tenant"]))
@@ -71,5 +77,8 @@ class TenantMiddleware(BaseHTTPMiddleware):
             db.rollback()
             raise
         finally:
+            if getattr(request.state, "sync_submission", None) and not submitted:
+                from app.core.sync_jobs import abandon_submission
+                abandon_submission()
             bound_store.reset(st); transaction_context.reset(tt); principal_context.reset(pt)
             db.close()

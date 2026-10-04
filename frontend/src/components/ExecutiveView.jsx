@@ -46,6 +46,7 @@ export default function ExecutiveView({
 }) {
   const { canEdit } = useAccess();
   const [syncing, setSyncing] = useState(false);
+  const [activeSyncId, setActiveSyncId] = useState(null);
   const [syncFeedback, setSyncFeedback] = useState(null);
   const [, setTick] = useState(0);
 
@@ -59,12 +60,14 @@ export default function ExecutiveView({
     setSyncing(true);
     setSyncFeedback(null);
     try {
-      const res = await api.syncAll();
+      const res = await api.syncAll((message, job) => { setActiveSyncId(job.id); setSyncFeedback({ type: 'neutral', text: message }); });
       if (onRefresh) {
         await onRefresh();
       }
       const meta = res.run_metadata || {};
-      if (meta.recomputed) {
+      if (res.status === 'DEGRADED') {
+        setSyncFeedback({ type: 'error', text: `Some sources could not sync: ${Object.entries(res.job_results || {}).filter(([, state]) => /error|failed|degraded/i.test(state)).map(([name, state]) => `${name}: ${state}`).join('; ') || res.job_message}` });
+      } else if (meta.recomputed) {
         setSyncFeedback({
           type: 'success',
           text: `Data changed · Minted ${res.run_id || 'New Run'}`
@@ -81,13 +84,13 @@ export default function ExecutiveView({
         text: `Sync error: ${e.message || 'Failed'}`
       });
     } finally {
-      setSyncing(false);
+      setSyncing(false); setActiveSyncId(null);
       setTimeout(() => setSyncFeedback(null), 8000);
     }
   };
 
   // 1. Error state: fetch failed
-  if (loadError) {
+  if (loadError && !summary) {
     return (
       <div className="glass-panel" style={{ padding: 48, textAlign: 'center', maxWidth: 640, margin: '40px auto' }}>
         <AlertCircle size={40} color="var(--accent-red)" style={{ margin: '0 auto 14px' }} />
@@ -267,6 +270,7 @@ export default function ExecutiveView({
 
         {/* Right: Feedback & Sync Now Button */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {activeSyncId && <button type="button" className="btn btn-outline" onClick={() => api.cancelSyncJob(activeSyncId).catch(e => setSyncFeedback({type: 'error', text:e.message}))}>Cancel sync</button>}
           {syncFeedback && (
             <span style={{
               fontSize: 12,
@@ -367,7 +371,7 @@ export default function ExecutiveView({
       )}
 
       {/* 4 Hero KPI Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 250px), 1fr))', gap: 16 }}>
         
         {/* EAL Card */}
         <div className="glass-panel" style={{ padding: 22, borderTop: '3px solid var(--primary)' }}>
@@ -430,7 +434,7 @@ export default function ExecutiveView({
       </div>
 
       {/* Row 2: Loss Exceedance Curve & Loss Decomposition */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))', gap: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 450px), 1fr))', gap: 20 }}>
         
         {/* Loss Exceedance Curve */}
         <div className="glass-panel" style={{ padding: 22 }}>
@@ -454,13 +458,13 @@ export default function ExecutiveView({
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                <XAxis dataKey="lossFormatted" stroke="#64748b" fontSize={11} interval={8} />
+                <XAxis dataKey="loss" type="number" domain={[0, 'dataMax']} tickFormatter={formatINR} stroke="#64748b" fontSize={11} interval={8} />
                 <YAxis stroke="#64748b" fontSize={11} tickFormatter={(v) => `${v}%`} />
                 <Tooltip 
                   contentStyle={{ background: 'var(--bg-card)', border: '1px solid rgba(183, 140, 102, 0.3)', borderRadius: 8, fontSize: 12 }}
                   formatter={(val, name, item) => [`${val.toFixed(1)}% chance of loss exceeding ${item.payload.lossFormatted}`, 'Exceedance Probability']}
                 />
-                <Area type="monotone" dataKey="probability" stroke="var(--primary)" strokeWidth={2.5} fillOpacity={1} fill="url(#curveGrad)" />
+                <Area type="stepAfter" dataKey="probability" stroke="var(--primary)" strokeWidth={2.5} fillOpacity={1} fill="url(#curveGrad)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -503,7 +507,7 @@ export default function ExecutiveView({
       </div>
 
       {/* Row 3: 30/60/90-Day Trend Projection & Tornado Sensitivity */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))', gap: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 450px), 1fr))', gap: 20 }}>
         
         {/* Trend Projection */}
         <div className="glass-panel" style={{ padding: 22 }}>

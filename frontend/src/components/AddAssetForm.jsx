@@ -295,7 +295,7 @@ export default function AddAssetForm({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            aria-label="Close dialog" onClick={onClose}
             disabled={loading}
             style={{
               background: 'rgba(255, 255, 255, 0.06)',
@@ -344,7 +344,7 @@ export default function AddAssetForm({
                 type="text"
                 className="modal-dark-input"
                 placeholder="e.g. srv-prod-db-01 or 192.168.1.50"
-                value={assetId}
+                aria-label="Asset ID" value={assetId}
                 onChange={(e) => setAssetId(e.target.value)}
                 disabled={isEditMode || loading}
                 style={{
@@ -376,7 +376,7 @@ export default function AddAssetForm({
                 type="text"
                 className="modal-dark-input"
                 placeholder="e.g. Production PostgreSQL Cluster"
-                value={name}
+                aria-label="Asset name" value={name}
                 onChange={(e) => setName(e.target.value)}
                 style={{
                   width: '100%',
@@ -403,7 +403,7 @@ export default function AddAssetForm({
               </label>
               <select
                 className="modal-dark-select"
-                value={activeServiceValue}
+                aria-label="Business service" value={activeServiceValue}
                 onChange={handleServiceChange}
                 style={{
                   width: '100%',
@@ -436,7 +436,7 @@ export default function AddAssetForm({
                   type="text"
                   className="modal-dark-input"
                   placeholder="Enter new service ID (e.g. SVC-CHECKOUT)"
-                  value={customService}
+                  aria-label="New business service" value={customService}
                   onChange={(e) => setCustomService(e.target.value)}
                   style={{
                     width: '100%',
@@ -464,7 +464,7 @@ export default function AddAssetForm({
                   min="1"
                   max="5"
                   step="1"
-                  value={criticality}
+                  aria-label="Criticality from 1 to 5" value={criticality}
                   onChange={(e) => setCriticality(Number(e.target.value))}
                   style={{
                     flex: 1,
@@ -504,7 +504,7 @@ export default function AddAssetForm({
                 min="0"
                 step="100"
                 className="modal-dark-input"
-                value={recordsCount}
+                aria-label="Record count" value={recordsCount}
                 onChange={(e) => setRecordsCount(Math.max(0, parseInt(e.target.value) || 0))}
                 style={{
                   width: '100%',
@@ -531,7 +531,7 @@ export default function AddAssetForm({
                 min="0"
                 step="1000"
                 className="modal-dark-input"
-                value={revenuePerHour}
+                aria-label="Revenue per hour" value={revenuePerHour}
                 onChange={(e) => setRevenuePerHour(Math.max(0, parseFloat(e.target.value) || 0))}
                 style={{
                   width: '100%',
@@ -636,7 +636,7 @@ export default function AddAssetForm({
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
                 <select
                   className="modal-dark-select"
-                  value={environment}
+                  aria-label="Environment" value={environment}
                   onChange={(e) => setEnvironment(e.target.value)}
                   style={{
                     padding: '8px 10px',
@@ -656,7 +656,7 @@ export default function AddAssetForm({
 
                 <select
                   className="modal-dark-select"
-                  value={classification}
+                  aria-label="Data classification" value={classification}
                   onChange={(e) => setClassification(e.target.value)}
                   style={{
                     padding: '8px 10px',
@@ -688,7 +688,7 @@ export default function AddAssetForm({
           }}>
             <button
               type="button"
-              onClick={onClose}
+              aria-label="Close dialog" onClick={onClose}
               disabled={loading}
               style={{
                 padding: '9px 20px',

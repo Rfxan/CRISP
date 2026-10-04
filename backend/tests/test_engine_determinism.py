@@ -26,7 +26,10 @@ def test_engine_determinism():
     assert res1["org"]["eal"] == res2["org"]["eal"], "EAL must be bit-identical across runs with identical seed"
     assert res1["org"]["var95"] == res2["org"]["var95"], "VaR95 must be bit-identical across runs"
     assert res1["run_id"] == res2["run_id"], "Run ID must match"
-    assert len(res1["curve"]) == 50, "Loss exceedance curve points expected"
+    assert 1 <= len(res1["curve"]) <= 100
+    assert res1["curve"] == res2["curve"]
+    assert len({point[0] for point in res1["curve"]}) == len(res1["curve"])
+    assert all(a[1] >= b[1] for a, b in zip(res1["curve"], res1["curve"][1:]))
     assert len(res1["drivers"]) > 0, "Top risk drivers must be identified"
 
 if __name__ == "__main__":

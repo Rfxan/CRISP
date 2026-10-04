@@ -431,7 +431,8 @@ class ThreatIntelFeed:
             kev_status = kev_catalog.get("status", "cached")
             kev_fetched_at = kev_catalog.get("fetched_at")
 
-        in_kev = cve in kev_cves
+        existing = (local_cache or {}).get(cve, {})
+        in_kev = (existing.get("in_kev") if kev_status == "unavailable" else cve in kev_cves)
         kev_detail = kev_cves.get(cve) if in_kev else None
 
         exploitability_label = (
@@ -480,8 +481,8 @@ class ThreatIntelFeed:
         # Fallback values from existing local_cache if online sources unavailable
         existing = (local_cache or {}).get(cve, {})
 
-        final_epss = epss_val if epss_val is not None else existing.get("epss", 0.15)
-        final_pct = epss_pct if epss_pct is not None else existing.get("epss_percentile", 0.50)
+        final_epss = epss_val if epss_val is not None else existing.get("epss")
+        final_pct = epss_pct if epss_pct is not None else existing.get("epss_percentile")
         final_desc = nvd_res.get("description") or existing.get("description") or "Security vulnerability"
         final_pub = nvd_res.get("published_date") or existing.get("published") or "Unknown"
 

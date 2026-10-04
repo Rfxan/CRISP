@@ -102,7 +102,8 @@ app.add_middleware(WebSecurityMiddleware)
 
 @app.exception_handler(ValueError)
 async def invalid_input(request, exc):
-    return JSONResponse(status_code=422, content={"detail": "Invalid input" if production() else str(exc)})
+    from app.core.errors import DomainValidationError
+    return JSONResponse(status_code=422, content={"detail": str(exc) if isinstance(exc, DomainValidationError) or not production() else "Invalid input"})
 
 
 @app.exception_handler(RequestValidationError)

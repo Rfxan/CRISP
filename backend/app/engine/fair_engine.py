@@ -3,6 +3,7 @@ import json
 import numpy as np
 from app.core.config import settings, DATA_DIR
 from app.core.graph import DependencyGraph
+from app.engine.loss_metrics import expected_shortfall, exceedance_curve
 from app.engine.distributions import sample_pert, sample_poisson
 from app.engine.model import MODEL_VERSION, assumptions, digest, stable_seed, finding_key
 
@@ -165,10 +166,10 @@ class FAIREngine:
             "run_id": "RUN-"+fingerprint[:20], "snapshot_hash": digest(snapshot), "model_version": MODEL_VERSION,
             "assumptions_version": cfg["version"], "ts": snapshot.get("timestamp"), "seed": seed, "trials": trials,
             "org": {"name": org.get("name", "Not Configured"), "eal": round(eal,2), "var95": round(float(var95),2), "var99": round(float(var99),2),
-                    "tail": round(float(total[total>=var95].mean()),2), "score": int(np.clip(round(50+35*np.log2(max(.1,var95/max(1,appetite)))),0,100)),
+                    "tail": round(expected_shortfall(total),2), "score": int(np.clip(round(50+35*np.log2(max(.1,var95/max(1,appetite)))),0,100)),
                     "appetite": appetite, "headroom": round(appetite-float(var95),2), "data_quality": round((len(assets)-len(excluded))/len(assets),2)},
             "loss_breakdown": {k:round(v,2) for k,v in breakdown.items()}, "scenario_eals": {k:round(float(v.mean()),2) for k,v in scenario_losses.items()},
-            "drivers": drivers, "curve": [[round(float(np.percentile(total,p)),2),round(1-p/100,4)] for p in np.linspace(1,99,50)],
+            "drivers": drivers, "curve": exceedance_curve(total),
             "assets": [{"asset_id": a.get("id") or a.get("asset_id"), "name": a.get("name"), "criticality": a.get("criticality_1_5"),
                         "service_id": a.get("business_service_id"),
                         "eal": None if (a.get("id") or a.get("asset_id")) in excluded_ids else round(float(asset_losses[a.get("id") or a.get("asset_id")].mean()),2),

@@ -77,7 +77,7 @@ def detect_scan_format(file_content: bytes, filename: str) -> str:
                 return "defender_edr"
 
             # Fallback for generic vulnerability JSON
-            return "openvas_xml"
+            return "openvas_json"
         except Exception:
             pass
 
@@ -91,7 +91,7 @@ def detect_scan_format(file_content: bytes, filename: str) -> str:
                 return "defender_edr"
             if "defender" in fname or "mde" in fname:
                 return "defender_edr"
-            return "openvas_xml"
+            return "openvas_csv"
         except Exception:
             pass
 

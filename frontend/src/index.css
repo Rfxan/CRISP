@@ -65,6 +65,31 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+button, input, select, textarea { font: inherit; }
+button { color: inherit; }
+.sidebar-item { border: 0; background: transparent; font: inherit; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible,
+textarea:focus-visible, summary:focus-visible { outline: 3px solid var(--primary); outline-offset: 3px; }
+.dashboard-main, .dashboard-main > *, .dashboard-main [style*="display: grid"] > * { min-width: 0; }
+.dashboard-main .mono { overflow-wrap: anywhere; }
+
+@media (max-width: 700px) {
+  .dashboard-layout { flex-direction: column !important; }
+  .dashboard-sidebar { width: 100% !important; min-width: 0 !important; height: auto !important; padding: 8px !important; }
+  .dashboard-sidebar > div:first-child { display: none !important; }
+  .sidebar-tabs { flex-direction: row !important; overflow-x: auto; gap: 4px; }
+  .sidebar-tabs .sidebar-item { flex: 0 0 auto; width: auto !important; margin-left: 0 !important; padding: 14px 8px !important; border-radius: 12px !important; }
+  .sidebar-item.active::before, .sidebar-item.active::after { display: none; }
+  .dashboard-main { padding: 14px !important; }
+  .dashboard-layout header { padding: 12px !important; position: static !important; }
+  .dashboard-layout header div { min-width: 0; flex-wrap: wrap; }
+  .dashboard-layout header .mono, .dashboard-main p, .dashboard-main .badge { overflow-wrap: anywhere; white-space: normal; }
+  .dashboard-main [style*="grid-template-columns: 1fr"] { grid-template-columns: minmax(0, 1fr) !important; }
+  .dashboard-main .glass-panel { max-width: 100%; }
+  .dashboard-main input:not([type="checkbox"]):not([type="range"]), .dashboard-main select, .dashboard-main textarea { max-width: 100%; min-width: 0; }
+  .dashboard-main [style*="display: flex"][style*="justify-content: space-between"] { flex-wrap: wrap; gap: 10px; }
+}
+
 /* Force override hardcoded dark-mode inline styles from JS (excluding dedicated dark modals & benchmark panels) */
 h1:not(.crisp-add-asset-modal *):not(.crisp-benchmark-panel *), 
 h2:not(.crisp-add-asset-modal *):not(.crisp-benchmark-panel *), 
