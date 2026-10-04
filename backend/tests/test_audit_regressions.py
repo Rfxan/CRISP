@@ -112,6 +112,37 @@ def test_risk_summary_exposes_linked_service_results(isolated_app):
     assert c.get("/api/risk/summary").json()["services"] == []
 
 
+def test_persisted_summary_is_refreshed_when_result_schema_changes(monkeypatch):
+    from app.api import routes
+    from app.core.state_proxy import export_state, import_state
+    local = SnapshotStore()
+    local.engine.trials = 1000
+    local.current_snapshot['assets'] = [{'id': 'LOGSRV', 'name': 'Log server',
+        'business_service_id': 'SVC-NETBANK', 'criticality_1_5': 4,
+        'records_count': 600, 'revenue_per_hour': 100000}]
+    local.current_snapshot['services'] = [{'service_id': 'SVC-NETBANK',
+        'name': 'Netbank', 'rto_hours': 4}]
+    local.current_snapshot['assessment_state'] = {'status': 'completed'}
+    monkeypatch.setattr(routes, 'RESULT_SCHEMA_VERSION', 1, raising=False)
+    old = local.get_summary()
+    financial_totals = copy.deepcopy(old['org'])
+    for service in old['services']:
+        service.pop('linked_asset_revenue_per_hour', None)
+        service.pop('revenue_exposure_per_hour', None)
+    persisted = copy.deepcopy(export_state(local))
+    restored = SnapshotStore()
+    restored.engine.trials = 1000
+    import_state(restored, persisted)
+    inputs = copy.deepcopy(restored.current_snapshot)
+    monkeypatch.setattr(routes, 'RESULT_SCHEMA_VERSION', 2)
+    refreshed = restored.get_summary()
+    assert refreshed['services'][0]['revenue_exposure_per_hour'] == 100000
+    assert refreshed['org'] == financial_totals
+    assert restored.current_snapshot == inputs
+    assert restored.last_state_signature != persisted['last_state_signature']
+    assert restored.get_summary() is refreshed  # No repeated recomputation.
+
+
 def test_feed_failure_is_not_fresh_success():
     local = SnapshotStore()
     local.current_snapshot["findings"] = [{"id": "F", "asset_id": "A", "cve_id": "CVE-2021-44228"}]

@@ -17,7 +17,7 @@ import requests
 from app.core.config import DATA_DIR, settings
 from app.core.inventory import normalize_inventory
 from app.core.sync_state import sync_state_manager
-from app.engine.fair_engine import FAIREngine
+from app.engine.fair_engine import FAIREngine, RESULT_SCHEMA_VERSION
 from app.engine.model import digest, assumptions, MODEL_VERSION
 from app.core.tenancy import active as tenant_active, read_document, write_document, principal_context, transaction_context
 from app.engine.optimizer import InvestmentOptimizer
@@ -490,6 +490,7 @@ class SnapshotStore:
             return value
         return digest({"snapshot": stable(self.current_snapshot),
                        "assumptions": assumptions(self.current_snapshot), "model": MODEL_VERSION,
+                       "result_schema": RESULT_SCHEMA_VERSION,
                        "trials": self.engine.trials, "seed": self.engine.seed})
 
     def get_optimizer(self, summary=None):

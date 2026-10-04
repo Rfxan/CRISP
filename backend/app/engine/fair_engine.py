@@ -8,6 +8,8 @@ from app.engine.distributions import sample_pert, sample_poisson
 from app.engine.model import MODEL_VERSION, assumptions, digest, stable_seed, finding_key
 
 SEVERITY_EXPLOITABILITY_PRIORS = {"Critical": .10, "High": .05, "Medium": .02, "Low": .005, "Info": .001}
+# Increment when reporting fields change, independently of financial assumptions.
+RESULT_SCHEMA_VERSION = 2
 
 
 class FAIREngine:
