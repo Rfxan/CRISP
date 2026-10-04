@@ -503,9 +503,12 @@ class SnapshotStore:
 
     def merge_findings(self, findings):
         def key(f):
-            return (f.get("asset_id"), f.get("cve_id") or f.get("issue_type") or f.get("title"),
+            cve = f.get("cve_id")
+            cve = cve.strip().upper() if isinstance(cve, str) else cve
+            return (f.get("asset_id"), cve or f.get("issue_type") or f.get("title") or f.get("name"),
                     str(f.get("port")), f.get("source"))
         existing = {key(f): f for f in self.current_snapshot.get("findings", [])}
+        used_ids = {f.get("id") for f in existing.values()}
         for f in findings:
             k = key(f)
             if k in existing:
@@ -513,8 +516,16 @@ class SnapshotStore:
                 existing[k].update(f)
                 existing[k]["id"] = old_id
             else:
+                if not f.get("id") or f["id"] in used_ids:
+                    base_id = f"FND-IMP-{digest(k)[:16]}"
+                    candidate, suffix = base_id, 1
+                    while candidate in used_ids:
+                        candidate = f"{base_id}-{suffix}"
+                        suffix += 1
+                    f["id"] = candidate
                 self.current_snapshot.setdefault("findings", []).append(f)
                 existing[k] = f
+                used_ids.add(f["id"])
         known = {a.get("id") for a in self.current_snapshot.get("assets", [])}
         for f in findings:
             aid = f.get("asset_id")
@@ -725,7 +736,7 @@ class SnapshotStore:
             for feed in ("epss", "nvd"):
                 state = enriched.get("provenance", {}).get(feed, {}).get("status", "unavailable")
                 feed_counts[feed][state] = feed_counts[feed].get(state, 0) + 1
-            job_progress.get()(f"Enriched {queried}/{len(unique_cves)} CVEs")
+            job_progress.get()(f"Threat intelligence: checked {offset + queried}/{len(unique_cves)} imported CVEs")
         remaining = max(0, len(unique_cves) - offset - queried)
         if tenant_active():
             write_document("intel_cursor", {"signature": signature, "offset": offset+queried if remaining else 0})
@@ -751,6 +762,7 @@ class SnapshotStore:
             source="CISA KEV / NVD / EPSS",
             counts={
                 "cves_queried": queried,
+                "cves_total": len(unique_cves),
                 "cves_updated": updated,
                 "kev_catalog_count": kev_res.get("count", 0),
                 "assets": len(self.current_snapshot.get("assets", [])),
@@ -766,6 +778,7 @@ class SnapshotStore:
 
         return {
             "status": outcome,
+            "total_cves": len(unique_cves),
             "cves_queried": queried,
             "cves_updated": updated,
             "cves_pending": remaining, "feeds": feed_counts,
@@ -3073,6 +3086,7 @@ def trigger_sync_all(request: Request = None, include_intel: bool = True):
     except Exception as e:
         job_results["iam"] = f"error: {e}"
 
+    t_res = None
     if include_intel:
         progress("Refreshing EPSS, KEV and NVD threat intelligence")
         try:
@@ -3086,6 +3100,8 @@ def trigger_sync_all(request: Request = None, include_intel: bool = True):
     return {
         "status": "DEGRADED" if any(str(v).startswith("error") or v in ("DEGRADED", "FAILED") for v in job_results.values()) else "COMPLETED",
         "job_results": job_results,
+        "threat_intel": {key: t_res.get(key) for key in ("status", "total_cves", "cves_queried", "cves_pending", "feeds")}
+                        if t_res is not None else None,
         "run_id": summary.get("run_id") if summary else None,
         "run_metadata": store.run_metadata,
         "freshness": sync_state_manager.get_freshness_summary(),

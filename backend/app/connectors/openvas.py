@@ -18,6 +18,39 @@ class OpenVASConnector(BaseConnector):
     Extracts real host identifiers from <host> tags and never fabricates business-context fields.
     """
     CVE_PATTERN = re.compile(r"^CVE-\d{4}-\d{4,}$", re.IGNORECASE)
+    CVE_SEARCH_PATTERN = re.compile(r"(?<![A-Za-z0-9_-])CVE-\d{4}-\d{4,}(?![A-Za-z0-9_-])", re.IGNORECASE)
+
+    @classmethod
+    def _extract_cves(cls, raw_val) -> List[str]:
+        """Keep every distinct valid reference, in source order."""
+        if isinstance(raw_val, (list, tuple)):
+            ids = [cve for value in raw_val for cve in cls._extract_cves(value)]
+        else:
+            ids = cls.CVE_SEARCH_PATTERN.findall(str(raw_val or ""))
+        return list(dict.fromkeys(cve.upper() for cve in ids))
+
+    @classmethod
+    def _expand_findings(cls, rows, finding_id_offset=0):
+        """One canonical finding per CVE occurrence, or one non-CVE finding.
+
+        Scan attributes stay attached to each reference. Repeated references
+        within a row do not create duplicate findings.
+        """
+        findings, used_ids = [], set()
+        for row in rows:
+            cves = cls._extract_cves(row.get("cve_id")) or [None]
+            for index, cve in enumerate(cves):
+                finding = {**row, "cve_id": cve}
+                source_id = row.get("id")
+                fid = (str(source_id) if index == 0 else f"{source_id}:{cve}") if source_id else f"FND-OV-{finding_id_offset + len(findings) + 1:03d}"
+                base_id, suffix = fid, 1
+                while fid in used_ids:
+                    fid = f"{base_id}:{suffix}"
+                    suffix += 1
+                finding["id"] = fid
+                used_ids.add(fid)
+                findings.append(finding)
+        return findings
 
     @classmethod
     def _extract_cve(cls, raw_val: Optional[str]) -> Optional[str]:
@@ -57,9 +90,9 @@ class OpenVASConnector(BaseConnector):
         if isinstance(raw_data, list):
             for idx, item in enumerate(raw_data):
                 findings.append({
-                    "id": item.get("id", f"FND-OV-{idx+1:03d}"),
+                    "id": item.get("id"),
                     "asset_id": item.get("asset_id"),
-                    "cve_id": item.get("cve_id"),
+                    "cve_id": [item.get("cve_id"), item.get("cve_ids"), item.get("cves")],
                     "name": item.get("name", "Vulnerability Finding"),
                     "cvss": float(item.get("cvss", 5.0)),
                     "severity": item.get("severity", "Medium"),
@@ -68,7 +101,7 @@ class OpenVASConnector(BaseConnector):
                     "last_seen": item.get("last_seen", datetime.now(timezone.utc).isoformat()),
                     "source": "OpenVAS Scanner"
                 })
-        return findings
+        return self._expand_findings(findings)
 
     def parse(self, content: bytes, filename: str, finding_id_offset: int = 0) -> Dict[str, Any]:
         """
@@ -103,9 +136,9 @@ class OpenVASConnector(BaseConnector):
                     cvss_val = 0.0
 
                 new_findings.append({
-                    "id": item.get("id", f"FND-OV-{finding_id_offset + len(new_findings) + 1:03d}"),
+                    "id": item.get("id"),
                     "asset_id": str(asset).strip(),
-                    "cve_id": item.get("cve_id"),
+                    "cve_id": [item.get("cve_id"), item.get("cve_ids"), item.get("cves")],
                     "name": item.get("name", "Vulnerability Finding"),
                     "cvss": round(cvss_val, 1),
                     "severity": item.get("severity", "Medium"),
@@ -125,14 +158,7 @@ class OpenVASConnector(BaseConnector):
                     skipped += 1
                     continue
 
-                raw_cve = (
-                    row.get("CVEs")
-                    or row.get("CVE")
-                    or row.get("cve_id")
-                    or row.get("cves")
-                    or row.get("cve")
-                )
-                cve = self._extract_cve(raw_cve)
+                cves = [row.get(key) for key in ("CVEs", "CVE", "cve_id", "cves", "cve")]
 
                 cvss_raw = row.get("CVSS") or row.get("cvss")
                 cvss_val = 0.0
@@ -168,9 +194,8 @@ class OpenVASConnector(BaseConnector):
                     finding_name = finding_name.strip() or "Vulnerability Finding"
 
                 new_findings.append({
-                    "id": f"FND-OV-{finding_id_offset + len(new_findings) + 1:03d}",
                     "asset_id": asset.strip(),
-                    "cve_id": cve,
+                    "cve_id": cves,
                     "name": finding_name,
                     "cvss": round(cvss_val, 1),
                     "severity": sev.capitalize(),
@@ -218,7 +243,7 @@ class OpenVASConnector(BaseConnector):
                 # 3. NVT details (Name, CVE, CVSS)
                 nvt_elem = result.find("nvt")
                 finding_name = "Vulnerability Finding"
-                cve_id = None
+                cve_ids = []
                 cvss_val = None
 
                 if nvt_elem is not None:
@@ -226,26 +251,11 @@ class OpenVASConnector(BaseConnector):
                     if name_elem is not None and name_elem.text and name_elem.text.strip():
                         finding_name = name_elem.text.strip()
 
-                    # Direct <cve> tag
-                    cve_elem = nvt_elem.find("cve")
-                    if cve_elem is not None and cve_elem.text and cve_elem.text.strip() and cve_elem.text.strip().upper() != "NOCVE":
-                        cve_id = cve_elem.text.split(",")[0].strip()
-
-                    # Check <refs><ref type="cve" id="..."/>
-                    if not cve_id:
-                        for ref in nvt_elem.findall("refs/ref"):
-                            if ref.get("type", "").lower() == "cve" and ref.get("id"):
-                                cve_id = ref.get("id").strip()
-                                break
-
-                    # Check <xref> tags for CVE patterns
-                    if not cve_id:
-                        for xref in nvt_elem.findall("xref"):
-                            if xref.text and "cve" in xref.text.lower():
-                                m = re.search(r"CVE-\d{4}-\d+", xref.text, re.IGNORECASE)
-                                if m:
-                                    cve_id = m.group(0).upper()
-                                    break
+                    # All reference formats can contribute CVEs to one result.
+                    cve_ids.extend(e.text for e in nvt_elem.findall("cve"))
+                    cve_ids.extend(ref.get("id") for ref in nvt_elem.findall("refs/ref")
+                                   if ref.get("type", "").lower() == "cve")
+                    cve_ids.extend(e.text for e in nvt_elem.findall("xref"))
 
                     # CVSS Base score from NVT
                     cvss_elem = nvt_elem.find("cvss_base")
@@ -290,9 +300,8 @@ class OpenVASConnector(BaseConnector):
 
                 # Findings strictly contain technical attributes — never synthetic business values
                 new_findings.append({
-                    "id": f"FND-OV-{finding_id_offset + len(new_findings) + 1:03d}",
                     "asset_id": host,
-                    "cve_id": cve_id,
+                    "cve_id": cve_ids,
                     "name": finding_name,
                     "cvss": round(cvss_val, 1),
                     "severity": severity,
@@ -303,7 +312,7 @@ class OpenVASConnector(BaseConnector):
                 })
 
         return {
-            "findings": new_findings,
+            "findings": self._expand_findings(new_findings, finding_id_offset),
             "skipped": skipped,
             "skip_reasons": skip_reasons
         }

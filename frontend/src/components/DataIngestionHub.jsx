@@ -432,6 +432,8 @@ export default function DataIngestionHub({ onDataUpdated }) {
   }, [snapshot?.control_state, catalogList]);
 
   const cveIntel = snapshot?.cve_intel || {};
+  const activeCves = [...new Set(findings.map(f => f.cve_id?.trim().toUpperCase()).filter(Boolean))];
+  const availableEpss = activeCves.filter(cve => Number.isFinite(cveIntel[cve]?.epss)).length;
   const wazuh = snapshot?.wazuh_telemetry || {};
   const hasWazuhTelemetry = Boolean(
     wazuh &&
@@ -579,9 +581,9 @@ export default function DataIngestionHub({ onDataUpdated }) {
               <Globe size={14} color="var(--accent-purple)" /> FIRST EPSS / CISA
             </div>
             <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-main)', marginTop: 4 }}>
-              {Object.keys(cveIntel).length} CVEs
+              {activeCves.length} unique CVEs
             </div>
-            <div style={{ fontSize: 11, color: 'var(--accent-purple)' }}>Live Intel Enriched</div>
+            <div style={{ fontSize: 11, color: 'var(--accent-purple)' }}>{availableEpss} EPSS scores available</div>
           </div>
 
           <div className="glass-panel" style={{ padding: 12, background: 'rgba(255,255,255,0.02)' }}>

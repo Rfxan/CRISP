@@ -86,6 +86,28 @@ def test_feed_failure_is_not_fresh_success():
     assert result["feeds"]["epss"]["unavailable"] == 1
 
 
+def test_scan_merge_retains_distinct_non_cve_findings_and_unique_ids():
+    from app.connectors.openvas import OpenVASConnector
+    local = SnapshotStore()
+    local.current_snapshot["findings"] = [
+        {"id": "FND-OV-001", "asset_id": "192.0.2.1", "cve_id": "CVE-2021-44228", "port": 443, "source": "OpenVAS Scanner"},
+        {"id": "FND-OV-004", "asset_id": "192.0.2.1", "cve_id": None, "port": 443, "name": "Missing header", "source": "OpenVAS Scanner"},
+    ]
+    xml = b'''<report><result><host>192.0.2.1</host><port>443/tcp</port>
+        <nvt><name>Package</name><cve>CVE-2021-44228,CVE-2021-45046</cve></nvt></result>
+        <result><host>192.0.2.1</host><port>443/tcp</port><nvt><name>Missing header</name></nvt></result>
+        <result><host>192.0.2.1</host><port>443/tcp</port><nvt><name>Weak TLS</name></nvt></result></report>'''
+    for _ in range(2):
+        rows = OpenVASConnector().parse(xml, "scan.xml", len(local.current_snapshot["findings"]))["findings"]
+        local.merge_findings(rows)
+        findings = local.current_snapshot["findings"]
+        assert len(findings) == 4
+        assert len({f["id"] for f in findings}) == 4
+        assert {f["name"] for f in findings if not f.get("cve_id")} == {"Missing header", "Weak TLS"}
+        assert next(f for f in findings if f.get("cve_id") == "CVE-2021-44228")["id"] == "FND-OV-001"
+        assert next(f for f in findings if f.get("name") == "Missing header")["id"] == "FND-OV-004"
+
+
 def test_saved_failed_connection_is_retried_and_last_success_is_preserved():
     from app.api import routes
     from app.core.state_proxy import bound_store
@@ -158,6 +180,40 @@ def test_first_background_intel_sync_initializes_cursor(isolated_app, kind):
                 assert result["result"]["cves_queried"] == 0
             state = c.get("/api/sync/state").json()["sync_state"]
             assert state["threat_intel"]["status"] == "ok"
+
+
+def test_multi_cve_upload_and_overview_sync_cover_every_reference(isolated_app):
+    from app.connectors.threat_intel import ThreatIntelFeed
+    c = isolated_app
+    cves = {f"CVE-2024-{1000+i}" for i in range(46)}
+    xml = ('<report><result><host>192.0.2.1</host><port>443/tcp</port><nvt><name>Package</name><cve>'
+           + ','.join(sorted(cves)) + '</cve><cvss_base>7.5</cvss_base></nvt></result></report>').encode()
+    with patch("requests.get", side_effect=AssertionError("Upload must not query external feeds")):
+        for _ in range(2):
+            response = c.post("/api/ingest/scan", files={"file": ("multi-cve.xml", xml)})
+            assert response.status_code == 200, response.text
+            assert response.json()["total_active_findings"] == 46
+    snapshot = c.get("/api/data/snapshot").json()
+    assert {f["cve_id"] for f in snapshot["findings"]} == cves
+    assert len({f["id"] for f in snapshot["findings"]}) == 46
+    intel = {"epss": .1, "in_kev": False, "provenance": {k: {"status": "live"} for k in ("epss", "nvd", "kev")}}
+    with patch.object(ThreatIntelFeed, "fetch_cisa_kev", return_value={"status": "live", "count": 1}), \
+         patch.object(ThreatIntelFeed, "enrich_cve", return_value=intel) as enrich:
+        for queried, pending in ((25, 21), (21, 0)):
+            response = c.post("/api/sync/jobs?kind=all")
+            assert response.status_code == 202, response.text
+            for _ in range(100):
+                job = c.get(f'/api/sync/jobs/{response.json()["id"]}').json()
+                if job["status"] not in ("QUEUED", "RUNNING"):
+                    break
+                time.sleep(.05)
+            assert job["status"] == ("DEGRADED" if pending else "COMPLETED"), job
+            summary = job["result"]["threat_intel"]
+            assert summary["total_cves"] == 46
+            assert summary["cves_queried"] == queried
+            assert summary["cves_pending"] == pending
+        assert {call.args[0] for call in enrich.call_args_list} == cves
+    assert set(c.get("/api/data/snapshot").json()["cve_intel"]) == cves
 
 
 @pytest.mark.parametrize("edit_during_sync", [False, True, "cancel"])

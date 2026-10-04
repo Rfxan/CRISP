@@ -1,5 +1,6 @@
 import pytest
 import io
+import json
 from app.connectors.openvas import OpenVASConnector
 
 
@@ -8,7 +9,7 @@ def test_openvas_csv_realistic_headers():
     Regression test using realistic OpenVAS / Greenbone CSV export headers:
     IP,Hostname,Port,Port Protocol,CVSS,Severity,Solution Type,NVT Name,Summary,Specific Result,NVT OID,CVEs,Task Name,Vulnerability Insight,Impact,Affected Software/OS,Solution,Vulnerability Method,References
     Asserts:
-    1. CVE extraction splits comma-separated CVEs, strips whitespace, and takes the first valid CVE-YYYY-NNNNN match.
+    1. CVE extraction retains every distinct valid CVE in a scan row.
     2. 'NOCVE', 'NONE', and empty CVEs result in None.
     3. Finding name is properly extracted from 'NVT Name'.
     4. Asset identifier is properly extracted from Hostname/IP.
@@ -29,9 +30,9 @@ def test_openvas_csv_realistic_headers():
     result = connector.parse(realistic_csv.encode("utf-8"), filename="openvas_export.csv")
     findings = result["findings"]
     assert result["skipped"] == 0
-    assert len(findings) == 6
+    assert len(findings) == 7
 
-    # Row 1: Comma-separated CVEs ("CVE-2011-3389,CVE-2015-2808") -> first valid CVE taken
+    # Row 1 keeps both CVEs as separately addressable findings.
     f1 = findings[0]
     assert f1["cve_id"] == "CVE-2011-3389"
     assert f1["name"] == "SSL/TLS: Deprecated TLSv1.0 and TLSv1.1 Protocol Detection"
@@ -39,9 +40,13 @@ def test_openvas_csv_realistic_headers():
     assert f1["port"] == 443
     assert f1["cvss"] == 7.5
     assert f1["severity"] == "High"
+    assert findings[1]["cve_id"] == "CVE-2015-2808"
+    assert findings[1]["asset_id"] == f1["asset_id"]
+    assert findings[1]["name"] == f1["name"]
+    assert findings[1]["id"] != f1["id"]
 
     # Row 2: Single valid CVE
-    f2 = findings[1]
+    f2 = findings[2]
     assert f2["cve_id"] == "CVE-2021-44228"
     assert f2["name"] == "Apache Log4j Remote Code Execution"
     assert f2["asset_id"] == "app-srv-prod-02"
@@ -50,26 +55,26 @@ def test_openvas_csv_realistic_headers():
     assert f2["severity"] == "Critical"
 
     # Row 3: 'NOCVE' -> None
-    f3 = findings[2]
+    f3 = findings[3]
     assert f3["cve_id"] is None
     assert f3["name"] == "HTTP Security Headers Missing"
     assert f3["asset_id"] == "web-gw-01"
     assert f3["severity"] == "Log"
 
     # Row 4: 'NONE' -> None
-    f4 = findings[3]
+    f4 = findings[4]
     assert f4["cve_id"] is None
     assert f4["name"] == "OpenSSH Deprecated Cipher Suites"
     assert f4["asset_id"] == "auth-node-03"
 
     # Row 5: empty CVEs -> None
-    f5 = findings[4]
+    f5 = findings[5]
     assert f5["cve_id"] is None
     assert f5["name"] == "Redis Unauthenticated Access"
     assert f5["asset_id"] == "cache-redis-01"
 
     # Row 6: 'NOCVE, CVE-2023-4966' -> skips NOCVE, extracts CVE-2023-4966
-    f6 = findings[5]
+    f6 = findings[6]
     assert f6["cve_id"] == "CVE-2023-4966"
     assert f6["name"] == "Citrix NetScaler Gateway Information Disclosure"
     assert f6["asset_id"] == "vpn-gateway"
@@ -136,3 +141,39 @@ def test_extract_cve_unit_helper():
     assert extract("   ") is None
     assert extract(None) is None
     assert extract("NON-CVE-STRING") is None
+
+
+def test_openvas_xml_retains_cves_from_all_reference_formats():
+    xml = b'''<report><results><result id="result-one">
+      <host>192.0.2.1</host><port>443/tcp</port>
+      <nvt oid="rule-one"><name>Package vulnerabilities</name><cvss_base>8.1</cvss_base>
+        <cve>NOCVE, CVE-2021-44228, cve-2021-45046, CVE-2021-44228</cve>
+        <cve>CVE-2021-45105</cve>
+        <refs><ref type="cve" id="CVE-2021-44832"/><ref type="cve" id="CVE-2021-44228"/></refs>
+        <xref>CVE-2021-4104, CVE-2021-45046</xref>
+      </nvt></result><result><host>192.0.2.1</host><port>443/tcp</port>
+      <nvt><name>Missing header</name><cve>NOCVE</cve></nvt><severity>4.0</severity>
+    </result></results></report>'''
+    result = OpenVASConnector().parse(xml, "scan.xml", finding_id_offset=10)
+    findings = result["findings"]
+    assert {f["cve_id"] for f in findings} == {
+        "CVE-2021-44228", "CVE-2021-45046", "CVE-2021-45105",
+        "CVE-2021-44832", "CVE-2021-4104", None,
+    }
+    assert len(findings) == 6
+    assert len({f["id"] for f in findings}) == 6
+    assert all(f["asset_id"] == "192.0.2.1" and f["port"] == 443 for f in findings)
+    assert findings[0]["cvss"] == 8.1
+    assert findings[-1]["name"] == "Missing header"
+
+
+@pytest.mark.parametrize("method", ["parse", "normalize"])
+def test_openvas_json_and_normalize_keep_all_cves(method):
+    items = [{"id": "source-id", "asset_id": "192.0.2.2", "name": "Package issues",
+              "cve_id": "cve-2021-44228", "cve_ids": ["CVE-2021-45046", "CVE-2021-44228"]}]
+    connector = OpenVASConnector()
+    findings = connector.normalize(items) if method == "normalize" else connector.parse(
+        json.dumps(items).encode(), "scan.json")["findings"]
+    assert {f["cve_id"] for f in findings} == {"CVE-2021-44228", "CVE-2021-45046"}
+    assert len({f["id"] for f in findings}) == 2
+    assert findings[0]["id"] == "source-id"

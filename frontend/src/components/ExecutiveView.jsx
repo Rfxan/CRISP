@@ -67,17 +67,23 @@ export default function ExecutiveView({
         await onRefresh();
       }
       const meta = res.run_metadata || {};
-      if (res.status === 'DEGRADED') {
-        setSyncFeedback({ type: 'error', text: `Some sources could not sync: ${Object.entries(res.job_results || {}).filter(([, state]) => /error|failed|degraded/i.test(state)).map(([name, state]) => `${name}: ${state}`).join('; ') || res.job_message}` });
+      const intel = res.threat_intel;
+      const intelMessage = intel ? `Threat intelligence: ${intel.cves_queried} CVEs checked this sync; ${intel.total_cves} imported in total; ${intel.cves_pending} pending.` : '';
+      const pendingBatch = intel?.cves_pending > 0 && Object.values(intel.feeds || {}).every(counts => Object.keys(counts).every(state => ['live', 'cached'].includes(state)));
+      const failedSources = Object.entries(res.job_results || {}).filter(([name, state]) => /error|failed|degraded/i.test(state) && !(name === 'threat_intel' && pendingBatch));
+      if (res.status === 'DEGRADED' && (failedSources.length > 0 || !pendingBatch)) {
+        setSyncFeedback({ type: 'error', text: `Some sources could not sync: ${failedSources.map(([name, state]) => `${name}: ${state}`).join('; ') || res.job_message}${intelMessage ? ` · ${intelMessage}` : ''}` });
+      } else if (intel?.cves_pending > 0) {
+        setSyncFeedback({ type: 'neutral', text: `${intelMessage} Click Sync now to continue.` });
       } else if (meta.recomputed) {
         setSyncFeedback({
           type: 'success',
-          text: `Data changed · Minted ${res.run_id || 'New Run'}`
+          text: `Data changed · Minted ${res.run_id || 'New Run'}${intelMessage ? ` · ${intelMessage}` : ''}`
         });
       } else {
         setSyncFeedback({
           type: 'neutral',
-          text: `Unchanged · Retained ${res.run_id || summary?.run_id}`
+          text: `Unchanged · Retained ${res.run_id || summary?.run_id}${intelMessage ? ` · ${intelMessage}` : ''}`
         });
       }
     } catch (e) {
