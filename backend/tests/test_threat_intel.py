@@ -246,6 +246,40 @@ def test_cisa_kev_fetch_and_enrichment(temp_cache_dir, mock_kev_response):
         assert enriched_non_kev["provenance"]["kev"]["in_kev"] is False
 
 
+@pytest.mark.parametrize("primary_failure", [404, 503, "timeout", "malformed"])
+def test_cisa_kev_uses_official_mirror_on_primary_failure(temp_cache_dir, mock_kev_response, primary_failure):
+    from app.ai.threat_intel import CISA_KEV_URL
+    feed = ThreatIntelFeed(cache_dir=temp_cache_dir)
+    mirror_url = "https://raw.githubusercontent.com/cisagov/kev-data/develop/known_exploited_vulnerabilities.json"
+    primary = MagicMock(status_code=primary_failure if isinstance(primary_failure, int) else 200)
+    primary.json.return_value = {"error": "Invalid catalog"}
+    mirror = MagicMock(status_code=200)
+    mirror.json.return_value = mock_kev_response
+    failure = TimeoutError("Primary feed timed out") if primary_failure == "timeout" else primary
+    with patch("requests.get", side_effect=[failure, mirror]) as fetch:
+        result = feed.fetch_cisa_kev(force_refresh=True)
+    assert result["status"] == "live"
+    assert result["count"] == 2
+    assert result["source_url"] == mirror_url
+    assert [call.args[0] for call in fetch.call_args_list] == [CISA_KEV_URL, mirror_url]
+    # Persist the actual source when later serving the valid cached catalog.
+    with patch("requests.get", side_effect=AssertionError("Fresh cache should not fetch")):
+        cached = feed.fetch_cisa_kev()
+    assert cached["status"] == "cached"
+    assert cached["source_url"] == mirror_url
+
+
+def test_cisa_kev_rejects_invalid_catalog_without_claiming_success(temp_cache_dir):
+    feed = ThreatIntelFeed(cache_dir=temp_cache_dir)
+    invalid = MagicMock(status_code=200)
+    invalid.json.return_value = {"error": "Temporarily unavailable"}
+    with patch("requests.get", return_value=invalid):
+        result = feed.fetch_cisa_kev(force_refresh=True)
+    assert result["status"] == "unavailable"
+    assert result["count"] == 0
+    assert not (temp_cache_dir / "cisa_kev.json").exists()
+
+
 def test_cisa_kev_offline_fallback(temp_cache_dir):
     """Verifies CISA KEV offline fail-soft behavior with stale cache."""
     feed = ThreatIntelFeed(cache_dir=temp_cache_dir)

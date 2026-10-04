@@ -33,7 +33,9 @@ KEV_TTL_SECONDS = 24 * 3600      # 24 hours for CISA KEV catalog
 EPSS_TTL_SECONDS = 24 * 3600     # 24 hours for EPSS scores
 
 NVD_BASE_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
-CISA_KEV_URL = "https://www.cisa.gov/sites/default/files/json/known_exploited_vulnerabilities.json"
+CISA_KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+# CISA maintains this mirror of the same catalog; do not use third-party feeds.
+CISA_KEV_MIRROR_URL = "https://raw.githubusercontent.com/cisagov/kev-data/develop/known_exploited_vulnerabilities.json"
 FIRST_EPSS_URL = "https://api.first.org/data/v1/epss"
 
 
@@ -222,15 +224,26 @@ class ThreatIntelFeed:
                     "cves": cached.get("cves", {}),
                     "status": "cached",
                     "fetched_at": cached.get("fetched_at"),
-                    "count": len(cached.get("cves", {}))
+                    "count": len(cached.get("cves", {})),
+                    "source_url": cached.get("source_url", CISA_KEV_URL)
                 }
 
-        # Attempt live download
-        try:
-            resp = requests.get(CISA_KEV_URL, timeout=10.0)
-            if resp.status_code == 200:
+        # Try the canonical feed, then CISA's official mirror. Both requests
+        # are bounded; invalid/empty responses cannot erase a valid cache.
+        for source_url in (CISA_KEV_URL, CISA_KEV_MIRROR_URL):
+            try:
+                resp = requests.get(source_url, timeout=10.0)
+                if resp.status_code != 200:
+                    logger.info("CISA KEV download returned HTTP %s from %s", resp.status_code, source_url)
+                    continue
                 raw_data = resp.json()
-                vulns = raw_data.get("vulnerabilities", [])
+                vulns = raw_data.get("vulnerabilities") if isinstance(raw_data, dict) else None
+                if not isinstance(vulns, list) or not vulns or any(
+                    not isinstance(v, dict) or not isinstance(v.get("cveID"), str)
+                    or not v["cveID"].strip().upper().startswith("CVE-") for v in vulns
+                ):
+                    logger.info("CISA KEV response is not a valid catalog from %s", source_url)
+                    continue
                 cve_map: Dict[str, Any] = {}
                 for v in vulns:
                     cid = v.get("cveID", "").strip().upper()
@@ -249,6 +262,7 @@ class ThreatIntelFeed:
                     "title": raw_data.get("title", "CISA KEV"),
                     "catalog_version": raw_data.get("catalogVersion", ""),
                     "date_released": raw_data.get("dateReleased", ""),
+                    "source_url": source_url,
                     "cached_at": now,
                     "fetched_at": fetched_at,
                     "cves": cve_map
@@ -259,10 +273,11 @@ class ThreatIntelFeed:
                     "cves": cve_map,
                     "status": "live",
                     "fetched_at": fetched_at,
-                    "count": len(cve_map)
+                    "count": len(cve_map),
+                    "source_url": source_url
                 }
-        except Exception as e:
-            logger.info(f"CISA KEV live download error: {e}")
+            except Exception as e:
+                logger.info("CISA KEV live download error from %s: %s", source_url, e)
 
         # Fail-soft fallback to stale cache
         if cached and cached.get("cves"):
@@ -271,7 +286,8 @@ class ThreatIntelFeed:
                 "cves": cached.get("cves", {}),
                 "status": "stale",
                 "fetched_at": cached.get("fetched_at"),
-                "count": len(cached.get("cves", {}))
+                "count": len(cached.get("cves", {})),
+                "source_url": cached.get("source_url", CISA_KEV_URL)
             }
 
         # No network, no cache
@@ -426,10 +442,12 @@ class ThreatIntelFeed:
             kev_cves = kev_res.get("cves", {})
             kev_status = kev_res.get("status", "unavailable")
             kev_fetched_at = kev_res.get("fetched_at")
+            kev_source_url = kev_res.get("source_url")
         else:
             kev_cves = kev_catalog.get("cves", {})
             kev_status = kev_catalog.get("status", "cached")
             kev_fetched_at = kev_catalog.get("fetched_at")
+            kev_source_url = kev_catalog.get("source_url")
 
         existing = (local_cache or {}).get(cve, {})
         in_kev = (existing.get("in_kev") if kev_status == "unavailable" else cve in kev_cves)
@@ -468,6 +486,7 @@ class ThreatIntelFeed:
             },
             "kev": {
                 "source": "CISA KEV Catalog",
+                "source_url": kev_source_url,
                 "in_kev": in_kev,
                 "date_added": kev_detail.get("date_added") if kev_detail else None,
                 "vulnerability_name": kev_detail.get("vulnerability_name") if kev_detail else None,
